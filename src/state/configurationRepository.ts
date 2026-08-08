@@ -6,6 +6,7 @@ const configurationKey = "config:v1";
 
 export interface ConfigurationRepository {
   loadOrCreate(): Promise<Configuration>;
+  save(configuration: Configuration): Promise<void>;
 }
 
 interface ConfigurationStorage {
@@ -17,17 +18,27 @@ export function createConfigurationRepository(input: {
   storage: ConfigurationStorage;
   createDefault?: () => Configuration;
 }): ConfigurationRepository {
-  const createDefault = input.createDefault ?? (() => createDefaultConfiguration());
+  const createDefault =
+    input.createDefault ?? (() => createDefaultConfiguration());
   return {
     async loadOrCreate() {
       const stored = await input.storage.get(configurationKey);
       const existing = stored[configurationKey];
       if (existing !== undefined) {
-        try { return validateConfiguration(existing); } catch { /* replace invalid bootstrap state */ }
+        try {
+          return validateConfiguration(existing);
+        } catch {
+          /* replace invalid bootstrap state */
+        }
       }
       const configuration = validateConfiguration(createDefault());
       await input.storage.set({ [configurationKey]: configuration });
       return configuration;
+    },
+    async save(configuration) {
+      await input.storage.set({
+        [configurationKey]: validateConfiguration(configuration)
+      });
     }
   };
 }

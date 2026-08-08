@@ -1,27 +1,221 @@
 import { z } from "zod";
-import type { Configuration } from "./types";
+import type { Configuration, ConditionNode } from "./types";
 
 const uuid = z.string().uuid();
+const pauseValue = z.union([
+  z.number().int().nonnegative(),
+  z.literal("restart")
+]);
+const duplicatePolicy = z.union([
+  z.object({ kind: z.literal("allow") }),
+  z.object({ kind: z.literal("exactUrl") }),
+  z.object({ kind: z.literal("fragmentlessUrl") }),
+  z.object({ kind: z.literal("domain") }),
+  z.object({ kind: z.literal("urlAndTitle") }),
+  z.object({ kind: z.literal("pattern"), pattern: z.string().min(1) })
+]);
+const placement = z.union([
+  z.object({ kind: z.literal("managed"), managedGroupId: uuid }),
+  z.object({ kind: z.literal("unmanaged") }),
+  z.object({ kind: z.literal("ungrouped") })
+]);
+const conditionNode: z.ZodTypeAny = z.lazy(() =>
+  z.union([
+    z.object({
+      kind: z.enum(["all", "any"]),
+      children: z.array(conditionNode)
+    }),
+    z.object({
+      kind: z.literal("url"),
+      operator: z.enum(["exact", "pattern", "regex"]),
+      value: z.string().min(1)
+    }),
+    z.object({
+      kind: z.literal("host"),
+      operator: z.enum(["exact", "suffix"]),
+      value: z.string().min(1)
+    }),
+    z.object({
+      kind: z.literal("path"),
+      operator: z.enum(["exact", "prefix"]),
+      value: z.string().min(1)
+    }),
+    z.object({
+      kind: z.literal("title"),
+      operator: z.enum(["contains", "exact", "regex"]),
+      value: z.string().min(1)
+    }),
+    z.object({ kind: z.literal("pinned"), value: z.boolean() }),
+    z.object({
+      kind: z.enum(["openerUrl", "openerHost"]),
+      operator: z.enum(["exact", "pattern", "suffix"]),
+      value: z.string().min(1)
+    }),
+    z.object({ kind: z.literal("currentGroup"), placement })
+  ])
+);
+const ruleAction = z.union([
+  z.object({ kind: z.literal("group") }),
+  z.object({ kind: z.literal("ungroup") }),
+  z.object({ kind: z.literal("makePersistent") }),
+  z.object({ kind: z.literal("setDuplicatePolicy"), policy: duplicatePolicy }),
+  z.object({ kind: z.literal("setCollapsed"), collapsed: z.boolean() })
+]);
 const managedGroup = z.object({
-  schemaVersion: z.literal(1), id: uuid, name: z.string().min(1), emoji: z.string().optional(),
-  color: z.enum(["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]),
-  isFallback: z.boolean(), isPersistent: z.boolean(), defaultOrder: z.number().int(), defaultCollapsed: z.boolean(),
-  createdAt: z.number(), updatedAt: z.number()
+  schemaVersion: z.literal(1),
+  id: uuid,
+  name: z.string().min(1),
+  emoji: z.string().optional(),
+  color: z.enum([
+    "grey",
+    "blue",
+    "red",
+    "yellow",
+    "green",
+    "pink",
+    "purple",
+    "cyan",
+    "orange"
+  ]),
+  isFallback: z.boolean(),
+  isPersistent: z.boolean(),
+  defaultOrder: z.number().int(),
+  defaultCollapsed: z.boolean(),
+  pausedUntil: pauseValue.optional(),
+  createdAt: z.number(),
+  updatedAt: z.number()
 });
 
-const configuration = z.object({
-  schemaVersion: z.literal(1), fallbackGroupId: uuid, automationEnabled: z.boolean(),
-  globalPausedUntil: z.union([z.number(), z.literal("restart")]).optional(), groups: z.array(managedGroup),
-  rules: z.array(z.never()), persistentTabs: z.array(z.never()),
-  duplicateSettings: z.object({ globalPolicy: z.object({ kind: z.literal("allow") }), globalExclusions: z.array(z.string()), trackingParameters: z.array(z.string()) }),
-  templates: z.array(z.never()), snapshotIntervalMinutes: z.number().positive(), activityLimit: z.literal(500), snapshotLimit: z.literal(50), undoTtlMs: z.literal(30000),
-  createdAt: z.number(), updatedAt: z.number()
-}).superRefine((value, context) => {
-  const fallbackGroups = value.groups.filter((group) => group.isFallback);
-  if (fallbackGroups.length !== 1 || fallbackGroups[0]?.id !== value.fallbackGroupId) {
-    context.addIssue({ code: "custom", message: "configuration must contain exactly one fallback group" });
-  }
-});
+const rule = z
+  .object({
+    schemaVersion: z.literal(1),
+    id: uuid,
+    targetGroupId: uuid,
+    priority: z.number().int(),
+    positive: conditionNode,
+    negative: z.array(conditionNode),
+    actions: z.array(ruleAction),
+    duplicatePolicy: duplicatePolicy.optional(),
+    enabled: z.boolean(),
+    pausedUntil: pauseValue.optional(),
+    createdAt: z.number(),
+    updatedAt: z.number()
+  })
+  .superRefine((value, context) => {
+    const placements = value.actions.filter(
+      (action) => action.kind === "group" || action.kind === "ungroup"
+    );
+    if (placements.length !== 1)
+      context.addIssue({
+        code: "custom",
+        path: ["actions"],
+        message: "rule must contain exactly one placement action"
+      });
+    const hasUngroup = placements[0]?.kind === "ungroup";
+    if (
+      hasUngroup &&
+      value.actions.some(
+        (action) =>
+          action.kind === "makePersistent" || action.kind === "setCollapsed"
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["actions"],
+        message: "makePersistent and setCollapsed require group placement"
+      });
+    }
+    if (
+      value.actions.filter((action) => action.kind === "setDuplicatePolicy")
+        .length > 1
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["actions"],
+        message: "at most one duplicate policy action is allowed"
+      });
+    }
+    if (
+      value.actions.filter((action) => action.kind === "setCollapsed").length >
+      1
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["actions"],
+        message: "at most one collapse action is allowed"
+      });
+    }
+    const regexes = [
+      ...collectRegexes(value.positive as ConditionNode),
+      ...value.negative.flatMap((node) => collectRegexes(node as ConditionNode))
+    ];
+    for (const expression of regexes) {
+      try {
+        new RegExp(expression);
+      } catch {
+        context.addIssue({
+          code: "custom",
+          path: ["positive"],
+          message: `invalid regular expression: ${expression}`
+        });
+      }
+    }
+  });
+
+function collectRegexes(node: ConditionNode): string[] {
+  if (node.kind === "all" || node.kind === "any")
+    return node.children.flatMap(collectRegexes);
+  if (
+    (node.kind === "url" || node.kind === "title") &&
+    node.operator === "regex"
+  )
+    return [node.value];
+  return [];
+}
+
+const configuration = z
+  .object({
+    schemaVersion: z.literal(1),
+    fallbackGroupId: uuid,
+    automationEnabled: z.boolean(),
+    globalPausedUntil: pauseValue.optional(),
+    groups: z.array(managedGroup),
+    rules: z.array(rule),
+    persistentTabs: z.array(z.never()),
+    duplicateSettings: z.object({
+      globalPolicy: z.object({ kind: z.literal("allow") }),
+      globalExclusions: z.array(z.string()),
+      trackingParameters: z.array(z.string())
+    }),
+    templates: z.array(z.never()),
+    snapshotIntervalMinutes: z.number().positive(),
+    activityLimit: z.literal(500),
+    snapshotLimit: z.literal(50),
+    undoTtlMs: z.literal(30000),
+    createdAt: z.number(),
+    updatedAt: z.number()
+  })
+  .superRefine((value, context) => {
+    const fallbackGroups = value.groups.filter((group) => group.isFallback);
+    if (
+      fallbackGroups.length !== 1 ||
+      fallbackGroups[0]?.id !== value.fallbackGroupId
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "configuration must contain exactly one fallback group"
+      });
+    }
+    const groupIds = new Set(value.groups.map((group) => group.id));
+    value.rules.forEach((rule, index) => {
+      if (!groupIds.has(rule.targetGroupId))
+        context.addIssue({
+          code: "custom",
+          path: ["rules", index, "targetGroupId"],
+          message: "rule target group does not exist"
+        });
+    });
+  });
 
 export function validateConfiguration(value: unknown): Configuration {
   return configuration.parse(value) as Configuration;

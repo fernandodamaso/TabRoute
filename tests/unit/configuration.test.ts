@@ -13,3 +13,11 @@ it("creates one UUID-backed fallback group whose role survives a rename", () => 
   expect(renamed.groups[0]?.id).toBe(configuration.fallbackGroupId);
   expect(validateConfiguration(configuration)).toEqual(configuration);
 });
+
+it("accepts integer pause timestamps and rejects invalid numeric pause values", () => {
+  const configuration = createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000001");
+  const timed = { ...configuration, globalPausedUntil: 2000000000000 };
+  expect(validateConfiguration(timed).globalPausedUntil).toBe(2000000000000);
+  expect(() => validateConfiguration({ ...configuration, globalPausedUntil: 1.5 })).toThrow();
+  expect(() => validateConfiguration({ ...configuration, globalPausedUntil: -1 })).toThrow();
+});
