@@ -1,9 +1,9 @@
 ---
 name: chrome-tab-manager
-description: Required operating guide for changes to the Unified Chrome Tab Manager extension.
+description: Required operating guide for changes to the TabRoute extension.
 ---
 
-# Chrome Tab Manager operating guide
+# TabRoute operating guide
 
 ## When this skill applies
 

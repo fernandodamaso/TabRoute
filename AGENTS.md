@@ -1,4 +1,4 @@
-# Chrome Tab Manager project instructions
+# TabRoute project instructions
 
 Before changing Chrome extension, tab, group, persistence, startup, or UI behavior, read [skills/chrome-tab-manager/SKILL.md](skills/chrome-tab-manager/SKILL.md) in full. The Phase 0 knowledge pack is a required gate before feature implementation.
 

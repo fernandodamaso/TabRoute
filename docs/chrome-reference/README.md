@@ -1,6 +1,6 @@
 # Chrome extension reference pack
 
-This is the required local reference for the Unified Chrome Tab Manager. Read the project-specific notes first; use the official source snapshots to verify API details that affect a change.
+This is the required local reference for TabRoute. Read the project-specific notes first; use the official source extracts to verify API details that affect a change.
 
 ## Layout
 

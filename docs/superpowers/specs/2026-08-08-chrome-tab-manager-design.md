@@ -1,8 +1,8 @@
-# Unified Chrome Tab Manager — v1 Design Specification
+# TabRoute — v1 Design Specification
 
 **Status:** Approved design; implementation is deliberately out of scope for this change.
 
-**Product goal:** A Chrome-only Manifest V3 extension that turns automatic grouping, duplicate handling, persistent group tabs, and snapshots into one predictable tab-management system.
+**Product goal:** TabRoute is a Chrome-only Manifest V3 extension that turns automatic grouping, duplicate handling, persistent group tabs, and snapshots into one predictable tab-management system.
 
 ## 1. Scope and product principles
 
