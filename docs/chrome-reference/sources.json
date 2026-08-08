@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "licenseNotice": "Chrome developer documentation is generally CC BY 4.0; code samples are Apache 2.0. Preserve the source page license notice in every local snapshot.",
+  "sources": [
+    {"id":"tabs","file":"vendor/tabs.md","url":"https://developer.chrome.com/docs/extensions/reference/api/tabs","purpose":"Tab creation, querying, movement, grouping, lifecycle events, groupId, openerTabId, and tab properties."},
+    {"id":"tab-groups","file":"vendor/tab-groups.md","url":"https://developer.chrome.com/docs/extensions/reference/api/tabGroups","purpose":"Group presentation, movement, events, collapse state, and session-scoped group IDs."},
+    {"id":"windows","file":"vendor/windows.md","url":"https://developer.chrome.com/docs/extensions/reference/api/windows","purpose":"Focused versus current window semantics and normal-window ownership."},
+    {"id":"storage","file":"vendor/storage.md","url":"https://developer.chrome.com/docs/extensions/reference/api/storage","purpose":"sync, local, and session storage contracts and quotas."},
+    {"id":"service-worker-lifecycle","file":"vendor/service-worker-lifecycle.md","url":"https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle","purpose":"Manifest V3 worker lifecycle and durable-state requirements."},
+    {"id":"runtime","file":"vendor/runtime.md","url":"https://developer.chrome.com/docs/extensions/reference/api/runtime","purpose":"Startup, install, and extension lifecycle events."},
+    {"id":"sessions","file":"vendor/sessions.md","url":"https://developer.chrome.com/docs/extensions/reference/api/sessions","purpose":"Recently closed tab/window restoration constraints."},
+    {"id":"commands","file":"vendor/commands.md","url":"https://developer.chrome.com/docs/extensions/reference/api/commands","purpose":"Shortcut declaration, user remapping, and suggested-key limits."},
+    {"id":"context-menus","file":"vendor/context-menus.md","url":"https://developer.chrome.com/docs/extensions/reference/api/contextMenus","purpose":"Tab and action context menus."},
+    {"id":"match-patterns","file":"vendor/match-patterns.md","url":"https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns","purpose":"Chrome URL-match grammar and permission boundaries."},
+    {"id":"testing","file":"vendor/testing.md","url":"https://developer.chrome.com/docs/extensions/how-to/test","purpose":"Official extension testing guidance and examples."}
+  ]
+}
