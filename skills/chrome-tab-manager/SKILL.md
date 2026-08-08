@@ -52,6 +52,8 @@ Then read the relevant note and its official local snapshot in `docs/chrome-refe
 
 Before feature implementation, complete `docs/chrome-reference/vendor/` using only the URLs in `docs/chrome-reference/sources.json`. Every snapshot needs source attribution, retrieval time, source license notice, and SHA-256. The future updater must be atomic: a failed required fetch leaves the current local set untouched.
 
+Run `npm run docs:chrome:validate` for the offline gate. Use `npm run docs:chrome:update` only when deliberately refreshing the allowlisted sources.
+
 ## Review checklist
 
 - Does the change leave every normal tab in its deterministic rule target or `Other`, unless a session override applies?

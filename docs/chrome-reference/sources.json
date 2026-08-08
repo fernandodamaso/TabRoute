@@ -2,18 +2,109 @@
   "schemaVersion": 1,
   "licenseNotice": "Chrome developer documentation is generally CC BY 4.0; code samples are Apache 2.0. Preserve the source page license notice in every local snapshot.",
   "sources": [
-    {"id":"tabs","file":"vendor/tabs.md","url":"https://developer.chrome.com/docs/extensions/reference/api/tabs","purpose":"Tab creation, pending and committed URLs, querying, movement, grouping, replacement/removal/update events, groupId, openerTabId, and tab properties."},
-    {"id":"tab-groups","file":"vendor/tab-groups.md","url":"https://developer.chrome.com/docs/extensions/reference/api/tabGroups","purpose":"Group presentation, within/cross-window event footprints, collapse state, shared groups, and session-scoped group IDs."},
-    {"id":"windows","file":"vendor/windows.md","url":"https://developer.chrome.com/docs/extensions/reference/api/windows","purpose":"Focused versus current window semantics, WINDOW_ID_NONE, event filters, and normal-window ownership."},
-    {"id":"storage","file":"vendor/storage.md","url":"https://developer.chrome.com/docs/extensions/reference/api/storage","purpose":"sync per-item/total/item-count quotas, local/session quotas, storage.onChanged, and storage lifecycle contracts."},
-    {"id":"alarms","file":"vendor/alarms.md","url":"https://developer.chrome.com/docs/extensions/reference/api/alarms","purpose":"MV3-safe interval, debounce, and startup scheduling."},
-    {"id":"service-worker-lifecycle","file":"vendor/service-worker-lifecycle.md","url":"https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle","purpose":"Manifest V3 worker lifecycle and durable-state requirements."},
-    {"id":"service-worker-migration","file":"vendor/service-worker-migration.md","url":"https://developer.chrome.com/docs/extensions/develop/migrate/api-calls","purpose":"Unsupported background-page lifecycle APIs, including runtime.onSuspend in extension service workers."},
-    {"id":"runtime","file":"vendor/runtime.md","url":"https://developer.chrome.com/docs/extensions/reference/api/runtime","purpose":"Startup, install, and extension lifecycle events."},
-    {"id":"sessions","file":"vendor/sessions.md","url":"https://developer.chrome.com/docs/extensions/reference/api/sessions","purpose":"Recently closed tab/window restoration constraints."},
-    {"id":"commands","file":"vendor/commands.md","url":"https://developer.chrome.com/docs/extensions/reference/api/commands","purpose":"Shortcut declaration, user remapping, and suggested-key limits."},
-    {"id":"context-menus","file":"vendor/context-menus.md","url":"https://developer.chrome.com/docs/extensions/reference/api/contextMenus","purpose":"Tab and action context menus."},
-    {"id":"match-patterns","file":"vendor/match-patterns.md","url":"https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns","purpose":"Chrome URL-match grammar and permission boundaries."},
-    {"id":"testing","file":"vendor/testing.md","url":"https://developer.chrome.com/docs/extensions/how-to/test","purpose":"Official extension testing guidance and examples."}
+    {
+      "id": "tabs",
+      "file": "vendor/tabs.md",
+      "url": "https://developer.chrome.com/docs/extensions/reference/api/tabs",
+      "purpose": "Tab creation, pending and committed URLs, querying, movement, grouping, replacement/removal/update events, groupId, openerTabId, and tab properties.",
+      "retrievedAtUtc": "2026-08-08T20:29:53.081Z",
+      "sha256": "9ffd724ad9b12d0f61ffd9917ec0432ed0733e982549c626725ca094edd40c15"
+    },
+    {
+      "id": "tab-groups",
+      "file": "vendor/tab-groups.md",
+      "url": "https://developer.chrome.com/docs/extensions/reference/api/tabGroups",
+      "purpose": "Group presentation, within/cross-window event footprints, collapse state, shared groups, and session-scoped group IDs.",
+      "retrievedAtUtc": "2026-08-08T20:29:53.081Z",
+      "sha256": "e55656a956c69992ef999bdbbf9b6f68372b32d654e20612f4dfe45ff92e2fa0"
+    },
+    {
+      "id": "windows",
+      "file": "vendor/windows.md",
+      "url": "https://developer.chrome.com/docs/extensions/reference/api/windows",
+      "purpose": "Focused versus current window semantics, WINDOW_ID_NONE, event filters, and normal-window ownership.",
+      "retrievedAtUtc": "2026-08-08T20:29:53.081Z",
+      "sha256": "226f68724fc87915545e6695f1b054b4a5e091f0c51e5e9f6d8a07351042b02b"
+    },
+    {
+      "id": "storage",
+      "file": "vendor/storage.md",
+      "url": "https://developer.chrome.com/docs/extensions/reference/api/storage",
+      "purpose": "sync per-item/total/item-count quotas, local/session quotas, storage.onChanged, and storage lifecycle contracts.",
+      "retrievedAtUtc": "2026-08-08T20:29:53.081Z",
+      "sha256": "f611a8515de99e559543218b49aab779396bfa9f8bd3c267804eb0d6493f2fb6"
+    },
+    {
+      "id": "alarms",
+      "file": "vendor/alarms.md",
+      "url": "https://developer.chrome.com/docs/extensions/reference/api/alarms",
+      "purpose": "MV3-safe interval, debounce, and startup scheduling.",
+      "retrievedAtUtc": "2026-08-08T20:29:53.081Z",
+      "sha256": "99e709779f1861c5ad2df6e3d0d060ecb0af78204129f0ebfcd074674447f362"
+    },
+    {
+      "id": "service-worker-lifecycle",
+      "file": "vendor/service-worker-lifecycle.md",
+      "url": "https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle",
+      "purpose": "Manifest V3 worker lifecycle and durable-state requirements.",
+      "retrievedAtUtc": "2026-08-08T20:29:53.081Z",
+      "sha256": "afc87897c1cbf106036d140f315c0ecbfc2336fdedf07aaa6a5bf5b09111d550"
+    },
+    {
+      "id": "service-worker-migration",
+      "file": "vendor/service-worker-migration.md",
+      "url": "https://developer.chrome.com/docs/extensions/develop/migrate/api-calls",
+      "purpose": "Unsupported background-page lifecycle APIs, including runtime.onSuspend in extension service workers.",
+      "retrievedAtUtc": "2026-08-08T20:29:53.081Z",
+      "sha256": "3eea350a582a1af5e5b206478c5d8d9f8feed4558d299fd75a47dd70fad6fc96"
+    },
+    {
+      "id": "runtime",
+      "file": "vendor/runtime.md",
+      "url": "https://developer.chrome.com/docs/extensions/reference/api/runtime",
+      "purpose": "Startup, install, and extension lifecycle events.",
+      "retrievedAtUtc": "2026-08-08T20:29:53.081Z",
+      "sha256": "2f7a51f9ae9fa29d1ad8c81df6d27f7545c18b9a35797dc4518b1215fbdbaff5"
+    },
+    {
+      "id": "sessions",
+      "file": "vendor/sessions.md",
+      "url": "https://developer.chrome.com/docs/extensions/reference/api/sessions",
+      "purpose": "Recently closed tab/window restoration constraints.",
+      "retrievedAtUtc": "2026-08-08T20:29:53.081Z",
+      "sha256": "f885afd6b06a135bea013f28d7c5b36bf60f5faac9c0d3d6370bcdbb8002a228"
+    },
+    {
+      "id": "commands",
+      "file": "vendor/commands.md",
+      "url": "https://developer.chrome.com/docs/extensions/reference/api/commands",
+      "purpose": "Shortcut declaration, user remapping, and suggested-key limits.",
+      "retrievedAtUtc": "2026-08-08T20:29:53.081Z",
+      "sha256": "8f7e025f1de9325abf848e002282d5488e5bcd4c27f6b8c70bdf3c01514c709d"
+    },
+    {
+      "id": "context-menus",
+      "file": "vendor/context-menus.md",
+      "url": "https://developer.chrome.com/docs/extensions/reference/api/contextMenus",
+      "purpose": "Tab and action context menus.",
+      "retrievedAtUtc": "2026-08-08T20:29:53.081Z",
+      "sha256": "6c982d4e34ef3e8d851e94485303a818c2fb237cb3c04e75ad5f3e55b9ff7df2"
+    },
+    {
+      "id": "match-patterns",
+      "file": "vendor/match-patterns.md",
+      "url": "https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns",
+      "purpose": "Chrome URL-match grammar and permission boundaries.",
+      "retrievedAtUtc": "2026-08-08T20:29:53.081Z",
+      "sha256": "c659e926b36df65c054d862fd7e4ac0b4c4b04b5733ff90506454237de80c1be"
+    },
+    {
+      "id": "testing",
+      "file": "vendor/testing.md",
+      "url": "https://developer.chrome.com/docs/extensions/how-to/test/unit-testing",
+      "purpose": "Official extension testing guidance and examples.",
+      "retrievedAtUtc": "2026-08-08T20:29:53.081Z",
+      "sha256": "915e1b7162e7c530917f1594bf8145f89182df8d45406d74df2002bd470c97f8"
+    }
   ]
 }
