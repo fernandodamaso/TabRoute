@@ -22,7 +22,7 @@ The non-negotiable principles are:
 
 ### 2.1 Managed groups
 
-A managed group has a persistent UUID, editable name, Chrome-supported color, optional emoji, rules, duplicate defaults, persistent tabs, order, and last known window ownership. Its rendered Chrome group title is `emoji + space + name` when an emoji is configured, otherwise just `name`.
+A managed group has a persistent UUID, editable name, Chrome-supported color, optional emoji, rules, duplicate defaults, persistent tabs, portable default order/collapse presentation, and last known local window ownership/order/collapse state. The local observed state wins when restoring on that device; portable defaults apply when no local observation exists. Its rendered Chrome group title is `emoji + space + name` when an emoji is configured, otherwise just `name`.
 
 If a user renames a managed group in Chrome, v1 preserves the configured emoji and updates the configured name from the remainder of the title. If the displayed title no longer begins with the configured emoji, the whole entered title becomes the name and the configured emoji remains prepended on the next managed render. A user recolor updates the managed group's color.
 
@@ -76,7 +76,7 @@ Duplicate handling is global across normal Chrome windows. Policy resolution is:
 
 Normalization removes the URL fragment and configured tracking-query parameters before comparison. A policy may explicitly compare the original full URL when that distinction is needed. Global exclusions always result in `allow` and take precedence over all policies.
 
-On a duplicate, choose the survivor in this order: a tab already in the correct managed group, then the most recently active tab, then the oldest tab. When the existing survivor is in the wrong group, move that survivor to the rule's target group and focus it; close the newly opened duplicate. In every other closure case, focus the survivor and close the new duplicate. Duplicate closures have a short-lived Undo that reopens the closed URL in its former window/group when still available.
+On a duplicate, choose the survivor in this order: a tab already in the correct managed group, then the most recently active tab, then the oldest tab observed by TabRoute in the current browser session. Chrome does not expose a general creation timestamp for an ordinary live tab, so TabRoute assigns a session-only first-observed ordinal. It survives service-worker recreation through `storage.session`; after a full browser restart, the initial inventory receives deterministic ordinals by normal-window ID, tab index, then tab ID. The final tab-ID comparison is session-local only and is never durable identity. When the existing survivor is in the wrong group, move that survivor to the rule's target group and focus it; close the newly opened duplicate. In every other closure case, focus the survivor and close the new duplicate. Duplicate closures have a short-lived Undo that restores the exact recently closed session entry when Chrome exposes an unambiguous `sessionId`, otherwise recreates the recorded URL through the normal Action Engine and records a degraded result.
 
 ### 2.5 Persistent tabs and pinned groups
 
@@ -95,7 +95,7 @@ Closing or ungrouping a persistent managed group is an intentional close marker 
 
 Users can save named full-browser snapshots and named individual-group snapshots. A snapshot records managed-group UUIDs and presentation, tab URLs and duplicate keys, persistent membership/order, collapsed state, group order, and the local window-ownership descriptor. It excludes incognito tabs and does not treat Chrome runtime IDs as durable identity.
 
-Automatic local snapshots run on Chrome shutdown, on a configurable interval, and immediately before an extension operation that closes one or more tabs or removes/ungroups a managed group. Restoring a snapshot reuses matching existing tabs before creating missing ones and follows duplicate policy rather than opening avoidable copies.
+Automatic local snapshots run on a configurable interval and immediately before an extension operation that closes one or more tabs or removes/ungroups a managed group. A reserved `shutdown-latest` checkpoint is maintained continuously from ordinary tab/group/window events through a debounced one-shot `chrome.alarms` wake-up; correctness never depends on a final shutdown callback. Restoring a snapshot reuses matching existing tabs before creating missing ones and follows duplicate policy rather than opening avoidable copies.
 
 At `runtime.onStartup`, the controller first allows Chrome session restoration to settle: it waits for two consecutive normal-window inventory scans two seconds apart with no intervening tab-created or URL-updated event, capped at fifteen seconds. It then restores persistent groups in the background, reuses acceptable existing tabs, and creates only missing canonical tabs. It restores each group's prior collapsed/expanded state and remembered ordering.
 
@@ -165,7 +165,7 @@ For `tabs.onCreated`, `tabs.onUpdated`, `tabs.onMoved`, `tabs.onAttached`, `tabs
 3. Register manual movement/rename/color changes as appropriate, including a session override for a user-initiated tab placement.
 4. Queue the smallest affected reconciliation unit, coalescing repeated events for the same tab/group.
 5. Evaluate pause/override/intentional-close constraints, rules, duplicate policy, and persistent obligations.
-6. Build one action plan. Mutations run in the Action Engine in stable order: ensure target group, move/ungroup tabs, update group presentation/collapse state, enforce persistent ordering, then close a duplicate only after the survivor is verified.
+6. Build one action plan. Mutations run in dependency order: create or restore missing tabs, move them to the target window, create a missing native group from at least one actual member (or attach members to the verified existing group), update group presentation/collapse state, restore tab/group ordering, focus the survivor, then close a duplicate only after the survivor is freshly verified.
 7. Verify the postcondition from Chrome state, add a bounded Undo record if applicable, write an activity entry, and schedule a retry only for transient failures.
 
 Rule and settings changes begin at step 4 with all current normal tabs as the reconciliation set. Snapshot restoration enters at step 5 after reuse matching tabs are identified. User commands pass an explicit `source: user` intent and are not overridden by a pause.
@@ -176,15 +176,16 @@ All versioned records include `schemaVersion`, `id` where applicable, `createdAt
 
 | Record | Essential fields | Storage |
 |---|---|---|
-| `ManagedGroup` | UUID, name, emoji, color, fallback flag, persistent flag, duplicate override, order, collapsed state, local home descriptor | Sync for portable configuration; local for home descriptor/collapsed/order cache |
+| `ManagedGroup` | UUID, name, emoji, color, fallback flag, persistent flag, duplicate override, default order/collapse | Sync for portable configuration; actual home/order/collapse observations are Local |
 | `Rule` | UUID, target group UUID, priority, positive/negative ASTs, action set, duplicate override, pause state | Sync |
 | `PersistentTab` | UUID, group UUID, canonical URL, accepted patterns, manual persistent-order key | Sync |
 | `DuplicateSettings` | global default, global exclusions, normalization options | Sync |
 | `Template` | UUID, group blueprint, cloned rule/persistent-tab definitions | Sync |
 | `Snapshot` | UUID, name, scope, captured groups/tabs/ownership descriptors | Local only |
 | `ActivityEntry` | action, result, affected IDs/URLs, timestamp, error code when any | Local only, automatically trimmed |
-| `UndoRecord` | inverse action, expiry, pre-action local associations | Local only, automatically expires |
-| `RuntimeSession` | manual overrides, intentional closed-group UUIDs, pause-until-restart flags, action guards | `storage.session` |
+| `UndoRecord` | typed inverse payload, browser-session token, expiry, pre-action ephemeral association hints | Local only, automatically expires |
+| `SuggestionState` | rolling manual-move observations and dismissals keyed by normalized domain + managed-group UUID | Local only, automatically trimmed |
+| `RuntimeSession` | browser-session token, manual overrides, intentional closed-group UUIDs, pause-until-restart flags, action guards, live associations, tab observations, startup coordination, prefilled rule-draft records | `storage.session` |
 | `ChromeAssociation` | managed group UUID to current tabGroup ID/window ID, observed Chrome group metadata | `storage.session`; rebuilt every browser session |
 
 `chrome.storage.sync` stores only compact configuration and never snapshots, activity logs, undo records, raw tab inventories, or session IDs. Its roughly 100 KB total and 8 KB-per-item limits require normalized records, separate keys by entity, debounced writes, and an explicit preflight size check. `chrome.storage.local` holds snapshots/history and uses bounded retention; it must surface a local log error if a quota write fails. `chrome.storage.session` holds restart-scoped intent because service-worker globals do not survive worker suspension.
@@ -209,7 +210,7 @@ Automatic actions are not retried indefinitely. Errors are visible in local acti
 
 ## 6. Permissions, platform, and privacy
 
-v1 targets Google Chrome and Manifest V3. It excludes incognito windows at intake and does not request incognito behavior. Required permissions will be derived and minimized during implementation, expected to include `tabs`, `tabGroups`, `storage`, `contextMenus`, `commands`, and `sessions`; host access must be limited to the URL-reading capability required by approved rule types and explained in the install copy.
+v1 targets Google Chrome 121+ and Manifest V3; Chrome 121 is the minimum because deterministic duplicate ordering uses `tabs.Tab.lastAccessed`. It excludes incognito windows at intake and does not request incognito behavior. Required permissions will be derived and minimized during implementation, expected to include `tabs`, `tabGroups`, `storage`, `contextMenus`, `sessions`, and `alarms`; shortcuts are declared under the top-level `commands` manifest key, which is not a permission. Host access must be limited to the URL-reading capability required by approved rule types and explained in the install copy.
 
 All configuration syncing uses Chrome Sync. Snapshots, activity, Undo, window ownership, and session intent remain local. v1 has no remote service, telemetry, analytics, account, collaboration, or notification channel.
 
@@ -227,7 +228,9 @@ docs/chrome-reference/
     tab-groups.md
     windows.md
     storage.md
+    alarms.md
     service-worker-lifecycle.md
+    service-worker-migration.md
     runtime.md
     sessions.md
     commands.md
@@ -290,4 +293,4 @@ Before copying any code, record the repository URL, immutable commit SHA, files/
 
 ## 11. Design self-review
 
-This document was reviewed after drafting for incomplete markers, conflicting persistence behavior, storage misuse, and ambiguous tie-breaking. The review resolved the following potentially unclear areas directly in the text: priority direction and final tie-breaker; manual override precedence during rule changes; the boundary between temporary runtime IDs and durable UUIDs; intentionally closed-group behavior; startup settlement; window fallback; duplicate survivor order; `Other`'s renamed fallback role; suggestion threshold; and the four-suggested-shortcut Chrome limit. There are no deferred design decisions in this v1 specification.
+This document was reviewed after drafting for incomplete markers, conflicting persistence behavior, storage misuse, and ambiguous tie-breaking. The implementation-plan audit further corrected four Chrome-specific assumptions: native groups require real member tabs; live-tab age is session-observed because Chrome exposes no general creation time; the last-session checkpoint is maintained by events/alarms rather than a shutdown hook; and `commands` is a manifest key rather than a permission. The review also resolved priority direction and final tie-breaker; manual override precedence during rule changes; the boundary between temporary runtime IDs and durable UUIDs; intentionally closed-group behavior; startup settlement; window fallback; `Other`'s renamed fallback role; suggestion threshold; and the four-suggested-shortcut Chrome limit. There are no deferred product decisions in this v1 specification.
