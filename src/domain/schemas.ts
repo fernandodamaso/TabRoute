@@ -7,61 +7,61 @@ const pauseValue = z.union([
   z.literal("restart")
 ]);
 const duplicatePolicy = z.union([
-  z.object({ kind: z.literal("allow") }),
-  z.object({ kind: z.literal("exactUrl") }),
-  z.object({ kind: z.literal("fragmentlessUrl") }),
-  z.object({ kind: z.literal("domain") }),
-  z.object({ kind: z.literal("urlAndTitle") }),
-  z.object({ kind: z.literal("pattern"), pattern: z.string().min(1) })
+  z.strictObject({ kind: z.literal("allow") }),
+  z.strictObject({ kind: z.literal("exactUrl") }),
+  z.strictObject({ kind: z.literal("fragmentlessUrl") }),
+  z.strictObject({ kind: z.literal("domain") }),
+  z.strictObject({ kind: z.literal("urlAndTitle") }),
+  z.strictObject({ kind: z.literal("pattern"), pattern: z.string().min(1) })
 ]);
 const placement = z.union([
-  z.object({ kind: z.literal("managed"), managedGroupId: uuid }),
-  z.object({ kind: z.literal("unmanaged") }),
-  z.object({ kind: z.literal("ungrouped") })
+  z.strictObject({ kind: z.literal("managed"), managedGroupId: uuid }),
+  z.strictObject({ kind: z.literal("unmanaged") }),
+  z.strictObject({ kind: z.literal("ungrouped") })
 ]);
 const conditionNode: z.ZodTypeAny = z.lazy(() =>
   z.union([
-    z.object({
+    z.strictObject({
       kind: z.enum(["all", "any"]),
       children: z.array(conditionNode)
     }),
-    z.object({
+    z.strictObject({
       kind: z.literal("url"),
       operator: z.enum(["exact", "pattern", "regex"]),
       value: z.string().min(1)
     }),
-    z.object({
+    z.strictObject({
       kind: z.literal("host"),
       operator: z.enum(["exact", "suffix"]),
       value: z.string().min(1)
     }),
-    z.object({
+    z.strictObject({
       kind: z.literal("path"),
       operator: z.enum(["exact", "prefix"]),
       value: z.string().min(1)
     }),
-    z.object({
+    z.strictObject({
       kind: z.literal("title"),
       operator: z.enum(["contains", "exact", "regex"]),
       value: z.string().min(1)
     }),
-    z.object({ kind: z.literal("pinned"), value: z.boolean() }),
-    z.object({
+    z.strictObject({ kind: z.literal("pinned"), value: z.boolean() }),
+    z.strictObject({
       kind: z.enum(["openerUrl", "openerHost"]),
       operator: z.enum(["exact", "pattern", "suffix"]),
       value: z.string().min(1)
     }),
-    z.object({ kind: z.literal("currentGroup"), placement })
+    z.strictObject({ kind: z.literal("currentGroup"), placement })
   ])
 );
 const ruleAction = z.union([
-  z.object({ kind: z.literal("group") }),
-  z.object({ kind: z.literal("ungroup") }),
-  z.object({ kind: z.literal("makePersistent") }),
-  z.object({ kind: z.literal("setDuplicatePolicy"), policy: duplicatePolicy }),
-  z.object({ kind: z.literal("setCollapsed"), collapsed: z.boolean() })
+  z.strictObject({ kind: z.literal("group") }),
+  z.strictObject({ kind: z.literal("ungroup") }),
+  z.strictObject({ kind: z.literal("makePersistent") }),
+  z.strictObject({ kind: z.literal("setDuplicatePolicy"), policy: duplicatePolicy }),
+  z.strictObject({ kind: z.literal("setCollapsed"), collapsed: z.boolean() })
 ]);
-const managedGroup = z.object({
+const managedGroup = z.strictObject({
   schemaVersion: z.literal(1),
   id: uuid,
   name: z.string().min(1),
@@ -88,7 +88,7 @@ const managedGroup = z.object({
 });
 
 const rule = z
-  .object({
+  .strictObject({
     schemaVersion: z.literal(1),
     id: uuid,
     targetGroupId: uuid,
@@ -175,7 +175,7 @@ function collectRegexes(node: ConditionNode): string[] {
 }
 
 const configuration = z
-  .object({
+  .strictObject({
     schemaVersion: z.literal(1),
     fallbackGroupId: uuid,
     automationEnabled: z.boolean(),
@@ -183,8 +183,8 @@ const configuration = z
     groups: z.array(managedGroup),
     rules: z.array(rule),
     persistentTabs: z.array(z.never()),
-    duplicateSettings: z.object({
-      globalPolicy: z.object({ kind: z.literal("allow") }),
+    duplicateSettings: z.strictObject({
+      globalPolicy: z.strictObject({ kind: z.literal("allow") }),
       globalExclusions: z.array(z.string()),
       trackingParameters: z.array(z.string())
     }),

@@ -3,6 +3,7 @@ import { createDefaultConfiguration } from "../src/domain/defaults";
 import { createTabRouteController } from "../src/controller/controller";
 import { createChromeSessionRepository } from "../src/state/sessionRepository";
 import { createConfigurationRepository } from "../src/state/configurationRepository";
+import { createConfigurationSyncCoordinator } from "../src/state/configurationSyncCoordinator";
 import type { ChromeTabSnapshot } from "../src/domain/types";
 import type { UiMessage } from "../src/ui/messages";
 import { applyChromeGroupPresentation } from "../src/groups/displayTitle";
@@ -29,7 +30,11 @@ function toSnapshot(tab: chrome.tabs.Tab): ChromeTabSnapshot | undefined {
 
 export default defineBackground(async () => {
   const repository = createConfigurationRepository({
-    storage: chrome.storage.local,
+    storage: {
+      sync: chrome.storage.sync,
+      local: chrome.storage.local,
+      session: chrome.storage.session
+    },
     createDefault: () => createDefaultConfiguration()
   });
   const configuration = await repository.loadOrCreate();
@@ -40,6 +45,24 @@ export default defineBackground(async () => {
     session
   });
   const managerRouter = createManagerMessageRouter({ repository, controller });
+  const configurationSync = createConfigurationSyncCoordinator({
+    repository,
+    callbacks: {
+      replaceConfiguration: (next) => controller.replaceConfiguration(next),
+      refreshMenus: async () => undefined,
+      refreshAlarms: async () => undefined,
+      refreshViews: async () => undefined
+    }
+  });
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "sync") return;
+    void configurationSync
+      .applySyncChange(Object.keys(changes))
+      .catch((error: unknown) =>
+        console.error("TabRoute Sync revision application failed", error)
+      );
+  });
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (!changeInfo.url && changeInfo.status !== "complete") return;
