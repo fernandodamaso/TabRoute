@@ -281,7 +281,7 @@ export function selectRule(input: {
     const target = input.configuration.groups.find(
       (group) => group.id === rule.targetGroupId
     );
-    if (!target || isPaused(target.pausedUntil, at)) return [];
+    if (!target || !target.enabled || isPaused(target.pausedUntil, at)) return [];
     const evaluation = evaluateRule(
       rule,
       input.tab,

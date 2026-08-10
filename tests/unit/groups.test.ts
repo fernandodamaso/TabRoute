@@ -65,6 +65,17 @@ it("preserves the fallback role when its editable presentation changes", () => {
   expect(renderGroupTitle(changed.groups[0]!)).toBe("📥 Inbox");
 });
 
+it("creates newly managed groups enabled by default", () => {
+  const configuration = createDefaultConfiguration(
+    () => "00000000-0000-4000-8000-000000000001"
+  );
+  const created = createManagedGroup(configuration, {
+    name: "Work",
+    color: "blue"
+  }, () => "00000000-0000-4000-8000-000000000002");
+  expect(created.groups[1]?.enabled).toBe(true);
+});
+
 it("imports a Chrome rename without losing the configured emoji", () => {
   const configuration = createDefaultConfiguration(
     () => "00000000-0000-4000-8000-000000000001",

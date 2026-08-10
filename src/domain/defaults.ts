@@ -18,6 +18,7 @@ export function createDefaultConfiguration(
     name: "Other",
     color: "grey",
     isFallback: true,
+    enabled: true,
     isPersistent: false,
     defaultOrder: 0,
     defaultCollapsed: false,
@@ -74,6 +75,7 @@ export function createManagedGroup(
     ...(input.emoji ? { emoji: input.emoji } : {}),
     color: input.color,
     isFallback: false,
+    enabled: true,
     isPersistent: input.isPersistent ?? false,
     defaultOrder:
       Math.max(
@@ -101,6 +103,7 @@ export function updateManagedGroup(
       | "name"
       | "emoji"
       | "color"
+      | "enabled"
       | "isPersistent"
       | "defaultOrder"
       | "defaultCollapsed"
@@ -114,6 +117,8 @@ export function updateManagedGroup(
     (candidate) => candidate.id === groupId
   );
   if (!group) throw new Error("managed group not found");
+  if (group.isFallback && patch.enabled === false)
+    throw new Error("fallback group must remain enabled");
   const nextName = patch.name === undefined ? group.name : patch.name.trim();
   if (!nextName) throw new Error("group name is required");
   return {

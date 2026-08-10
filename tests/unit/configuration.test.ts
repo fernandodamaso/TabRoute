@@ -1,4 +1,8 @@
-import { createDefaultConfiguration, renameGroup } from "../../src/domain/defaults";
+import {
+  createDefaultConfiguration,
+  renameGroup,
+  updateManagedGroup
+} from "../../src/domain/defaults";
 import { validateConfiguration } from "../../src/domain/schemas";
 
 it("creates one UUID-backed fallback group whose role survives a rename", () => {
@@ -12,6 +16,34 @@ it("creates one UUID-backed fallback group whose role survives a rename", () => 
   expect(renamed.groups[0]?.isFallback).toBe(true);
   expect(renamed.groups[0]?.id).toBe(configuration.fallbackGroupId);
   expect(validateConfiguration(configuration)).toEqual(configuration);
+  expect(fallback?.enabled).toBe(true);
+});
+
+it("updates group enablement without changing identity and keeps fallback enabled", () => {
+  const configuration = createDefaultConfiguration(
+    () => "00000000-0000-4000-8000-000000000001"
+  );
+  const withGroup = {
+    ...configuration,
+    groups: [
+      ...configuration.groups,
+      {
+        ...configuration.groups[0]!,
+        id: "00000000-0000-4000-8000-000000000002" as typeof configuration.fallbackGroupId,
+        name: "Work",
+        isFallback: false,
+        defaultOrder: 1
+      }
+    ]
+  };
+  const updated = updateManagedGroup(
+    withGroup,
+    withGroup.groups[1]!.id,
+    { enabled: false }
+  );
+  expect(updated.groups[1]?.enabled).toBe(false);
+  expect(() => updateManagedGroup(updated, updated.fallbackGroupId, { enabled: false })).toThrow(/fallback/);
+  expect(updated.fallbackGroupId).toBe(configuration.fallbackGroupId);
 });
 
 it("accepts integer pause timestamps and rejects invalid numeric pause values", () => {

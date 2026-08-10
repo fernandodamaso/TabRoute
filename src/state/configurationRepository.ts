@@ -26,7 +26,10 @@ export function createConfigurationRepository(input: {
       const existing = stored[configurationKey];
       if (existing !== undefined) {
         try {
-          return validateConfiguration(existing);
+          const normalized = validateConfiguration(existing);
+          if (JSON.stringify(normalized) !== JSON.stringify(existing))
+            await input.storage.set({ [configurationKey]: normalized });
+          return normalized;
         } catch {
           /* replace invalid bootstrap state */
         }

@@ -6,6 +6,7 @@ import { createConfigurationRepository } from "../src/state/configurationReposit
 import type { ChromeTabSnapshot } from "../src/domain/types";
 import type { UiMessage } from "../src/ui/messages";
 import { applyChromeGroupPresentation } from "../src/groups/displayTitle";
+import { createManagerMessageRouter } from "../src/background/managerMessageRouter";
 
 function toSnapshot(tab: chrome.tabs.Tab): ChromeTabSnapshot | undefined {
   if (tab.id === undefined || tab.windowId === undefined || tab.incognito)
@@ -38,6 +39,7 @@ export default defineBackground(async () => {
     chrome: createLiveChromePort(),
     session
   });
+  const managerRouter = createManagerMessageRouter({ repository, controller });
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (!changeInfo.url && changeInfo.status !== "complete") return;
@@ -82,14 +84,8 @@ export default defineBackground(async () => {
   });
 
   chrome.runtime.onMessage.addListener((message: UiMessage) => {
-    if (message.kind === "get-configuration")
-      return Promise.resolve({ configuration: controller.getConfiguration() });
-    if (message.kind === "save-configuration") {
-      return repository
-        .save(message.configuration)
-        .then(() => controller.replaceConfiguration(message.configuration))
-        .then(() => ({ configuration: controller.getConfiguration() }));
-    }
+    if (message.kind === "manager-query" || message.kind === "manager-command")
+      return managerRouter.handle(message);
     return undefined;
   });
 });

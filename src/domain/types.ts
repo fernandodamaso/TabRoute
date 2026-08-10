@@ -18,6 +18,7 @@ export interface ManagedGroup {
   emoji?: string;
   color: ChromeGroupColor;
   isFallback: boolean;
+  enabled: boolean;
   isPersistent: boolean;
   defaultOrder: number;
   defaultCollapsed: boolean;

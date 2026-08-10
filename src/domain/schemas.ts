@@ -78,6 +78,7 @@ const managedGroup = z.object({
     "orange"
   ]),
   isFallback: z.boolean(),
+  enabled: z.boolean().default(true),
   isPersistent: z.boolean(),
   defaultOrder: z.number().int(),
   defaultCollapsed: z.boolean(),

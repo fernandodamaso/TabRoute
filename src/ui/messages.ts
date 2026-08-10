@@ -1,5 +1,3 @@
-import type { Configuration } from "../domain/types";
+import type { ManagerMessage } from "./manager/types";
 
-export type UiMessage =
-  | { kind: "get-configuration" }
-  | { kind: "save-configuration"; configuration: Configuration };
+export type UiMessage = ManagerMessage;

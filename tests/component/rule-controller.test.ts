@@ -93,6 +93,7 @@ it("routes nested positive matches to a managed group and negative matches to fa
         name: "Docs",
         color: "blue" as const,
         isFallback: false,
+        enabled: true,
         isPersistent: false,
         defaultOrder: 1,
         defaultCollapsed: false,

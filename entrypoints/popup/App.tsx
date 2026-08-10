@@ -1,3 +1,5 @@
+import { ManagerApp } from "../../src/ui/manager/ManagerApp";
+
 export function App() {
-  return <main><h1>TabRoute</h1><p>Automation is ready.</p></main>;
+  return <ManagerApp surface="popup" />;
 }

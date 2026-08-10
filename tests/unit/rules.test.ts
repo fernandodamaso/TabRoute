@@ -76,6 +76,7 @@ function configuration(rules: Rule[]): Configuration {
         name: "Docs",
         color: "blue",
         isFallback: false,
+        enabled: true,
         isPersistent: false,
         defaultOrder: 1,
         defaultCollapsed: false,
@@ -156,7 +157,7 @@ describe("nested rule public behavior", () => {
     expect(selected?.rule.id).toBe(exactLong.id);
   });
 
-  it("does not let unmanaged native groups satisfy an ungrouped condition", () => {
+it("does not let unmanaged native groups satisfy an ungrouped condition", () => {
     const unmanagedTab = tab({ chromeGroupId: 42 });
     const currentPlacement: ConditionNode = {
       kind: "currentGroup",
@@ -192,4 +193,38 @@ describe("nested rule public behavior", () => {
       ])
     ).toEqual({ placement: "group" });
   });
+});
+
+it("skips a matching rule whose managed target is disabled", () => {
+  const base = createDefaultConfiguration(
+    () => "00000000-0000-4000-8000-000000000001"
+  );
+  const disabledId = "00000000-0000-4000-8000-000000000002" as UUID;
+  const enabledId = "00000000-0000-4000-8000-000000000003" as UUID;
+  const targetRule = (id: string, targetGroupId: UUID, priority: number): Rule => ({
+    schemaVersion: 1,
+    id: id as UUID,
+    targetGroupId,
+    priority,
+    positive: { kind: "host", operator: "exact", value: "docs.example.com" },
+    negative: [],
+    actions: [{ kind: "group" }],
+    enabled: true,
+    createdAt: 1,
+    updatedAt: 1
+  });
+  const configuration: Configuration = {
+    ...base,
+    groups: [
+      ...base.groups,
+      { schemaVersion: 1, id: disabledId, name: "Disabled", color: "blue", isFallback: false, isPersistent: false, enabled: false, defaultOrder: 1, defaultCollapsed: false, createdAt: 1, updatedAt: 1 },
+      { schemaVersion: 1, id: enabledId, name: "Enabled", color: "green", isFallback: false, isPersistent: false, enabled: true, defaultOrder: 2, defaultCollapsed: false, createdAt: 1, updatedAt: 1 }
+    ],
+    rules: [
+      targetRule("00000000-0000-4000-8000-000000000010", disabledId, 20),
+      targetRule("00000000-0000-4000-8000-000000000011", enabledId, 10)
+    ]
+  };
+  expect(selectRule({ configuration, tab: tab(), inventory: inventory(), associations: [] })?.rule.targetGroupId).toBe(enabledId);
+  expect(selectRule({ configuration: { ...configuration, groups: configuration.groups.map((group) => group.id === enabledId ? { ...group, enabled: false } : group) }, tab: tab(), inventory: inventory(), associations: [] })).toBeUndefined();
 });
