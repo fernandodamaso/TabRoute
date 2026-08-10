@@ -10,6 +10,8 @@
 
 ## Global Constraints
 
+- ManagerViewFixture, PersistentTabsViewFixture, ManagerTransportRecord, and FixtureCommandRecord are declared only in src/ui/manager/types.ts. Workbench and runner modules import these types; production manager modules never import src/workbench.
+
 - Keep the extension Chrome-only and Manifest V3 in v1.
 - Keep popup, normal options, and workbench options on the same \`ManagerApp\` module.
 - Keep \`ManagerTransport\` typed; fixture and real adapters must implement the same request operation.
@@ -34,7 +36,7 @@
 - Create \`src/ui/manager/chromeManagerTransport.ts\`: production \`chrome.runtime.sendMessage\` adapter only.
 - Modify \`entrypoints/options/App.tsx\` in Task 3, after the workbench app exists: compile-time selection of ordinary options or the development-only workbench host.
 - Modify \`wxt.config.ts\` and \`src/env.d.ts\`: build-time workbench flag.
-- Create \`src/workbench/types.ts\`, \`url.ts\`, \`scenarios.ts\`, \`fixtureManagerTransport.ts\`, \`WorkbenchHost.tsx\`, \`WorkbenchOptionsApp.tsx\`, and \`markers.ts\`: workbench-only URL, fixtures, controls, host, and markers. The types file also owns the non-persistent manager-view fixture seam and the shared fixture/real evidence-record union.
+- Create \`src/workbench/types.ts\`, \`url.ts\`, \`scenarios.ts\`, \`fixtureManagerTransport.ts\`, \`WorkbenchHost.tsx\`, \`WorkbenchOptionsApp.tsx\`, and \`markers.ts\`: workbench-only URL, fixture, control, host, and marker types. \`src/ui/manager/types.ts\` remains the sole owner of \`ManagerViewFixture\`, \`PersistentTabsViewFixture\`, and \`ManagerTransportRecord\`.
 - Create \`scripts/workbench/contracts.ts\`, \`paths.ts\`, \`lock.ts\`, \`artifacts.ts\`, \`leases.ts\`, \`build.ts\`, \`browser.ts\`, \`readiness.ts\`, \`results.ts\`, \`runner.ts\`, \`cli.ts\`, and \`production-scan.ts\`: Node runner, isolated browser, result, lease, budget, and scan ownership.
 - Modify \`package.json\`, \`playwright.config.ts\`, and \`.gitignore\`: commands, bundled Chromium configuration, and ignored run output.
 - Create unit tests \`tests/unit/workbench-url.test.ts\`, \`workbench-scenarios.test.ts\`, \`fixture-manager-transport.test.ts\`, \`workbench-artifacts.test.ts\`, \`workbench-leases.test.ts\`, \`workbench-concurrency.test.ts\`, \`production-scan.test.ts\`, \`workbench-runner.test.ts\`, and \`workbench-command-contract.test.ts\`.
@@ -49,6 +51,15 @@ No other manager, controller, persistence, or feature-storage file owns workbenc
 
 ### Task 1: Establish the typed transport and build seam
 
+- [ ] **Step 0: Record the implementation base before any implementation task.**
+
+  ```powershell
+  New-Item -ItemType Directory -Force .workbench/tmp | Out-Null
+  (git rev-parse HEAD).Trim() | Set-Content -NoNewline .workbench/tmp/implementation-base-sha
+  ```
+
+  Expected: .workbench/tmp/implementation-base-sha contains one full SHA before Task 1 changes begin. The .workbench/tmp path is ignored by Git and is the fixed review base for the complete implementation.
+
 **Files:**
 
 - Modify: \`src/ui/manager/types.ts\`
@@ -62,80 +73,103 @@ No other manager, controller, persistence, or feature-storage file owns workbenc
 
 **Interfaces:**
 
-\`\`\`ts
+```ts
 export interface ManagerTransport {
-request(message: ManagerMessage): Promise<ManagerResponse>;
+  request(message: ManagerMessage): Promise<ManagerResponse>;
 }
 
 export type ManagerDeepLink =
-| "none"
-| "new-rule"
-| { kind: "edit-rule" | "confirm-delete"; ruleId: UUID };
+  "none" | "new-rule" | { kind: "edit-rule" | "confirm-delete"; ruleId: UUID };
 
 export interface PersistentTabsViewFixture {
-state: "loading" | "empty" | "populated" | "disabled" | "error";
-tabs: readonly string[];
+  state: "loading" | "empty" | "populated" | "disabled" | "error";
+  tabs: readonly string[];
 }
 
 export interface ManagerViewFixture {
-persistentTabsByGroup: Readonly<Record<UUID, PersistentTabsViewFixture>>;
+  persistentTabsByGroup: Readonly<Record<UUID, PersistentTabsViewFixture>>;
 }
 
 export interface ManagerAppProps {
-surface?: "popup" | "options";
-transport?: ManagerTransport;
-initialRoute?: ManagerRoute;
-initialDeepLink?: ManagerDeepLink;
+  surface?: "popup" | "options";
+  transport?: ManagerTransport;
+  initialRoute?: ManagerRoute;
+  initialDeepLink?: ManagerDeepLink;
 }
 
 export function createChromeManagerTransport(input?: {
-sendMessage?: (message: ManagerMessage) => Promise<unknown>;
-timeoutMs?: number;
-onRecord?: (record: ManagerTransportRecord) => void;
+  sendMessage?: (message: ManagerMessage) => Promise<unknown>;
+  timeoutMs?: number;
+  onRecord?: (record: ManagerTransportRecord) => void;
 }): ManagerTransport;
 
 export type ManagerTransportRecord =
-| {
-recordType: "request";
-mode: "fixture";
-requestId: string;
-sequence: number;
-scenarioId: string;
-message: ManagerMessage;
-startedAt: number;
-endedAt?: number;
-latencyMs: number;
-outcome: "resolved" | "rejected";
-response?: ManagerResponse;
-}
-| {
-recordType: "request";
-mode: "real";
-requestId: string;
-sequence: number;
-workerGeneration?: number;
-message: ManagerMessage;
-startedAt: number;
-endedAt?: number;
-latencyMs: number;
-outcome: "resolved" | "rejected";
-response?: ManagerResponse;
-}
-| {
-recordType: "event";
-mode: "fixture" | "real";
-source: "page" | "worker" | "transport";
-at: number;
-name: string;
-details: Record<string, string | number | boolean>;
-};
+  | {
+      recordType: "request";
+      state: "pending";
+      mode: "fixture";
+      requestId: string;
+      sequence: number;
+      scenarioId: string;
+      message: ManagerMessage;
+      startedAt: number;
+      latencyMs: number;
+    }
+  | {
+      recordType: "request";
+      state: "resolved" | "rejected";
+      mode: "fixture";
+      requestId: string;
+      sequence: number;
+      scenarioId: string;
+      message: ManagerMessage;
+      startedAt: number;
+      endedAt: number;
+      latencyMs: number;
+      outcome: "resolved" | "rejected";
+      response?: ManagerResponse;
+      error?: ManagerFailure["error"];
+    }
+  | {
+      recordType: "request";
+      state: "pending";
+      mode: "real";
+      requestId: string;
+      sequence: number;
+      workerGeneration?: number;
+      message: ManagerMessage;
+      startedAt: number;
+      latencyMs: number;
+    }
+  | {
+      recordType: "request";
+      state: "resolved" | "rejected";
+      mode: "real";
+      requestId: string;
+      sequence: number;
+      workerGeneration?: number;
+      message: ManagerMessage;
+      startedAt: number;
+      endedAt: number;
+      latencyMs: number;
+      outcome: "resolved" | "rejected";
+      response?: ManagerResponse;
+      error?: ManagerFailure["error"];
+    }
+  | {
+      recordType: "event";
+      mode: "fixture" | "real";
+      source: "page" | "worker" | "transport";
+      at: number;
+      name: string;
+      details: Record<string, string | number | boolean>;
+    };
 
 export type FixtureCommandRecord = Extract<
-ManagerTransportRecord,
-{ recordType: "request"; mode: "fixture" }
-
-> ;
-> \`\`\`
+  ManagerTransportRecord,
+  { recordType: "request"; mode: "fixture" }
+>;
+```
 
 Extend \`ManagerFailure.error.kind\` with \`"offline" | "transport"\`, and add optional \`code\` and \`field\`. The success shape is \`{ ok: true; configuration; view; viewFixture?: ManagerViewFixture }\`; the fixture is non-persistent display data and is optional in real responses. The Chrome adapter sends only typed manager messages, validates the response, and maps missing responses, \`runtime.lastError\`, timeout, and offline errors to stable typed failures.
 
@@ -161,7 +195,7 @@ Extend \`ManagerFailure.error.kind\` with \`"offline" | "transport"\`, and add o
 
 - [ ] **Step 3: Implement the seam.** Move the current \`chrome.runtime.sendMessage\` code to \`chromeManagerTransport.ts\`; keep the non-extension preview fallback for component tests. Change \`useManagerState\` to call \`transport.request\`, store optional \`result.viewFixture\` beside configuration, and expose it to \`ManagerApp\`. Route deep links through existing Rules components. Do not let \`ManagerApp\` import workbench, repositories, Playwright, or Chrome mutation APIs.
 
-  Configure WXT with \`vite: () => ({ define: { **TABROUTE_WORKBENCH**: JSON.stringify(process.env.TABROUTE_WORKBENCH === "1") } })\` and declare the global boolean in \`src/env.d.ts\`. Leave \`entrypoints/options/App.tsx\` unchanged in this task so this task compiles without the later workbench module. Task 3 owns the false/true options-entry branch after it creates \`WorkbenchOptionsApp.tsx\`.
+  Configure WXT with `vite: () => ({ define: { __TABROUTE_WORKBENCH__: JSON.stringify(process.env.TABROUTE_WORKBENCH === "1") } })` and declare the global boolean in `src/env.d.ts`. Leave `entrypoints/options/App.tsx` unchanged in this task so this task compiles without the later workbench module. Task 3 owns the false/true options-entry branch after it creates `WorkbenchOptionsApp.tsx`.
 
 - [ ] **Step 4: Run green tests and typecheck.**
 
@@ -187,6 +221,8 @@ Extend \`ManagerFailure.error.kind\` with \`"offline" | "transport"\`, and add o
 - Test: \`tests/unit/workbench-url.test.ts\`, \`tests/unit/workbench-scenarios.test.ts\`, \`tests/unit/fixture-manager-transport.test.ts\`
 
 **Interfaces:**
+
+Fixture request records are appended in state pending with no endedAt, outcome, response, or error. releasePending() mutates each released record to state resolved or rejected, adds endedAt and outcome, and adds the response or error before the promise resolves. Tests must assert both the pending shape and the post-release transition.
 
 \`\`\`ts
 interface WorkbenchUrlState {
@@ -310,10 +346,14 @@ The host emits only in the workbench graph: \`data-workbench-marker="TABROUTE_DE
 
 ### Task 4: Add production exclusion, leases, cleanup, and artifact budgets
 
+When required metadata would exceed the reserved space, do not leave the oversized file. First cap strings, arrays, records, and error details, then atomically replace results.json with a minimal capped failure result containing ok=false, code=WORKBENCH_ARTIFACT_LIMIT, runId, status, lease, buildPath, profilePath, error, and cleanup metadata. Encode that replacement as UTF-8 and verify it fits the reserved space in both the affected-run and global budgets before publishing it. The red test must assert reservation plus one byte produces this minimal result and no oversized results.json remains.
+
+The production manifest contract is exact: manifest_version is 3; the target is Chrome only; incognito is not_allowed; permissions, as a duplicate-free set and in deterministic order, are exactly [tabs, tabGroups, storage]; and command keys are exactly the command keys recorded from the implementation-base manifest, or absent when the base manifest has none. The scanner reads that base manifest by the recorded SHA, rejects permission additions, removals, and duplicates, and rejects command additions, removals, and duplicates. Tests cover each mutation independently and also verify the valid baseline.
+
 **Files:**
 
 - Create: \`scripts/workbench/contracts.ts\`, \`scripts/workbench/paths.ts\`, \`scripts/workbench/lock.ts\`, \`scripts/workbench/artifacts.ts\`, \`scripts/workbench/leases.ts\`, \`scripts/workbench/production-scan.ts\`
-- Modify: \`wxt.config.ts\`, \`package.json\`, \`.gitignore\`
+- Modify: \`wxt.config.ts\`, \`.gitignore\`
 - Test: \`tests/unit/workbench-artifacts.test.ts\`, \`tests/unit/workbench-leases.test.ts\`, \`tests/unit/workbench-concurrency.test.ts\`, \`tests/unit/production-scan.test.ts\`, \`tests/helpers/workbench-lock-worker.ts\`
 
 **Interfaces:**
@@ -379,20 +419,7 @@ The production scan accepts an explicit \`buildPath: string\` and recursively ch
   Expected: FAIL because the modules do not exist.
 
 - [ ] **Step 3: Implement the modules** with injected clock, process inspector, sleep, filesystem, and cleanup functions. Validate all paths before cleanup or replacement; never delete an unresolved workspace root. Use the exclusive lock for every cross-process lease/artifact critical section, and make stale-lock recovery explicit and bounded.
-- [ ] **Step 4: Add cross-platform commands and ignore rules.** Use \`tsx\`/Node \`process.env\`, not shell-specific \`set\` syntax. Add these exact package scripts and keep \`test:e2e\`:
-
-  \`\`\`json
-  {
-  "build:workbench": "tsx scripts/workbench/cli.ts build-workbench",
-  "workbench": "tsx scripts/workbench/cli.ts workbench --mode fixture",
-  "workbench:real": "tsx scripts/workbench/cli.ts workbench --mode real",
-  "test:workbench": "tsx scripts/workbench/cli.ts test-workbench",
-  "test:extension": "tsx scripts/workbench/cli.ts test-extension",
-  "smoke:popup": "tsx scripts/workbench/cli.ts smoke-popup"
-  }
-  \`\`\`
-
-  Set \`outDir: process.env.TABROUTE_WXT_OUT_DIR ?? ".output"\` in \`wxt.config.ts\`; the runner supplies a unique absolute parent path. Ignore \`.workbench/artifacts/\` and \`.workbench/tmp/\`, not source tests or plans.
+- [ ] **Step 4: Add ignore rules and the WXT output seam.** Set \`outDir: process.env.TABROUTE_WXT_OUT_DIR ?? ".output"\` in \`wxt.config.ts\`; the runner supplies a unique absolute parent path. Ignore \`.workbench/artifacts/\` and \`.workbench/tmp/\`, not source tests or plans. Package scripts remain untouched until Task 5 has created and tested scripts/workbench/cli.ts.
 
 - [ ] **Step 5: Run green tests.**
 
@@ -406,17 +433,30 @@ The production scan accepts an explicit \`buildPath: string\` and recursively ch
 - [ ] **Step 6: Commit.**
 
   \`\`\`text
-  git add scripts/workbench/contracts.ts scripts/workbench/paths.ts scripts/workbench/lock.ts scripts/workbench/artifacts.ts scripts/workbench/leases.ts scripts/workbench/production-scan.ts wxt.config.ts package.json .gitignore tests/unit/workbench-artifacts.test.ts tests/unit/workbench-leases.test.ts tests/unit/workbench-concurrency.test.ts tests/unit/production-scan.test.ts tests/helpers/workbench-lock-worker.ts
+  git add scripts/workbench/contracts.ts scripts/workbench/paths.ts scripts/workbench/lock.ts scripts/workbench/artifacts.ts scripts/workbench/leases.ts scripts/workbench/production-scan.ts wxt.config.ts .gitignore tests/unit/workbench-artifacts.test.ts tests/unit/workbench-leases.test.ts tests/unit/workbench-concurrency.test.ts tests/unit/production-scan.test.ts tests/helpers/workbench-lock-worker.ts
   git commit -m "feat: add workbench isolation and artifact bounds"
   \`\`\`
 
 ### Task 5: Add the isolated Chromium runner and readiness protocol
 
+After scripts/workbench/cli.ts is created and its command-dispatch tests pass, add these exact package scripts. This ordering keeps every earlier task independently compilable and prevents package commands from pointing at a missing CLI:
+
+```json
+{
+  "build:workbench": "tsx scripts/workbench/cli.ts build-workbench",
+  "workbench": "tsx scripts/workbench/cli.ts workbench --mode fixture",
+  "workbench:real": "tsx scripts/workbench/cli.ts workbench --mode real",
+  "test:workbench": "tsx scripts/workbench/cli.ts test-workbench",
+  "test:extension": "tsx scripts/workbench/cli.ts test-extension",
+  "smoke:popup": "tsx scripts/workbench/cli.ts smoke-popup"
+}
+```
+
 **Files:**
 
 - Create: \`scripts/workbench/build.ts\`, \`scripts/workbench/browser.ts\`, \`scripts/workbench/readiness.ts\`, \`scripts/workbench/results.ts\`, \`scripts/workbench/runner.ts\`, \`scripts/workbench/cli.ts\`
-- Modify: \`playwright.config.ts\`
-- Test: \`tests/unit/workbench-runner.test.ts\`, \`tests/e2e/workbench.spec.ts\`
+- Modify: \`playwright.config.ts\`, \`package.json\` after scripts/workbench/cli.ts exists
+- Test: \`tests/unit/workbench-runner.test.ts\`, \`tests/unit/workbench-command-contract.test.ts\`, \`tests/e2e/workbench.spec.ts\`
 
 **Interfaces:**
 
@@ -481,7 +521,7 @@ Discover an existing \`context.serviceWorkers()\` worker or wait for \`context.w
 - [ ] **Step 7: Commit.**
 
   \`\`\`text
-  git add scripts/workbench/build.ts scripts/workbench/browser.ts scripts/workbench/readiness.ts scripts/workbench/results.ts scripts/workbench/runner.ts scripts/workbench/cli.ts playwright.config.ts tests/unit/workbench-runner.test.ts tests/e2e/workbench.spec.ts
+  git add scripts/workbench/build.ts scripts/workbench/browser.ts scripts/workbench/readiness.ts scripts/workbench/results.ts scripts/workbench/runner.ts scripts/workbench/cli.ts playwright.config.ts package.json tests/unit/workbench-runner.test.ts tests/unit/workbench-command-contract.test.ts tests/e2e/workbench.spec.ts
   git commit -m "feat: add isolated workbench browser runner"
   \`\`\`
 
@@ -520,22 +560,29 @@ Discover an existing \`context.serviceWorkers()\` worker or wait for \`context.w
 
 **Files:**
 
-- Create: \`tests/e2e/extension.spec.ts\`, \`tests/e2e/popup-smoke.spec.ts\`, \`tests/unit/workbench-command-contract.test.ts\`
-- Modify: \`scripts/workbench/runner.ts\`, \`scripts/workbench/cli.ts\`, \`scripts/workbench/production-scan.ts\`, \`package.json\`
+- Create: \`tests/e2e/extension.spec.ts\`, \`tests/e2e/popup-smoke.spec.ts\`
+- Modify: \`scripts/workbench/runner.ts\`, \`scripts/workbench/cli.ts\`, \`scripts/workbench/production-scan.ts\`, \`package.json\`, \`tests/unit/workbench-command-contract.test.ts\`
 
 **Interfaces:**
 
 \`\`\`ts
 interface ProductionGateResult {
+graph: "production";
+resultPath: string;
 workbenchBuildPath: string;
 productionBuildPath: string;
 productionScan: { ok: true };
 }
 
+function writeProductionGateResult(result: ProductionGateResult): Promise<string>;
+function readProductionGateResult(resultPath: string): Promise<ProductionGateResult>;
+
 function runRealExtensionAssertions(input: {
 buildPath: string;
 }): Promise<void>;
 \`\`\`
+
+The test:extension command persists this exact object at resultPath, prints the absolute resultPath, and writes that same absolute path to .workbench/tmp/last-production-gate-result-path. Final verification consumes that pointer, reads only the referenced ProductionGateResult, asserts graph=production, asserts Test-Path -LiteralPath productionBuildPath, and scans that exact path. It never selects a results.json by timestamp.
 
 - [ ] **Step 1: Write red tests** for real options query/command through the actual worker, accepted-state responses, invalid-command preservation, worker restart and second query, popup/options shared \`ManagerApp\`, exact dimensions, profile isolation, distinct run/profile/artifact paths, two concurrent builds with distinct \`.workbench/tmp/<run-id>/<graph>/chrome-mv3\` paths, distinct derived extension IDs, and no fixture seeding in real mode.
 - [ ] **Step 2: Run red tests.**
@@ -572,16 +619,7 @@ buildPath: string;
 
 **Files:** Create \`docs/agent-development-workbench.md\`; modify command/test files only for failures proven by the matrix; test \`tests/unit/workbench-command-contract.test.ts\`.
 
-- [ ] **Step 0: Record the implementation base before the first implementation commit.**
-
-  \`\`\`powershell
-  New-Item -ItemType Directory -Force .workbench | Out-Null
-  (git rev-parse HEAD).Trim() | Set-Content -NoNewline .workbench/implementation-base-sha
-  \`\`\`
-
-  Expected: \`.workbench/implementation-base-sha\` contains one full commit SHA and remains the fixed review base for the complete implementation.
-
-- [ ] **Step 1: Write the documentation assertion** for the five commands, \`ManagerApp\`, \`ManagerTransport\`, all five stable budget/readiness/capacity codes, 520 × 600, future UI issue checklist, feature-storage ownership, next-enabling-task order, no-Linear boundary, and final branded-Chrome manual release check.
+- [ ] **Step 1: Write the documentation assertion** for the five commands, \`ManagerApp\`, \`ManagerTransport\`, all six stable runner/artifact codes, 520 × 600, future UI issue checklist, feature-storage ownership, next-enabling-task order, no-Linear boundary, and final branded-Chrome manual release check.
 - [ ] **Step 2: Run it red.**
 
   \`\`\`text
@@ -611,13 +649,17 @@ buildPath: string;
 - [ ] **Step 5: Perform scoped review from the recorded implementation base.**
 
   \`\`\`powershell
-  $baseSha = (Get-Content .workbench/implementation-base-sha -Raw).Trim()
+  $baseSha = (Get-Content .workbench/tmp/implementation-base-sha -Raw).Trim()
   git diff --check "$baseSha..HEAD"
   git status --short
   git diff --stat "$baseSha..HEAD"
   rg -n "chrome\\.(tabs|tabGroups)\\.(group|move|ungroup|remove|update)\\s*\\(" src/workbench src/ui entrypoints
-  $latestResult = Get-ChildItem .workbench/artifacts -Recurse -Filter results.json | Sort-Object LastWriteTime | Select-Object -Last 1
-  $productionBuildPath = (Get-Content $latestResult.FullName -Raw | ConvertFrom-Json).buildPath
+  $productionGateResultPath = (Get-Content .workbench/tmp/last-production-gate-result-path -Raw).Trim()
+  $productionGate = Get-Content -LiteralPath $productionGateResultPath -Raw | ConvertFrom-Json
+  if ($productionGate.resultPath -ne $productionGateResultPath) { throw "ProductionGateResult path mismatch" }
+  if ($productionGate.graph -ne "production") { throw "ProductionGateResult graph is not production" }
+  if (-not (Test-Path -LiteralPath $productionGate.productionBuildPath)) { throw "Production build path does not exist" }
+  $productionBuildPath = $productionGate.productionBuildPath
   rg -n "TABROUTE_DEV_WORKBENCH_V1|data-workbench-control|tabrouteFixtureRegistryV1|wb:[a-z0-9-]+" $productionBuildPath
   \`\`\`
 
