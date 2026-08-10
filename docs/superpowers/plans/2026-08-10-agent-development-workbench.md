@@ -39,7 +39,7 @@
 - Create \`src/workbench/types.ts\`, \`url.ts\`, \`scenarios.ts\`, \`fixtureManagerTransport.ts\`, \`WorkbenchHost.tsx\`, \`WorkbenchOptionsApp.tsx\`, and \`markers.ts\`: workbench-only URL, fixture, control, host, and marker types. \`src/ui/manager/types.ts\` remains the sole owner of \`ManagerViewFixture\`, \`PersistentTabsViewFixture\`, and \`ManagerTransportRecord\`.
 - Create \`scripts/workbench/contracts.ts\`, \`paths.ts\`, \`lock.ts\`, \`artifacts.ts\`, \`leases.ts\`, \`build.ts\`, \`browser.ts\`, \`readiness.ts\`, \`results.ts\`, \`runner.ts\`, \`cli.ts\`, and \`production-scan.ts\`: Node runner, isolated browser, result, lease, budget, and scan ownership.
 - Modify \`package.json\`, \`playwright.config.ts\`, and \`.gitignore\`: commands, bundled Chromium configuration, and ignored run output.
-- Create unit tests \`tests/unit/workbench-url.test.ts\`, \`workbench-scenarios.test.ts\`, \`fixture-manager-transport.test.ts\`, \`workbench-artifacts.test.ts\`, \`workbench-leases.test.ts\`, \`workbench-concurrency.test.ts\`, \`production-scan.test.ts\`, \`workbench-runner.test.ts\`, and \`workbench-command-contract.test.ts\`.
+- Create unit tests \`tests/unit/workbench-url.test.ts\`, \`workbench-scenarios.test.ts\`, \`fixture-manager-transport.test.ts\`, \`workbench-artifacts.test.ts\`, \`workbench-leases.test.ts\`, \`workbench-concurrency.test.ts\`, \`production-scan.test.ts\`, \`workbench-runner.test.ts\`, \`workbench-cli-dispatch.test.ts\`, and \`workbench-command-contract.test.ts\`.
 - Create test helper \`tests/helpers/workbench-lock-worker.ts\`: two-process lease/artifact lock contention.
 - Modify existing manager tests where the transport shape changes: \`tests/component/manager-navigation.test.tsx\`, \`tests/component/manager-shell.test.tsx\`, and \`tests/component/manager-message-router.test.ts\`.
 - Create \`tests/component/workbench-host.test.tsx\), \`tests/e2e/workbench.spec.ts\`, \`tests/e2e/extension.spec.ts\`, and \`tests/e2e/popup-smoke.spec.ts\`.
@@ -54,12 +54,12 @@ No other manager, controller, persistence, or feature-storage file owns workbenc
 - [ ] **Step 0: Record the implementation base before any implementation task.**
 
   ```powershell
-  $gitCommonDir = (Resolve-Path (git rev-parse --git-common-dir)).Path
-  $implementationBasePath = Join-Path $gitCommonDir "tabroute-agent-workbench-implementation-base-sha"
+  $worktreeGitDir = (Resolve-Path (git rev-parse --git-dir)).Path
+  $implementationBasePath = Join-Path $worktreeGitDir "tabroute-agent-workbench-implementation-base-sha"
   (git rev-parse HEAD).Trim() | Set-Content -NoNewline -LiteralPath $implementationBasePath
   ```
 
-  Expected: $implementationBasePath is inside the resolved Git common directory, has the exact safe filename tabroute-agent-workbench-implementation-base-sha, and contains one full SHA before Task 1 changes begin. Git metadata is not a tracked worktree path, so this base cannot be included accidentally in the implementation diff.
+  Expected: $implementationBasePath is inside the resolved worktree-specific Git directory from git rev-parse --git-dir, has the exact safe filename tabroute-agent-workbench-implementation-base-sha, and contains one full SHA before Task 1 changes begin. Git metadata is not a tracked worktree path, so this base cannot be included accidentally in the implementation diff.
 
 **Files:**
 
@@ -369,7 +369,9 @@ The host emits only in the workbench graph: \`data-workbench-marker="TABROUTE_DE
 
 ### Task 4: Add production exclusion, leases, cleanup, and artifact budgets
 
-The minimal overflow file is a RunResultFailure with ok=false and code WORKBENCH_ARTIFACT_LIMIT; it uses the same bounded required metadata fields as every other failure result.
+scripts/workbench/contracts.ts is the sole owner of the shared RunResult, RunResultSuccess, RunResultFailure, RunStartedFailure, BoundedRunError, and WorkbenchErrorCode contracts. It imports ManagerRoute, ManagerDeepLink, and ManagerTransportRecord as type-only imports from src/ui/manager/types.ts; later runner, artifact, and CLI modules import these contracts instead of redefining them.
+
+The minimal overflow file is a RunStartedFailure member of RunResultFailure with ok=false, code WORKBENCH_ARTIFACT_LIMIT, phase artifact, and the started-run metadata required by that phase; it uses the same bounded required metadata fields as every other failure result.
 
 When required metadata would exceed the reserved space, do not leave the oversized file. First cap strings, arrays, records, and error details, then atomically replace results.json with a minimal capped failure result containing ok=false, code=WORKBENCH_ARTIFACT_LIMIT, runId, status, lease, buildPath, profilePath, error, and cleanup metadata. Encode that replacement as UTF-8 and verify it fits the reserved space in both the affected-run and global budgets before publishing it. The red test must assert reservation plus one byte produces this minimal result and no oversized results.json remains.
 
@@ -423,6 +425,83 @@ maxUrlBytes: 16384,
 maxErrorBytes: 8192
 } as const;
 \`\`\`
+
+```ts
+interface BoundedRunError {
+  message: string;
+  details?: Readonly<Record<string, string | number | boolean>>;
+}
+
+interface RunAssertion {
+  name: string;
+  passed: boolean;
+  details?: Readonly<Record<string, string | number | boolean>>;
+}
+
+interface RunResultStartedMetadata {
+  runId: string;
+  worktreePath: string;
+  buildPath: string;
+  profilePath: string;
+  mode: "fixture" | "real";
+  url: string;
+  scenario: string;
+  route: ManagerRoute;
+  deepLink: ManagerDeepLink;
+  commandRecords: readonly ManagerTransportRecord[];
+  readiness: { workerDiscoveredAt?: string; managerQuerySettledAt?: string };
+  screenshotPaths: readonly string[];
+  assertions: readonly RunAssertion[];
+  lease: LeaseRecord;
+  cleanup: { profileRemoved: boolean; retainedPath?: string };
+}
+
+interface RunResultSuccess extends RunResultStartedMetadata {
+  ok: true;
+  extensionId: string;
+  code?: never;
+  phase?: never;
+  error?: never;
+}
+
+interface ArgumentFailure {
+  ok: false;
+  code: "WORKBENCH_ARGUMENT";
+  phase: "argument";
+  runId: string;
+  worktreePath: string;
+  error: BoundedRunError;
+}
+
+interface CapacityFailure {
+  ok: false;
+  code: "WORKBENCH_CAPACITY";
+  phase: "capacity";
+  runId: string;
+  worktreePath: string;
+  error: BoundedRunError;
+}
+
+interface RunStartedFailure extends RunResultStartedMetadata {
+  ok: false;
+  code:
+    | "WORKBENCH_WORKER_TIMEOUT"
+    | "WORKBENCH_MANAGER_TIMEOUT"
+    | "WORKBENCH_CLEANUP_FAILED"
+    | "WORKBENCH_ARTIFACT_LIMIT";
+  phase:
+    | "worker"
+    | "manager-query"
+    | "restart-termination"
+    | "restart-wake"
+    | "cleanup"
+    | "artifact";
+  error: BoundedRunError;
+}
+
+type RunResultFailure = ArgumentFailure | CapacityFailure | RunStartedFailure;
+type RunResult = RunResultSuccess | RunResultFailure;
+```
 
 Use constants 50 MiB active, 200 MiB global, 5 MiB text logs, 20 terminal runs, and seven days. \`terminalAt\` is used only for terminal-run age/count pruning; \`capturedAt\` is used only for optional evidence eviction within video, trace, and screenshot categories. Enforce budgets before every log/screenshot/trace/video/result/error write. Prune old terminal runs, then terminal count, then affected-run optional evidence in video/trace/screenshot order, then global terminal/optional evidence. Sort terminal runs by \`terminalAt\`, then \`runId\`; sort optional evidence by \`capturedAt\`, then \`runId\`, then \`relativePath\`. Rotate text logs to 5 MiB. Never evict lease/status/result/error metadata.
 
@@ -483,7 +562,7 @@ After scripts/workbench/cli.ts is created and its command-dispatch tests pass, a
 
 - Create: \`scripts/workbench/build.ts\`, \`scripts/workbench/browser.ts\`, \`scripts/workbench/readiness.ts\`, \`scripts/workbench/results.ts\`, \`scripts/workbench/runner.ts\`, \`scripts/workbench/cli.ts\`
 - Modify: \`playwright.config.ts\`, \`package.json\` after scripts/workbench/cli.ts exists
-- Test: \`tests/unit/workbench-runner.test.ts\`, \`tests/unit/workbench-command-contract.test.ts\`, \`tests/e2e/workbench.spec.ts\`
+- Test: \`tests/unit/workbench-runner.test.ts\`, \`tests/unit/workbench-cli-dispatch.test.ts\`, \`tests/unit/workbench-command-contract.test.ts\`, \`tests/e2e/workbench.spec.ts\`
 
 **Interfaces:**
 
@@ -509,52 +588,41 @@ restartWorker(): Promise<{ terminatedTargetId: string; awakenedTargetId: string 
 close(): Promise<void>;
 }
 
-interface RunResultBase {
-runId: string; worktreePath: string; buildPath: string; profilePath: string;
-mode: "fixture" | "real"; url: string; scenario: string;
-route: ManagerRoute; deepLink: ManagerDeepLink;
-commandRecords: readonly ManagerTransportRecord[];
-readiness: { workerDiscoveredAt?: string; managerQuerySettledAt?: string };
-screenshotPaths: readonly string[]; assertions: readonly RunAssertion[];
-lease: LeaseRecord; cleanup: { profileRemoved: boolean; retainedPath?: string };
-}
-
-interface RunResultSuccess extends RunResultBase {
-ok: true; extensionId: string; code?: never; phase?: never; error?: never;
-}
-
-interface RunResultFailure extends RunResultBase {
-ok: false; extensionId?: string; code: WorkbenchErrorCode;
-phase?: "worker" | "manager-query" | "restart-termination" | "restart-wake" | "cleanup" | "artifact";
-error: { message: string; details?: Readonly<Record<string, string | number | boolean>> };
-}
-
-type RunResult = RunResultSuccess | RunResultFailure;
+RunResult, RunResultFailure, RunResultSuccess, and RunStartedFailure are imported from scripts/workbench/contracts.ts. Task 5 must not redefine them; the same phase-specific failure union is used by browser readiness, cleanup, and result writers.
 \`\`\`
 
 Use \`chromium.launchPersistentContext(profilePath, { channel: "chromium", headless, args: ["--disable-extensions-except=<buildPath>", "--load-extension=<buildPath>"] })\` with Playwright's bundled Chromium. The explicit \`channel: "chromium"\` is required for headless extension startup. Never set \`executablePath\`, use a user profile, connect to an existing browser, use a remote debugging endpoint, open \`chrome://extensions\`, or use toolbar interaction.
 
-Discover an existing \`context.serviceWorkers()\` worker or wait for \`context.waitForEvent("serviceworker")\` for 15,000 ms. Parse and validate \`chrome-extension://<id>/...\`; record the ID only in the result. Open \`options.html\` after discovery. The first manager query has a separate 5,000 ms deadline. Retry only the exact case-insensitive \`receiving end does not exist\` text every 250 ms. A worker timeout returns RunResultFailure with code "WORKBENCH_WORKER_TIMEOUT" and phase "worker"; a manager timeout returns RunResultFailure with code "WORKBENCH_MANAGER_TIMEOUT", phase "manager-query", and workerDiscoveredAt in readiness. Both include bounded lease, cleanup, and error metadata. A loading fixture remains pending until its typed release.
+Discover an existing \`context.serviceWorkers()\` worker or wait for \`context.waitForEvent("serviceworker")\` for 15,000 ms. Parse and validate \`chrome-extension://<id>/...\`; record the ID only in the result. Open \`options.html\` after discovery. The first manager query has a separate 5,000 ms deadline. Retry only the exact case-insensitive \`receiving end does not exist\` text every 250 ms. A worker timeout returns the RunStartedFailure member with code "WORKBENCH_WORKER_TIMEOUT" and phase "worker"; a manager timeout returns the RunStartedFailure member with code "WORKBENCH_MANAGER_TIMEOUT", phase "manager-query", and workerDiscoveredAt in readiness. Both include bounded lease, cleanup, and error metadata. A loading fixture remains pending until its typed release.
 
 - [ ] **Step 1: Write red unit seams** for current-worktree refusal, unique run-specific WXT output paths, worker URL parsing, invalid origin, \`channel: "chromium"\` with \`headless: true\`, separate deadlines, exact retry text, canonical URL, result-path printing, cleanup on failure, and worker generations. Add a headless Playwright worker-discovery test that launches the bundled Chromium path in the default headless mode and proves the service-worker target is discoverable before opening the options page.
-- [ ] **Step 1b: Write the red CLI contract test.** Assert that each of the six package scripts names scripts/workbench/cli.ts and dispatches the exact command and arguments. The test must run before package.json is changed.
+- [ ] **Step 1b: Write the red CLI-only dispatch test.** Test scripts/workbench/cli.ts directly with --contract and exact command/argument dispatch. This test must not read package.json or require package scripts.
 - [ ] **Step 2: Run the red CLI and runner tests.**
 
   \`\`\`text
-  npx vitest run tests/unit/workbench-command-contract.test.ts
+  npx vitest run tests/unit/workbench-cli-dispatch.test.ts
   npx vitest run tests/unit/workbench-runner.test.ts
   \`\`\`
 
   Expected: both tests FAIL because the CLI and runner modules do not exist.
 
-- [ ] **Step 2b: Create scripts/workbench/cli.ts and then add the six package scripts.** Implement exact command dispatch plus a --contract mode that validates dispatch without starting browser sessions or requiring later Task 7 test files. Run the command-contract test, then add package.json only after cli.ts exists. Do not publish a script that points to a missing file.
-- [ ] **Step 2c: Run the green command-contract test before browser implementation.**
+- [ ] **Step 2b: Create scripts/workbench/cli.ts without changing package.json.** Implement exact command dispatch plus a --contract mode that validates dispatch without starting browser sessions or requiring later Task 7 test files. Do not publish package scripts until the CLI-only test is green.
+- [ ] **Step 2c: Run the green CLI-only dispatch test before browser implementation.**
+
+  ```text
+  npx vitest run tests/unit/workbench-cli-dispatch.test.ts
+  ```
+
+  Expected: PASS for direct CLI dispatch while package.json remains unchanged.
+
+- [ ] **Step 2d: Add package scripts and the separate package-script contract test.** After the CLI-only test is green, add the six exact package entries to package.json. Then create tests/unit/workbench-command-contract.test.ts as a separate test; it reads package.json, asserts the exact entries, and invokes each script with --contract.
+- [ ] **Step 2e: Run the green package-script contract test.**
 
   ```text
   npx vitest run tests/unit/workbench-command-contract.test.ts
   ```
 
-  Expected: PASS with all six package scripts targeting the created CLI.
+  Expected: PASS only after package.json contains the exact entries and the CLI --contract dispatch succeeds.
 
 - [ ] **Step 3: Implement build and lifecycle.** Resolve and verify \`process.cwd()\` as the current worktree. For each run, set \`outDir = <worktree>/.workbench/tmp/<run-id>/<graph>\` through \`TABROUTE_WXT_OUT_DIR\`, run WXT, and require \`buildPath = <outDir>/chrome-mv3\`. Return that exact \`buildPath\` to both launcher and scanner; never point parallel runs at \`.output/chrome-mv3\`. Create a unique OS-temp profile, create the lease, launch persistent Chromium, capture page/worker console and error events, and write bounded \`results.json\` with all \`RunResult\` fields. Build the exact canonical URL with the derived ID and default fixture query. \`npm run workbench\` uses fixture mode, \`wb:default\`, and keeps the session available for inspection; its noninteractive test form accepts \`--once\` and closes after evidence.
 - [ ] **Step 4: Implement restart with a target probe, not an event dependency.** Get \`browser = context.browser()\`; create \`cdp = await browser.newBrowserCDPSession()\`; call \`Target.getTargets\`; select the extension \`service_worker\` target; call \`Target.closeTarget({ targetId })\`; poll \`Target.getTargets\` until that target ID is absent, with a 5,000 ms termination deadline. Then send one typed \`manager-query\` from the extension page, retry only \`receiving end does not exist\` at 250 ms cadence until a separate 5,000 ms wake deadline, and poll \`Target.getTargets\` for a new extension service-worker target ID. Record the old/new target IDs as generations. A termination or wake deadline failure returns \`WORKBENCH_WORKER_TIMEOUT\` with phase \`restart-termination\` or \`restart-wake\`; it never waits indefinitely for \`context.waitForEvent("serviceworker")\`. Do not use extension-management UI.
@@ -567,7 +635,7 @@ Discover an existing \`context.serviceWorkers()\` worker or wait for \`context.w
 
   Expected: PASS after implementation, with a fresh profile removed and a result path printed.
 
-- [ ] **Step 6b: Run the green CLI contract and every package script before the Task 5 commit.**
+- [ ] **Step 6b: Run the green package-script contract and every package script before the Task 5 commit.**
 
   ```text
   npx vitest run tests/unit/workbench-command-contract.test.ts
@@ -579,12 +647,12 @@ Discover an existing \`context.serviceWorkers()\` worker or wait for \`context.w
   npm run smoke:popup -- --contract
   ```
 
-  Expected: the command-contract test and all six package commands PASS in --contract mode, each uses the created CLI, and no browser session or later Task 7 test file is required. Full command behavior is covered by the later matrix.
+  Expected: the package-script contract test and all six package commands PASS in --contract mode, each uses the created CLI, and no browser session or later Task 7 test file is required. Full command behavior is covered by the later matrix.
 
 - [ ] **Step 7: Commit.**
 
   \`\`\`text
-  git add scripts/workbench/build.ts scripts/workbench/browser.ts scripts/workbench/readiness.ts scripts/workbench/results.ts scripts/workbench/runner.ts scripts/workbench/cli.ts playwright.config.ts package.json tests/unit/workbench-runner.test.ts tests/unit/workbench-command-contract.test.ts tests/e2e/workbench.spec.ts
+  git add scripts/workbench/build.ts scripts/workbench/browser.ts scripts/workbench/readiness.ts scripts/workbench/results.ts scripts/workbench/runner.ts scripts/workbench/cli.ts playwright.config.ts package.json tests/unit/workbench-runner.test.ts tests/unit/workbench-cli-dispatch.test.ts tests/unit/workbench-command-contract.test.ts tests/e2e/workbench.spec.ts
   git commit -m "feat: add isolated workbench browser runner"
   \`\`\`
 
@@ -721,10 +789,11 @@ The test:extension command persists this exact object at resultPath, prints the 
 - [ ] **Step 6: Perform the final full review from the recorded implementation base.** Do not modify implementation after this review. If a later acceptance note is required, create a separate docs-only commit and do not change any implementation file.
 
   \`\`\`powershell
-  $gitCommonDir = (Resolve-Path (git rev-parse --git-common-dir)).Path
-  $implementationBasePath = Join-Path $gitCommonDir "tabroute-agent-workbench-implementation-base-sha"
+  $worktreeGitDir = (Resolve-Path (git rev-parse --git-dir)).Path
+  $implementationBasePath = Join-Path $worktreeGitDir "tabroute-agent-workbench-implementation-base-sha"
   $baseSha = (Get-Content -LiteralPath $implementationBasePath -Raw).Trim()
   git diff --check "$baseSha..HEAD"
+  if ($LASTEXITCODE -ne 0) { throw "git diff --check failed" }
   if ((git status --porcelain).Length -ne 0) { throw "Working tree is not clean" }
   git diff --stat "$baseSha..HEAD"
   $forbidden = rg -n "chrome\\.(tabs|tabGroups)\\.(group|move|ungroup|remove|update)\\s*\\(" src/workbench src/ui entrypoints 2>$null
