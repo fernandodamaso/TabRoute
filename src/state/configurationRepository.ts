@@ -16,6 +16,10 @@ import {
   SYNC_LIMITS,
   type ChromeStoragePort
 } from "./keys";
+import {
+  createChromeSessionRepository,
+  type SessionRepository
+} from "./sessionRepository";
 
 export type SyncChangeResult =
   | { kind: "applied"; configuration: Configuration; revisionId: string }
@@ -28,6 +32,7 @@ export interface ConfigurationRepository {
   loadOrCreate(): Promise<Configuration>;
   save(configuration: Configuration): Promise<void>;
   applySyncChange(changedKeys?: readonly string[]): Promise<SyncChangeResult>;
+  markControllerRevisionApplied(revisionId: string): Promise<void>;
   getConfiguration(): Configuration;
 }
 
@@ -122,6 +127,7 @@ export function createConfigurationRepository(input: {
   storage: RepositoryStorage;
   createDefault?: () => Configuration;
   now?: () => number;
+  sessionRepository?: Pick<SessionRepository, "loadRuntime" | "updateRuntime">;
 }): ConfigurationRepository {
   const createDefault = input.createDefault ?? (() => createDefaultConfiguration());
   const now = input.now ?? Date.now;
@@ -129,8 +135,11 @@ export function createConfigurationRepository(input: {
   const chromeStorage = areas !== undefined;
   const legacy = areas ? undefined : input.storage as LegacyConfigurationStorage;
   const sync = areas?.sync;
-  const session = areas?.session;
+  const sessionRepository =
+    input.sessionRepository ??
+    (areas ? createChromeSessionRepository(areas.session) : undefined);
   let configuration = validateConfiguration(createDefault());
+  let activeRevisionId: string | undefined;
   let saveQueue: Promise<unknown> = Promise.resolve();
 
   async function readShadow(): Promise<ConfigurationShadow | undefined> {
@@ -169,20 +178,11 @@ export function createConfigurationRepository(input: {
   }
 
   async function readRuntime(): Promise<Record<string, unknown>> {
-    if (!session) return {};
-    const stored = await session.get(STORAGE_KEYS.sessionRuntime);
-    const runtime = stored[STORAGE_KEYS.sessionRuntime];
-    return isRecord(runtime)
-      ? runtime
-      : {};
+    return sessionRepository ? sessionRepository.loadRuntime() : {};
   }
 
   async function updateRuntime(patch: Record<string, unknown>): Promise<void> {
-    if (!session) return;
-    const current = await readRuntime();
-    await session.set({
-      [STORAGE_KEYS.sessionRuntime]: { ...current, ...patch }
-    });
+    if (sessionRepository) await sessionRepository.updateRuntime(patch);
   }
 
   async function readCandidate(): Promise<
@@ -303,6 +303,7 @@ export function createConfigurationRepository(input: {
         pendingSyncRevision: undefined
       });
       configuration = verified.configuration;
+      activeRevisionId = revisionId;
       if (
         previousHead &&
         !rolledOver &&
@@ -311,8 +312,13 @@ export function createConfigurationRepository(input: {
       ) {
         const currentHead = await sync.get(SYNC_KEYS.configurationHead);
         const current = currentHead[SYNC_KEYS.configurationHead];
-        if (isHead(current) && current.revisionId === revisionId)
-          await sync.remove(previousHead.shardKeys);
+        if (isHead(current) && current.revisionId === revisionId) {
+          try {
+            await sync.remove(previousHead.shardKeys);
+          } catch {
+            // Obsolete shard cleanup is best effort after the new revision commits.
+          }
+        }
       }
     } catch (error) {
       if (error instanceof ConfigurationStorageError) throw error;
@@ -373,12 +379,14 @@ export function createConfigurationRepository(input: {
       const currentRuntime = await readRuntime();
       if (shadowMatchesHead(shadow, candidate.head)) {
         configuration = candidate.configuration;
+        activeRevisionId = candidate.head.revisionId;
         return configuration;
       }
       if (currentRuntime.lastLocallyAuthoredSyncRevisionId === candidate.head.revisionId) {
         await writeShadow(shadowFor(candidate.configuration, candidate.head.revisionId, candidate.head.checksum, now()));
         await updateRuntime({ lastAppliedSyncRevisionId: candidate.head.revisionId, pendingSyncRevision: undefined });
         configuration = candidate.configuration;
+        activeRevisionId = candidate.head.revisionId;
         return configuration;
       }
       if (candidate.migrated) {
@@ -388,12 +396,21 @@ export function createConfigurationRepository(input: {
       await writeShadow(shadowFor(candidate.configuration, candidate.head.revisionId, candidate.head.checksum, now()));
       await updateRuntime({ lastAppliedSyncRevisionId: candidate.head.revisionId, pendingSyncRevision: undefined });
       configuration = candidate.configuration;
+      activeRevisionId = candidate.head.revisionId;
+      return configuration;
+    }
+    if (candidate.kind === "invalid") {
+      if (candidate.head)
+        await updateRuntime({ pendingSyncRevision: candidate.head.revisionId });
+      if (shadow) {
+        configuration = shadow.configuration;
+        activeRevisionId = shadow.revisionId;
+      }
       return configuration;
     }
     if (shadow) {
       configuration = shadow.configuration;
-      if (candidate.kind === "invalid" && candidate.head)
-        await updateRuntime({ pendingSyncRevision: candidate.head.revisionId });
+      activeRevisionId = shadow.revisionId;
       return configuration;
     }
     return loadLegacyOrDefault();
@@ -417,12 +434,9 @@ export function createConfigurationRepository(input: {
       return { kind: "invalid", configuration, reason: candidate.reason };
     }
     const runtime = await readRuntime();
-    const shadow = await readShadow();
-    if (
-      shadowMatchesHead(shadow, candidate.head) ||
-      runtime.lastLocallyAuthoredSyncRevisionId === candidate.head.revisionId ||
-      runtime.lastAppliedSyncRevisionId === candidate.head.revisionId
-    )
+    const controllerApplied =
+      runtime.controllerAppliedSyncRevisionId === candidate.head.revisionId;
+    if (activeRevisionId === candidate.head.revisionId && controllerApplied)
       return { kind: "already-applied", configuration, revisionId: candidate.head.revisionId };
     if (candidate.migrated) {
       await saveSync(candidate.configuration);
@@ -431,6 +445,7 @@ export function createConfigurationRepository(input: {
     await writeShadow(shadowFor(candidate.configuration, candidate.head.revisionId, candidate.head.checksum, now()));
     await updateRuntime({ lastAppliedSyncRevisionId: candidate.head.revisionId, pendingSyncRevision: undefined });
     configuration = candidate.configuration;
+    activeRevisionId = candidate.head.revisionId;
     return { kind: "applied", configuration, revisionId: candidate.head.revisionId };
   }
 
@@ -449,6 +464,16 @@ export function createConfigurationRepository(input: {
     },
     async applySyncChange(changedKeys) {
       const operation = saveQueue.then(() => applySyncChange(changedKeys));
+      saveQueue = operation.then(() => undefined, () => undefined);
+      return operation;
+    },
+    async markControllerRevisionApplied(revisionId) {
+      const operation = saveQueue.then(async () => {
+        await updateRuntime({
+          controllerAppliedSyncRevisionId: revisionId,
+          pendingSyncRevision: undefined
+        });
+      });
       saveQueue = operation.then(() => undefined, () => undefined);
       return operation;
     },

@@ -3,7 +3,11 @@ import { createDefaultConfiguration } from "../src/domain/defaults";
 import { createTabRouteController } from "../src/controller/controller";
 import { createChromeSessionRepository } from "../src/state/sessionRepository";
 import { createConfigurationRepository } from "../src/state/configurationRepository";
-import { createConfigurationSyncCoordinator } from "../src/state/configurationSyncCoordinator";
+import {
+  CONFIGURATION_SYNC_RETRY_ALARM,
+  createConfigurationSyncCoordinator,
+  registerConfigurationSyncIntake
+} from "../src/state/configurationSyncCoordinator";
 import type { ChromeTabSnapshot } from "../src/domain/types";
 import type { UiMessage } from "../src/ui/messages";
 import { applyChromeGroupPresentation } from "../src/groups/displayTitle";
@@ -29,16 +33,31 @@ function toSnapshot(tab: chrome.tabs.Tab): ChromeTabSnapshot | undefined {
 }
 
 export default defineBackground(async () => {
+  const session = createChromeSessionRepository(chrome.storage.session);
   const repository = createConfigurationRepository({
     storage: {
       sync: chrome.storage.sync,
       local: chrome.storage.local,
       session: chrome.storage.session
     },
-    createDefault: () => createDefaultConfiguration()
+    createDefault: () => createDefaultConfiguration(),
+    sessionRepository: session
+  });
+  const configurationSyncRef: {
+    current?: ReturnType<typeof createConfigurationSyncCoordinator>;
+  } = {};
+  const intake = registerConfigurationSyncIntake({
+    storageOnChanged: chrome.storage.onChanged,
+    alarmsOnAlarm: chrome.alarms.onAlarm,
+    dispatch(changedKeys) {
+      const configurationSync = configurationSyncRef.current;
+      if (!configurationSync) return;
+      void configurationSync.applySyncChange(changedKeys).catch((error: unknown) =>
+        console.error("TabRoute Sync revision application failed", error)
+      );
+    }
   });
   const configuration = await repository.loadOrCreate();
-  const session = createChromeSessionRepository(chrome.storage.session);
   const controller = createTabRouteController({
     configuration,
     chrome: createLiveChromePort(),
@@ -51,18 +70,19 @@ export default defineBackground(async () => {
       replaceConfiguration: (next) => controller.replaceConfiguration(next),
       refreshMenus: async () => undefined,
       refreshAlarms: async () => undefined,
-      refreshViews: async () => undefined
+      refreshViews: async () => undefined,
+      scheduleRetry: async () => {
+        await chrome.alarms.create(CONFIGURATION_SYNC_RETRY_ALARM, {
+          delayInMinutes: 1
+        });
+      }
     }
   });
-
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "sync") return;
-    void configurationSync
-      .applySyncChange(Object.keys(changes))
-      .catch((error: unknown) =>
-        console.error("TabRoute Sync revision application failed", error)
-      );
-  });
+  configurationSyncRef.current = configurationSync;
+  const startupSync = intake.markReady();
+  void configurationSync.applySyncChange(startupSync.changedKeys).catch((error: unknown) =>
+    console.error("TabRoute Sync revision application failed", error)
+  );
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (!changeInfo.url && changeInfo.status !== "complete") return;

@@ -1,7 +1,12 @@
 import { createConfigurationRepository } from "../../src/state/configurationRepository";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { encodeConfigurationRevision, sha256 } from "../../src/state/configurationShards";
-import { createConfigurationSyncCoordinator } from "../../src/state/configurationSyncCoordinator";
+import {
+  CONFIGURATION_SYNC_RETRY_ALARM,
+  createConfigurationSyncCoordinator,
+  registerConfigurationSyncIntake
+} from "../../src/state/configurationSyncCoordinator";
+import { createChromeSessionRepository } from "../../src/state/sessionRepository";
 import type { UUID } from "../../src/domain/types";
 
 const secondGroupId = "00000000-0000-4000-8000-000000000002" as UUID;
@@ -198,7 +203,7 @@ it("does not apply an incomplete remote generation and applies it once when the 
     createDefault: () => remote
   });
   await remoteRepository.save(remote);
-  const remoteHead = sync.values["config:v1:head"] as { shardKeys: string[] };
+  const remoteHead = sync.values["config:v1:head"] as { revisionId: string; shardKeys: string[] };
   const lastKey = remoteHead.shardKeys.at(-1)!;
   const lastShard = sync.values[lastKey];
   delete sync.values[lastKey];
@@ -211,10 +216,65 @@ it("does not apply an incomplete remote generation and applies it once when the 
   const applied = await repository.applySyncChange([lastKey]);
   expect(applied.kind).toBe("applied");
   expect(repository.getConfiguration().fallbackGroupId).toBe(remote.fallbackGroupId);
+  await repository.markControllerRevisionApplied(remoteHead.revisionId);
 
   const echo = await repository.applySyncChange(["config:v1:head"]);
   expect(echo.kind).toBe("already-applied");
   expect(echo.configuration.fallbackGroupId).toBe(remote.fallbackGroupId);
+});
+
+it("keeps an incomplete remote head pending on a new device without publishing defaults", async () => {
+  const base = createDefaultConfiguration(
+    () => "00000000-0000-4000-8000-000000000061"
+  );
+  const remote = createDefaultConfiguration(
+    () => "00000000-0000-4000-8000-000000000062"
+  );
+  const encoded = await encodeConfigurationRevision(
+    remote,
+    "00000000-0000-4000-8000-000000000063"
+  );
+  const sync = chromeStorage({ "config:v1:head": encoded.head });
+  const local = chromeStorage();
+  const session = chromeStorage();
+  const repository = createConfigurationRepository({
+    storage: { sync, local, session },
+    createDefault: () => base
+  });
+
+  const loaded = await repository.loadOrCreate();
+
+  expect(loaded.fallbackGroupId).toBe(base.fallbackGroupId);
+  expect(sync.values["config:v1:head"]).toEqual(encoded.head);
+  expect(sync.writes).toEqual([]);
+  expect(local.values["config:v1"]).toBeUndefined();
+  expect(session.values["runtime:v1"]).toMatchObject({
+    pendingSyncRevision: encoded.head.revisionId
+  });
+});
+
+it("preserves revision markers and associations through one serialized Session record", async () => {
+  const storage = chromeStorage();
+  const session = createChromeSessionRepository(storage);
+  const associations = [
+    {
+      managedGroupId: "00000000-0000-4000-8000-000000000071" as UUID,
+      chromeGroupId: 7,
+      chromeWindowId: 8,
+      observedAt: 9
+    }
+  ];
+
+  await session.updateRuntime({ lastAppliedSyncRevisionId: "revision-a" });
+  await session.saveAssociations(associations);
+  await session.updateRuntime({ pendingSyncRevision: "revision-b" });
+
+  expect(storage.values["runtime:v1"]).toEqual({
+    lastAppliedSyncRevisionId: "revision-a",
+    pendingSyncRevision: "revision-b",
+    associations
+  });
+  await expect(session.loadAssociations()).resolves.toEqual(associations);
 });
 
 it("rejects a Sync quota failure without replacing the last-valid shadow", async () => {
@@ -322,6 +382,39 @@ it("does not switch active configuration until remote shadow and Session markers
   expect(repository.getConfiguration().fallbackGroupId).toBe(
     initial.fallbackGroupId
   );
+
+  session.set = originalSessionSet;
+  const retried = await repository.applySyncChange(["config:v1:head"]);
+  expect(retried.kind).toBe("applied");
+  expect(repository.getConfiguration().fallbackGroupId).toBe(
+    remote.fallbackGroupId
+  );
+});
+
+it("keeps a committed save successful when obsolete shard cleanup fails", async () => {
+  const sync = chromeStorage();
+  const local = chromeStorage();
+  const session = chromeStorage();
+  const repository = createConfigurationRepository({
+    storage: { sync, local, session },
+    createDefault: () =>
+      createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000081")
+  });
+  const initial = await repository.loadOrCreate();
+  const previousHead = sync.values["config:v1:head"] as { revisionId: string; shardKeys: string[] };
+  const originalRemove = sync.remove;
+  sync.remove = async (keys) => {
+    if ((typeof keys === "string" ? [keys] : keys).some((key) => previousHead.shardKeys.includes(key)))
+      throw new Error("cleanup unavailable");
+    await originalRemove(keys);
+  };
+
+  const next = { ...initial, updatedAt: initial.updatedAt + 1 };
+  await expect(repository.save(next)).resolves.toBeUndefined();
+  expect((sync.values["config:v1:head"] as { revisionId: string }).revisionId).not.toBe(
+    previousHead.revisionId
+  );
+  expect(repository.getConfiguration()).toEqual(next);
 });
 
 it("rejects a checksum-valid remote payload with unknown fields", async () => {
@@ -371,13 +464,15 @@ it("coordinates one complete remote apply across controller and future side effe
         return applyCount === 1
           ? { kind: "applied" as const, configuration, revisionId: "remote" }
           : { kind: "already-applied" as const, configuration, revisionId: "remote" };
-      }
+      },
+      async markControllerRevisionApplied() {}
     },
     callbacks: {
       async replaceConfiguration() { calls.push("controller"); },
       async refreshMenus() { calls.push("menus"); },
       async refreshAlarms() { calls.push("alarms"); },
-      async refreshViews() { calls.push("views"); }
+      async refreshViews() { calls.push("views"); },
+      async scheduleRetry() {}
     }
   });
 
@@ -385,4 +480,90 @@ it("coordinates one complete remote apply across controller and future side effe
   await coordinator.applySyncChange(["config:v1:revision:remote:0"]);
 
   expect(calls).toEqual(["controller", "menus", "alarms", "views"]);
+});
+
+it("retries all controller side effects after a callback failure", async () => {
+  const configuration = createDefaultConfiguration(
+    () => "00000000-0000-4000-8000-000000000091"
+  );
+  let acknowledged = false;
+  let replaceCalls = 0;
+  const coordinator = createConfigurationSyncCoordinator({
+    repository: {
+      async applySyncChange() {
+        return acknowledged
+          ? { kind: "already-applied" as const, configuration, revisionId: "revision" }
+          : { kind: "applied" as const, configuration, revisionId: "revision" };
+      },
+      async markControllerRevisionApplied() {
+        acknowledged = true;
+      }
+    },
+    callbacks: {
+      async replaceConfiguration() {
+        replaceCalls += 1;
+        if (replaceCalls === 1) throw new Error("controller unavailable");
+      },
+      async refreshMenus() {},
+      async refreshAlarms() {},
+      async refreshViews() {},
+      async scheduleRetry() {}
+    }
+  });
+
+  await expect(coordinator.applySyncChange()).rejects.toThrow("controller unavailable");
+  await expect(coordinator.applySyncChange()).resolves.toMatchObject({ kind: "applied" });
+  expect(replaceCalls).toBe(2);
+  expect(acknowledged).toBe(true);
+});
+
+it("schedules the named durable alarm when a remote revision is pending", async () => {
+  const configuration = createDefaultConfiguration(
+    () => "00000000-0000-4000-8000-000000000101"
+  );
+  const scheduled: string[] = [];
+  const coordinator = createConfigurationSyncCoordinator({
+    repository: {
+      async applySyncChange() {
+        return { kind: "pending" as const, configuration, revisionId: "pending" };
+      },
+      async markControllerRevisionApplied() {}
+    },
+    callbacks: {
+      async replaceConfiguration() {},
+      async refreshMenus() {},
+      async refreshAlarms() {},
+      async refreshViews() {},
+      async scheduleRetry() { scheduled.push(CONFIGURATION_SYNC_RETRY_ALARM); }
+    }
+  });
+
+  await coordinator.applySyncChange(["config:v1:head"]);
+
+  expect(scheduled).toEqual([CONFIGURATION_SYNC_RETRY_ALARM]);
+});
+
+it("buffers Sync and retry-alarm intake until asynchronous initialization is ready", () => {
+  const changedListeners: Array<(changes: Record<string, unknown>, areaName: string) => void> = [];
+  const alarmListeners: Array<(alarm: { name: string }) => void> = [];
+  const dispatched: readonly string[][] = [] as unknown as readonly string[][];
+  const calls = dispatched as string[][];
+  const intake = registerConfigurationSyncIntake({
+    storageOnChanged: { addListener(listener) { changedListeners.push(listener); } },
+    alarmsOnAlarm: { addListener(listener) { alarmListeners.push(listener); } },
+    dispatch(keys) { calls.push([...keys]); }
+  });
+
+  changedListeners[0]!({ "config:v1:head": {} }, "sync");
+  alarmListeners[0]!({ name: CONFIGURATION_SYNC_RETRY_ALARM });
+
+  expect(calls).toEqual([]);
+  expect(intake.markReady()).toEqual({
+    pending: true,
+    changedKeys: ["config:v1:head"]
+  });
+  changedListeners[0]!({ "config:v1:revision:remote:0": {} }, "sync");
+  alarmListeners[0]!({ name: "unrelated" });
+
+  expect(calls).toEqual([["config:v1:revision:remote:0"]]);
 });

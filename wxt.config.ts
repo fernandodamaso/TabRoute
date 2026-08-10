@@ -9,6 +9,6 @@ export default defineConfig({
     description: "Automatically route, preserve, and restore Chrome tab groups.",
     minimum_chrome_version: "121",
     incognito: "not_allowed",
-    permissions: ["tabs", "tabGroups", "storage"]
+    permissions: ["tabs", "tabGroups", "storage", "alarms"]
   }
 });
