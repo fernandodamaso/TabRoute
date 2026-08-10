@@ -22,7 +22,7 @@ The non-negotiable principles are:
 
 ### 2.1 Managed groups
 
-A managed group has a persistent UUID, editable name, Chrome-supported color, optional emoji, rules, duplicate defaults, persistent tabs, portable default order/collapse presentation, and last known local window ownership/order/collapse state. The local observed state wins when restoring on that device; portable defaults apply when no local observation exists. Its rendered Chrome group title is `emoji + space + name` when an emoji is configured, otherwise just `name`.
+A managed group has a persistent UUID, editable name, Chrome-supported color, optional emoji, an `enabled` flag, rules, duplicate defaults, persistent tabs, portable default order/collapse presentation, and last known local window ownership/order/collapse state. The `enabled` flag is portable configuration: a disabled non-fallback group is ineligible for automatic routing and persistent repair, while the fallback group remains enabled so unmatched routing stays defined. The local observed state wins when restoring on that device; portable defaults apply when no local observation exists. Its rendered Chrome group title is `emoji + space + name` when an emoji is configured, otherwise just `name`.
 
 If a user renames a managed group in Chrome, v1 preserves the configured emoji and updates the configured name from the remainder of the title. If the displayed title no longer begins with the configured emoji, the whole entered title becomes the name and the configured emoji remains prepended on the next managed render. A user recolor updates the managed group's color.
 
@@ -49,7 +49,7 @@ Each rule is configured with one managed-group UUID (used when its placement act
 - optional per-rule duplicate-policy override; and
 - actions from the bounded v1 set: group, ungroup, make persistent in the target group, choose duplicate behavior, and collapse or expand the target group.
 
-The visual editor supports arbitrarily nested `AND` and `OR` expression groups. Leaves support URL, host/domain, path, title, pinned state, opener URL/domain, current group, and regular expression matching. URL and pattern values are validated before saving; invalid regular expressions are rejected and do not replace the last valid rule.
+The rule engine supports recursive `ConditionNode` evaluation, including nested `AND` and `OR` trees, so existing stored rules remain compatible. The v1 visual editor is deliberately narrower: it creates one positive leaf or a top-level `all` of positive leaves, plus zero or more negative leaf exceptions. Leaves support URL, host/domain, path, title, pinned state, opener URL/domain, current group, and regular expression matching. URL and pattern values are validated before saving; invalid regular expressions are rejected and do not replace the last valid rule.
 
 Current placement is a three-way value: a specific managed-group UUID, an unmanaged native group, or ungrouped. An unmanaged group never satisfies an `ungrouped` condition. A tab without a committed, supported URL is not yet routable; creation/loading events hold it in place until a committed URL arrives, rather than sending it to `Other` and moving it again.
 
@@ -101,7 +101,7 @@ Closing or ungrouping a persistent managed group is an intentional close marker 
 
 When a normal window is closing, TabRoute never recreates its persistent tabs one by one. It batches window-removal evidence until two seconds of window-event quiet, persisting that settlement across worker recreation. If one or more normal windows remain after the quiet batch, the persistent groups formerly owned by the closed windows are treated as intentionally closed for the session. If none remains, TabRoute treats the whole batch as browser shutdown: it performs no repair and writes no intentional-close markers, leaving the next browser session's startup restore to recover them.
 
-### 2.6 Snapshots, templates, and startup
+### 2.6 Snapshots and startup
 
 Users can save named full-browser snapshots and named individual-group snapshots. A snapshot records managed-group UUIDs and presentation, tab URLs and duplicate keys, persistent membership/order, collapsed state, group order, and the local window-ownership descriptor. It excludes incognito tabs and does not treat Chrome runtime IDs as durable identity.
 
@@ -111,18 +111,18 @@ At `runtime.onStartup`, the controller first allows Chrome session restoration t
 
 Window ownership is local-only. During a live session, the group maps to the Chrome window that currently contains it. At startup the extension identifies a prior home window only when exactly one restored normal window contains an acceptable tab or group member recorded for that managed group; otherwise it uses Chrome's most recently focused normal window. It never relies on a persisted `windowId` to identify a new browser-session window.
 
-Templates are reusable group blueprints containing presentation, persistent tabs, attached rule definitions, and duplicate settings. Creating a template instance produces fresh UUIDs for the managed group and cloned rules; it does not create a link that changes existing instances. v1 does not import settings from the user's existing extensions.
+### 2.7 UI and commands
 
-### 2.7 UI, commands, and suggestions
+The toolbar popup and the options entry point render one shared manager. The manager is a fixed 520 × 600 shell with a 52 px header, a 42 px primary navigation row, and one feature-owned scroll body. The toolbar opens Groups. The options entry point uses the same manager when a full extension page is needed. Primary destinations are Groups, Rules, Activity, and Settings. Persistent tabs stay inside the selected-group inspector; Settings owns only the global persistent-startup switch. Snapshots and Diagnostics are reached from Settings and each has an explicit return path to Settings.
 
-The extension has a small action popup and a full settings page.
-
-- **Popup:** automation status, current tab/group actions, quick move, make/remove persistent, Pin Group, save snapshot, Undo, recent activity, and a quiet Suggestions section.
-- **Settings:** visual nested rule editor, groups, colors/emojis, persistent tabs, duplicate defaults/exclusions, pause controls, snapshots, templates, activity-log view, and sync/local data diagnostics.
+- **Groups:** managed-group navigation, group identity and enablement, routing rules, behavior, and persistent tabs for the selected group.
+- **Rules:** overview filters, the flat IF/AND/NOT editor, duplicate/delete actions, and the confirmation overlay.
+- **Activity:** local activity history and the only Undo surface.
+- **Settings:** global automation/startup controls, data actions, Snapshots navigation, Diagnostics navigation, and local/sync diagnostics.
 - **Context menus:** add rule from this tab, make/remove persistent, exclude from duplicates, move to a managed group, move to `Other`, pause automation for this tab's scope, Pin Group, collapse/expand, and save snapshot. “Create rule from this tab” opens a prefilled visual rule editor; it never silently creates a rule.
 - **Shortcuts:** declare all major actions as extension commands so users can bind them in `chrome://extensions/shortcuts`. At most four receive suggested defaults because Chrome limits suggested keys; remaining commands are intentionally unbound by default.
 
-The extension never sends desktop notifications in v1. Every automatic result, failure, retry, and Undo is recorded in the local activity log; the popup is the only place suggestions surface. A suggestion is created after five manual moves of the same normalized domain into the same managed group within a rolling 14-day local window. It proposes a rule but never creates one automatically.
+The extension never sends desktop notifications in v1. Every automatic result, failure, retry, and Undo is recorded in the local activity log. Activity is the only Undo surface.
 
 ## 3. Architecture
 
@@ -160,7 +160,7 @@ Rule Engine ------> Duplicate Resolver ------> Persistent-tab Reconciler
 | Duplicate Resolver | Pure candidate/key calculation and survivor selection. | No |
 | Persistent-tab Reconciler | Detects missing/moved/navigated persistent definitions and requests repairs. | No |
 | Tab Action Engine | Plans, executes, verifies, compensates, and records group/tab mutations. | Yes, exclusively |
-| Snapshot Service | Captures/restores local snapshots and templates through the controller. | Requests only |
+| Snapshot Service | Captures/restores local snapshots through the controller. | Requests only |
 | UI adapters | Render state and issue explicit user commands. | No |
 | Activity/Undo Service | Persists bounded action records and inverse operations. | No |
 
@@ -187,7 +187,7 @@ All versioned records include `schemaVersion`, `id` where applicable, `createdAt
 
 | Record | Essential fields | Storage |
 |---|---|---|
-| `ManagedGroup` | UUID, name, emoji, color, fallback flag, persistent flag, duplicate override, default order/collapse | Sync for portable configuration; actual home/order/collapse observations are Local |
+| `ManagedGroup` | UUID, name, emoji, color, enabled flag, fallback flag, persistent flag, duplicate override, default order/collapse | Sync for portable configuration; actual home/order/collapse observations are Local |
 | `Rule` | UUID, target group UUID, priority, positive/negative ASTs, action set, duplicate override, pause state | Sync |
 | `PersistentTab` | UUID, group UUID, canonical URL, accepted patterns, manual persistent-order key | Sync |
 | `DuplicateSettings` | global default, global exclusions, normalization options | Sync |
@@ -195,7 +195,6 @@ All versioned records include `schemaVersion`, `id` where applicable, `createdAt
 | `Snapshot` | UUID, name, scope, captured groups/tabs/ownership descriptors | Local only |
 | `ActivityEntry` | action, result, affected IDs/URLs, timestamp, error code when any | Local only, automatically trimmed |
 | `UndoRecord` | typed inverse payload, browser-session token, expiry, pre-action ephemeral association hints | Local only, automatically expires |
-| `SuggestionState` | rolling manual-move observations and dismissals keyed by normalized domain + managed-group UUID | Local only, automatically trimmed |
 | `RuntimeSession` | browser-session token, manual overrides, intentional closed-group UUIDs, pause-until-restart flags, lifecycle action guards, pending group/window closures, pending Sync revision, live associations, tab observations, startup coordination, prefilled rule-draft records | `storage.session` |
 | `ChromeAssociation` | managed group UUID to current tabGroup ID/window ID, observed Chrome group metadata | `storage.session`; rebuilt every browser session |
 
@@ -203,7 +202,7 @@ All versioned records include `schemaVersion`, `id` where applicable, `createdAt
 
 The service worker listens to `storage.onChanged`. Shard-only arrivals do nothing until a head identifies a candidate revision. If the head arrives before all remote shards, TabRoute records that pending revision in Session and retries on later relevant changes or a named alarm; it never partially applies it. Once a complete remote revision validates, TabRoute atomically refreshes the Local shadow, rebuilds dynamic menus, reconciles snapshot alarms, and enqueues all-tab reconciliation. A revision already matching the Local shadow is an own-write/event echo, preventing loops across worker recreation.
 
-`chrome.storage.local` has a 10,485,760-byte hard quota without `unlimitedStorage`; TabRoute does not request that permission. It enforces a 9,437,184-byte soft budget in addition to count limits. Before a checkpoint, eligible pruning removes expired Undo, stale suggestion observations/dismissals, oldest automatic interval snapshots, then oldest activity; named user snapshots and configuration shadow are never automatically deleted. At the 50-snapshot count limit, a new named snapshot may replace the oldest automatic snapshot but otherwise fails with `SNAPSHOT_LIMIT`; an automatic capture skips and logs when no automatic snapshot is eligible. If the single replacement checkpoint still cannot fit, the write returns `CHECKPOINT_CAPACITY`, and the Action Engine blocks the destructive operation. `chrome.storage.session` also has a 10,485,760-byte limit. Ordinary removal garbage-collects tab observations/overrides after active guards/replacements release them, and every worker wake scrubs stale runtime IDs against fresh inventory.
+`chrome.storage.local` has a 10,485,760-byte hard quota without `unlimitedStorage`; TabRoute does not request that permission. It enforces a 9,437,184-byte soft budget in addition to count limits. Before a checkpoint, eligible pruning removes expired Undo, oldest automatic interval snapshots, then oldest activity; named user snapshots and configuration shadow are never automatically deleted. At the 50-snapshot count limit, a new named snapshot may replace the oldest automatic snapshot but otherwise fails with `SNAPSHOT_LIMIT`; an automatic capture skips and logs when no automatic snapshot is eligible. If the single replacement checkpoint still cannot fit, the write returns `CHECKPOINT_CAPACITY`, and the Action Engine blocks the destructive operation. `chrome.storage.session` also has a 10,485,760-byte limit. Ordinary removal garbage-collects tab observations/overrides after active guards/replacements release them, and every worker wake scrubs stale runtime IDs against fresh inventory.
 
 No Chrome `tabId`, `groupId`, or `windowId` is persisted as identity. In particular, `chrome.tabGroups.TabGroup.id` is unique only during a browser session. Chrome values are associations, not domain keys.
 
@@ -275,11 +274,11 @@ Testing is layered so pure logic does not depend on Chrome and browser behavior 
 
 | Layer | Focus | Required v1 cases |
 |---|---|---|
-| Unit | AST evaluation, priority/specificity, duplicate keys/survivor, persistent requirements, storage validation | nested AND/OR; positives/negatives; tie-breaks; all duplicate policies; manual override; invalid regex; persistent navigation |
+| Unit | AST evaluation, priority/specificity, duplicate keys/survivor, persistent requirements, storage validation | recursive engine AND/OR; flat-editor positives/negatives; tie-breaks; all duplicate policies; manual override; invalid regex; persistent navigation |
 | Component | controller/action plans using a fake Chrome port | event coalescing; multi-event guards; Sync generation/remote change; routability; replacement transfer/GC; retry; group recreation; intentional close; Undo; byte quota errors |
 | Browser integration | unpacked MV3 extension in Chrome test profile | actual group create/move/collapse, manual persistent-group cross-window drag, cross-window duplicate focus/closure, context menus, commands, worker wake/restart |
-| End-to-end | clean profile and restored profile | startup settle/reuse/missing restore, `WINDOW_ID_NONE` focus sequence, window-close semantics, deleted-group snapshot rejection, shared-group hold, window-home resolution/fallback, snapshot/template restore, no incognito mutation |
-| Manual release checks | Chrome UI behavior and permissions | popup/settings accessibility, emoji titles, user drag wins until restart, no notifications, log visibility |
+| End-to-end | clean profile and restored profile | startup settle/reuse/missing restore, `WINDOW_ID_NONE` focus sequence, window-close semantics, deleted-group snapshot rejection, shared-group hold, window-home resolution/fallback, snapshot restore, no incognito mutation |
+| Manual release checks | Chrome UI behavior and permissions | shared-manager accessibility, emoji titles, user drag wins until restart, no notifications, log visibility |
 
 The acceptance matrix must demonstrate these invariants before v1 is considered complete:
 
@@ -289,6 +288,7 @@ The acceptance matrix must demonstrate these invariants before v1 is considered 
 - A duplicate in another window uses the survivor order, focuses the survivor, and can be undone.
 - Restart reuses existing acceptable tabs, restores missing ones, preserves collapsed/order state, and never uses persisted Chrome IDs as identity.
 - Every automatic mutation has an activity entry; no desktop notification is emitted.
+- A disabled non-fallback group is not selected for automatic routing or persistent repair, while the enabled fallback remains available.
 - A partially arrived Sync generation never replaces the active Local shadow; one complete remote revision applies menus, alarms, and all-tab reconciliation once.
 - A multi-event group mutation never becomes a manual override, while a contradictory real user drag during settlement always does.
 - A persistent group's cross-window removal/creation sequence changes home rather than becoming an intentional close; a full multi-window browser shutdown creates no close markers.
@@ -308,6 +308,7 @@ Before copying any code, record the repository URL, immutable commit SHA, files/
 - Tab discarding, hibernation, memory/RAM optimization, or replacement for Chrome Memory Saver.
 - Side panel, command palette, tab/group search, AI usage badges, accounts, cloud backend, telemetry, or desktop notifications.
 - Unlimited history, unlimited Undo, cross-device snapshots, snapshot sync, and settings migration/import from existing extensions.
+- Quick Actions, rule suggestions, reusable Templates, and a standalone Persistent tabs screen.
 - Group capacity limits, overflow rules, duplicate groups per window, or named workspaces.
 - Automatic management, association, or restoration of Chrome shared tab groups.
 - Raw JSON rule editing or automatic rule creation from observed behavior.
