@@ -39,7 +39,7 @@
 - Create \`src/workbench/types.ts\`, \`url.ts\`, \`scenarios.ts\`, \`fixtureManagerTransport.ts\`, \`WorkbenchHost.tsx\`, \`WorkbenchOptionsApp.tsx\`, and \`markers.ts\`: workbench-only URL, fixture, control, host, and marker types. \`src/ui/manager/types.ts\` remains the sole owner of \`ManagerViewFixture\`, \`PersistentTabsViewFixture\`, and \`ManagerTransportRecord\`.
 - Create \`scripts/workbench/contracts.ts\`, \`paths.ts\`, \`lock.ts\`, \`artifacts.ts\`, \`leases.ts\`, \`build.ts\`, \`browser.ts\`, \`readiness.ts\`, \`results.ts\`, \`runner.ts\`, \`cli.ts\`, and \`production-scan.ts\`: Node runner, isolated browser, result, lease, budget, and scan ownership.
 - Modify \`package.json\`, \`playwright.config.ts\`, and \`.gitignore\`: commands, bundled Chromium configuration, and ignored run output.
-- Create unit tests \`tests/unit/workbench-url.test.ts\`, \`workbench-scenarios.test.ts\`, \`fixture-manager-transport.test.ts\`, \`workbench-artifacts.test.ts\`, \`workbench-leases.test.ts\`, \`workbench-concurrency.test.ts\`, \`production-scan.test.ts\`, \`workbench-runner.test.ts\`, \`workbench-cli-dispatch.test.ts\`, and \`workbench-command-contract.test.ts\`.
+- Create unit tests \`tests/unit/workbench-url.test.ts\`, \`workbench-scenarios.test.ts\`, \`fixture-manager-transport.test.ts\`, \`workbench-result-contract.test.ts\`, \`workbench-artifacts.test.ts\`, \`workbench-leases.test.ts\`, \`workbench-concurrency.test.ts\`, \`production-scan.test.ts\`, \`workbench-runner.test.ts\`, \`workbench-cli-dispatch.test.ts\`, and \`workbench-command-contract.test.ts\`.
 - Create test helper \`tests/helpers/workbench-lock-worker.ts\`: two-process lease/artifact lock contention.
 - Modify existing manager tests where the transport shape changes: \`tests/component/manager-navigation.test.tsx\`, \`tests/component/manager-shell.test.tsx\`, and \`tests/component/manager-message-router.test.ts\`.
 - Create \`tests/component/workbench-host.test.tsx\), \`tests/e2e/workbench.spec.ts\`, \`tests/e2e/extension.spec.ts\`, and \`tests/e2e/popup-smoke.spec.ts\`.
@@ -371,9 +371,9 @@ The host emits only in the workbench graph: \`data-workbench-marker="TABROUTE_DE
 
 scripts/workbench/contracts.ts is the sole owner of the shared RunResult, RunResultSuccess, RunResultFailure, RunStartedFailure, BoundedRunError, and WorkbenchErrorCode contracts. It imports ManagerRoute, ManagerDeepLink, and ManagerTransportRecord as type-only imports from src/ui/manager/types.ts; later runner, artifact, and CLI modules import these contracts instead of redefining them.
 
-The minimal overflow file is a RunStartedFailure member of RunResultFailure with ok=false, code WORKBENCH_ARTIFACT_LIMIT, phase artifact, and the started-run metadata required by that phase; it uses the same bounded required metadata fields as every other failure result.
+The minimal overflow file is an ArtifactLimitFailure member of RunResultFailure with ok=false, status "failed", code WORKBENCH_ARTIFACT_LIMIT, phase artifact, and the started-run metadata required by that phase. It omits extensionId when discovery has not completed and includes the real discovered value only when one exists; it never invents an ID.
 
-When required metadata would exceed the reserved space, do not leave the oversized file. First cap strings, arrays, records, and error details, then atomically replace results.json with a minimal capped failure result containing ok=false, code=WORKBENCH_ARTIFACT_LIMIT, runId, status, lease, buildPath, profilePath, error, and cleanup metadata. Encode that replacement as UTF-8 and verify it fits the reserved space in both the affected-run and global budgets before publishing it. The red test must assert reservation plus one byte produces this minimal result and no oversized results.json remains.
+When required metadata would exceed the reserved space, do not leave the oversized file. First cap strings, arrays, records, and error details, then atomically replace results.json with a minimal capped ArtifactLimitFailure containing ok=false, status "failed", code=WORKBENCH_ARTIFACT_LIMIT, runId, lease, buildPath, profilePath, error, and cleanup metadata. Include extensionId only if discovery produced it. Encode that replacement as UTF-8 and verify it fits the reserved space in both the affected-run and global budgets before publishing it. The red test must assert that reservation plus one byte replaces the oversized file, that the replacement contains status "failed", and that no oversized results.json remains.
 
 The production manifest contract is exact: manifest_version is 3; the target is Chrome only; incognito is not_allowed; permissions, as a duplicate-free set and in deterministic order, are exactly [tabs, tabGroups, storage]; and the production manifest must omit the commands key. The scanner reads only the built production manifest, does not depend on an unbuilt base manifest, rejects any commands entry, and rejects permission additions, removals, and duplicates. Tests cover the valid manifest plus each permission mutation and any commands entry.
 
@@ -381,7 +381,7 @@ The production manifest contract is exact: manifest_version is 3; the target is 
 
 - Create: \`scripts/workbench/contracts.ts\`, \`scripts/workbench/paths.ts\`, \`scripts/workbench/lock.ts\`, \`scripts/workbench/artifacts.ts\`, \`scripts/workbench/leases.ts\`, \`scripts/workbench/production-scan.ts\`
 - Modify: \`wxt.config.ts\`, \`.gitignore\`
-- Test: \`tests/unit/workbench-artifacts.test.ts\`, \`tests/unit/workbench-leases.test.ts\`, \`tests/unit/workbench-concurrency.test.ts\`, \`tests/unit/production-scan.test.ts\`, \`tests/helpers/workbench-lock-worker.ts\`
+- Test: \`tests/unit/workbench-result-contract.test.ts\`, \`tests/unit/workbench-artifacts.test.ts\`, \`tests/unit/workbench-leases.test.ts\`, \`tests/unit/workbench-concurrency.test.ts\`, \`tests/unit/production-scan.test.ts\`, \`tests/helpers/workbench-lock-worker.ts\`
 
 **Interfaces:**
 
@@ -432,6 +432,8 @@ interface BoundedRunError {
   details?: Readonly<Record<string, string | number | boolean>>;
 }
 
+type RunResultStatus = "completed" | "failed" | "abandoned";
+
 interface RunAssertion {
   name: string;
   passed: boolean;
@@ -439,6 +441,7 @@ interface RunAssertion {
 }
 
 interface RunResultStartedMetadata {
+  status: RunResultStatus;
   runId: string;
   worktreePath: string;
   buildPath: string;
@@ -458,6 +461,7 @@ interface RunResultStartedMetadata {
 
 interface RunResultSuccess extends RunResultStartedMetadata {
   ok: true;
+  status: "completed";
   extensionId: string;
   code?: never;
   phase?: never;
@@ -466,6 +470,7 @@ interface RunResultSuccess extends RunResultStartedMetadata {
 
 interface ArgumentFailure {
   ok: false;
+  status: "failed";
   code: "WORKBENCH_ARGUMENT";
   phase: "argument";
   runId: string;
@@ -475,6 +480,7 @@ interface ArgumentFailure {
 
 interface CapacityFailure {
   ok: false;
+  status: "failed";
   code: "WORKBENCH_CAPACITY";
   phase: "capacity";
   runId: string;
@@ -482,23 +488,57 @@ interface CapacityFailure {
   error: BoundedRunError;
 }
 
-interface RunStartedFailure extends RunResultStartedMetadata {
+interface WorkerTimeoutFailure extends RunResultStartedMetadata {
   ok: false;
-  code:
-    | "WORKBENCH_WORKER_TIMEOUT"
-    | "WORKBENCH_MANAGER_TIMEOUT"
-    | "WORKBENCH_CLEANUP_FAILED"
-    | "WORKBENCH_ARTIFACT_LIMIT";
-  phase:
-    | "worker"
-    | "manager-query"
-    | "restart-termination"
-    | "restart-wake"
-    | "cleanup"
-    | "artifact";
+  status: "failed";
+  code: "WORKBENCH_WORKER_TIMEOUT";
+  phase: "worker";
+  extensionId?: never;
   error: BoundedRunError;
 }
 
+interface ManagerTimeoutFailure extends RunResultStartedMetadata {
+  ok: false;
+  status: "failed";
+  code: "WORKBENCH_MANAGER_TIMEOUT";
+  phase: "manager-query";
+  extensionId: string;
+  error: BoundedRunError;
+}
+
+interface RestartFailure extends RunResultStartedMetadata {
+  ok: false;
+  status: "failed";
+  code: "WORKBENCH_WORKER_TIMEOUT";
+  phase: "restart-termination" | "restart-wake";
+  extensionId: string;
+  error: BoundedRunError;
+}
+
+interface CleanupFailure extends RunResultStartedMetadata {
+  ok: false;
+  status: "failed";
+  code: "WORKBENCH_CLEANUP_FAILED";
+  phase: "cleanup";
+  extensionId?: string;
+  error: BoundedRunError;
+}
+
+interface ArtifactLimitFailure extends RunResultStartedMetadata {
+  ok: false;
+  status: "failed";
+  code: "WORKBENCH_ARTIFACT_LIMIT";
+  phase: "artifact";
+  extensionId?: string;
+  error: BoundedRunError;
+}
+
+type RunStartedFailure =
+  | WorkerTimeoutFailure
+  | ManagerTimeoutFailure
+  | RestartFailure
+  | CleanupFailure
+  | ArtifactLimitFailure;
 type RunResultFailure = ArgumentFailure | CapacityFailure | RunStartedFailure;
 type RunResult = RunResultSuccess | RunResultFailure;
 ```
@@ -513,11 +553,11 @@ All lease-capacity and artifact-retention operations use one cross-process lock 
 
 The production scan accepts an explicit \`buildPath: string\` and recursively checks every asset below that path for exact UTF-8 markers \`TABROUTE_DEV_WORKBENCH_V1\`, \`data-workbench-control\`, \`tabrouteFixtureRegistryV1\`, and regex \`wb:[a-z0-9-]+\`. It separately parses the manifest and rejects workbench entrypoint keys/names/HTML paths and HTML basename \`workbench\`. It also checks Chrome MV3, \`incognito: "not_allowed"\`, and the exact no-commands manifest contract. Ordinary \`ChromeManagerTransport\`, \`default\`, \`loading\`, and \`offline\` text is allowed.
 
-- [ ] **Step 1: Write red tests** for terminalAt versus capturedAt ordering, all pruning order/budget/rotation rules, required-metadata reservation boundaries and field caps, stale-lock recovery, concurrent eighth/ninth lease creation, concurrent global writes, concurrent pruning/reaping, marker/manifest/HTML rules, and atomic no-partial-write behavior. Spawn two Node processes through \`tests/helpers/workbench-lock-worker.ts\` against the same lock: with seven active leases, exactly one contender creates lease eight and the other returns \`WORKBENCH_CAPACITY\`; concurrent artifact writes serialize, preserve required metadata, and apply one deterministic prune order.
+- [ ] **Step 1: Write red tests** in \`tests/unit/workbench-result-contract.test.ts\` for the discriminated RunResult schema and type surface. Add separate cases for worker timeout (status "failed", extensionId absent), manager timeout (status "failed", extensionId required), restart termination and restart wake (each status "failed", extensionId required), cleanup failure (status "failed", extensionId optional only when discovery succeeded), and artifact-limit failure (status "failed", extensionId optional only when discovery succeeded). Reject extensionId on argument, capacity, and worker-timeout failures; reject missing extensionId on manager-timeout and both restart cases; require the bounded artifact result to omit an unknown ID and remain within the reservation. Also test terminalAt versus capturedAt ordering, all pruning order/budget/rotation rules, required-metadata reservation boundaries and field caps, stale-lock recovery, concurrent eighth/ninth lease creation, concurrent global writes, concurrent pruning/reaping, marker/manifest/HTML rules, and atomic no-partial-write behavior. Spawn two Node processes through \`tests/helpers/workbench-lock-worker.ts\` against the same lock: with seven active leases, exactly one contender creates lease eight and the other returns \`WORKBENCH_CAPACITY\`; concurrent artifact writes serialize, preserve required metadata, and apply one deterministic prune order.
 - [ ] **Step 2: Run red tests.**
 
   \`\`\`text
-  npx vitest run tests/unit/workbench-artifacts.test.ts tests/unit/workbench-leases.test.ts tests/unit/workbench-concurrency.test.ts tests/unit/production-scan.test.ts
+  npx vitest run tests/unit/workbench-result-contract.test.ts tests/unit/workbench-artifacts.test.ts tests/unit/workbench-leases.test.ts tests/unit/workbench-concurrency.test.ts tests/unit/production-scan.test.ts
   \`\`\`
 
   Expected: FAIL because the modules do not exist.
@@ -528,7 +568,7 @@ The production scan accepts an explicit \`buildPath: string\` and recursively ch
 - [ ] **Step 5: Run green tests.**
 
   \`\`\`text
-  npx vitest run tests/unit/workbench-artifacts.test.ts tests/unit/workbench-leases.test.ts tests/unit/workbench-concurrency.test.ts tests/unit/production-scan.test.ts
+  npx vitest run tests/unit/workbench-result-contract.test.ts tests/unit/workbench-artifacts.test.ts tests/unit/workbench-leases.test.ts tests/unit/workbench-concurrency.test.ts tests/unit/production-scan.test.ts
   npm run typecheck
   \`\`\`
 
@@ -537,13 +577,13 @@ The production scan accepts an explicit \`buildPath: string\` and recursively ch
 - [ ] **Step 6: Commit.**
 
   \`\`\`text
-  git add scripts/workbench/contracts.ts scripts/workbench/paths.ts scripts/workbench/lock.ts scripts/workbench/artifacts.ts scripts/workbench/leases.ts scripts/workbench/production-scan.ts wxt.config.ts .gitignore tests/unit/workbench-artifacts.test.ts tests/unit/workbench-leases.test.ts tests/unit/workbench-concurrency.test.ts tests/unit/production-scan.test.ts tests/helpers/workbench-lock-worker.ts
+  git add scripts/workbench/contracts.ts scripts/workbench/paths.ts scripts/workbench/lock.ts scripts/workbench/artifacts.ts scripts/workbench/leases.ts scripts/workbench/production-scan.ts wxt.config.ts .gitignore tests/unit/workbench-result-contract.test.ts tests/unit/workbench-artifacts.test.ts tests/unit/workbench-leases.test.ts tests/unit/workbench-concurrency.test.ts tests/unit/production-scan.test.ts tests/helpers/workbench-lock-worker.ts
   git commit -m "feat: add workbench isolation and artifact bounds"
   \`\`\`
 
 ### Task 5: Add the isolated Chromium runner and readiness protocol
 
-Worker timeout, manager timeout, cleanup failure, capacity failure, and artifact overflow paths must construct RunResultFailure with ok=false, a top-level code, optional phase, bounded required metadata, and required error details. Successful runs must construct RunResultSuccess. Do not return ad hoc error objects outside the RunResult union.
+Worker timeout, manager timeout, restart, cleanup failure, capacity failure, and artifact overflow paths must construct the appropriate RunResultFailure member with ok=false, status "failed", its discriminated top-level code and phase, bounded required metadata, and required error details. Worker-timeout results omit extensionId; manager-timeout and restart results require the discovered extensionId; cleanup and artifact-limit results include extensionId only when discovery succeeded. Successful runs construct RunResultSuccess with status "completed". Do not return ad hoc error objects outside the RunResult union.
 
 After scripts/workbench/cli.ts is created and its command-dispatch tests pass, add these exact package scripts. This ordering keeps every earlier task independently compilable and prevents package commands from pointing at a missing CLI:
 
@@ -593,7 +633,7 @@ RunResult, RunResultFailure, RunResultSuccess, and RunStartedFailure are importe
 
 Use \`chromium.launchPersistentContext(profilePath, { channel: "chromium", headless, args: ["--disable-extensions-except=<buildPath>", "--load-extension=<buildPath>"] })\` with Playwright's bundled Chromium. The explicit \`channel: "chromium"\` is required for headless extension startup. Never set \`executablePath\`, use a user profile, connect to an existing browser, use a remote debugging endpoint, open \`chrome://extensions\`, or use toolbar interaction.
 
-Discover an existing \`context.serviceWorkers()\` worker or wait for \`context.waitForEvent("serviceworker")\` for 15,000 ms. Parse and validate \`chrome-extension://<id>/...\`; record the ID only in the result. Open \`options.html\` after discovery. The first manager query has a separate 5,000 ms deadline. Retry only the exact case-insensitive \`receiving end does not exist\` text every 250 ms. A worker timeout returns the RunStartedFailure member with code "WORKBENCH_WORKER_TIMEOUT" and phase "worker"; a manager timeout returns the RunStartedFailure member with code "WORKBENCH_MANAGER_TIMEOUT", phase "manager-query", and workerDiscoveredAt in readiness. Both include bounded lease, cleanup, and error metadata. A loading fixture remains pending until its typed release.
+Discover an existing \`context.serviceWorkers()\` worker or wait for \`context.waitForEvent("serviceworker")\` for 15,000 ms. Parse and validate \`chrome-extension://<id>/...\`; record the ID only in the result. Open \`options.html\` after discovery. The first manager query has a separate 5,000 ms deadline. Retry only the exact case-insensitive \`receiving end does not exist\` text every 250 ms. A worker timeout returns WorkerTimeoutFailure with status "failed", code "WORKBENCH_WORKER_TIMEOUT", phase "worker", and no extensionId; a manager timeout returns ManagerTimeoutFailure with status "failed", code "WORKBENCH_MANAGER_TIMEOUT", phase "manager-query", the discovered extensionId, and workerDiscoveredAt in readiness. Restart failures use RestartFailure with the discovered extensionId. Cleanup and artifact-limit failures use their dedicated members and include extensionId only when known. All include only bounded metadata valid for their phase. A loading fixture remains pending until its typed release.
 
 - [ ] **Step 1: Write red unit seams** for current-worktree refusal, unique run-specific WXT output paths, worker URL parsing, invalid origin, \`channel: "chromium"\` with \`headless: true\`, separate deadlines, exact retry text, canonical URL, result-path printing, cleanup on failure, and worker generations. Add a headless Playwright worker-discovery test that launches the bundled Chromium path in the default headless mode and proves the service-worker target is discoverable before opening the options page.
 - [ ] **Step 1b: Write the red CLI-only dispatch test.** Test scripts/workbench/cli.ts directly with --contract and exact command/argument dispatch. This test must not read package.json or require package scripts.
