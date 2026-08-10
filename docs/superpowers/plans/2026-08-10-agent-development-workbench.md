@@ -369,7 +369,7 @@ The host emits only in the workbench graph: \`data-workbench-marker="TABROUTE_DE
 
 ### Task 4: Add production exclusion, leases, cleanup, and artifact budgets
 
-scripts/workbench/contracts.ts is the sole owner of the shared RunResult, RunResultSuccess, RunResultFailure, RunStartedFailure, BoundedRunError, and WorkbenchErrorCode contracts. It imports ManagerRoute, ManagerDeepLink, and ManagerTransportRecord as type-only imports from src/ui/manager/types.ts; later runner, artifact, and CLI modules import these contracts instead of redefining them.
+scripts/workbench/contracts.ts is the sole owner of the shared RunResult, RunResultSuccess, AbandonedRunResult, RunResultFailure, AbandonedCleanupFailure, RunStartedFailure, BoundedRunError, and WorkbenchErrorCode contracts. It imports ManagerRoute, ManagerDeepLink, and ManagerTransportRecord as type-only imports from src/ui/manager/types.ts; later runner, artifact, and CLI modules import these contracts instead of redefining them.
 
 The minimal overflow file is an ArtifactLimitFailure member of RunResultFailure with ok=false, status "failed", code WORKBENCH_ARTIFACT_LIMIT, phase artifact, and the started-run metadata required by that phase. It omits extensionId when discovery has not completed and includes the real discovered value only when one exists; it never invents an ID.
 
@@ -533,27 +533,59 @@ interface ArtifactLimitFailure extends RunResultStartedMetadata {
   error: BoundedRunError;
 }
 
+interface AbandonedRunMetadata extends Omit<
+  RunResultStartedMetadata,
+  "status" | "lease" | "cleanup"
+> {
+  status: "abandoned";
+  extensionId?: string;
+  lease: LeaseRecord & { status: "abandoned" };
+  cleanup:
+    | { profileRemoved: true; retainedPath?: never }
+    | { profileRemoved: false; retainedPath: string };
+}
+
+interface AbandonedRunResult extends AbandonedRunMetadata {
+  ok: true;
+  cleanup: { profileRemoved: true; retainedPath?: never };
+  code?: never;
+  phase?: never;
+  error?: never;
+}
+
+interface AbandonedCleanupFailure extends AbandonedRunMetadata {
+  ok: false;
+  code: "WORKBENCH_CLEANUP_FAILED";
+  phase: "cleanup";
+  cleanup: { profileRemoved: false; retainedPath: string };
+  error: BoundedRunError;
+}
+
 type RunStartedFailure =
   | WorkerTimeoutFailure
   | ManagerTimeoutFailure
   | RestartFailure
   | CleanupFailure
   | ArtifactLimitFailure;
-type RunResultFailure = ArgumentFailure | CapacityFailure | RunStartedFailure;
-type RunResult = RunResultSuccess | RunResultFailure;
+type RunResultFailure =
+  | ArgumentFailure
+  | CapacityFailure
+  | RunStartedFailure
+  | AbandonedCleanupFailure;
+type RunResult = RunResultSuccess | AbandonedRunResult | RunResultFailure;
 ```
 
 Use constants 50 MiB active, 200 MiB global, 5 MiB text logs, 20 terminal runs, and seven days. \`terminalAt\` is used only for terminal-run age/count pruning; \`capturedAt\` is used only for optional evidence eviction within video, trace, and screenshot categories. Enforce budgets before every log/screenshot/trace/video/result/error write. Prune old terminal runs, then terminal count, then affected-run optional evidence in video/trace/screenshot order, then global terminal/optional evidence. Sort terminal runs by \`terminalAt\`, then \`runId\`; sort optional evidence by \`capturedAt\`, then \`runId\`, then \`relativePath\`. Rotate text logs to 5 MiB. Never evict lease/status/result/error metadata.
 
 Reserve exactly \`REQUIRED_METADATA_RESERVATION_BYTES\` in both the affected-run and global budgets for the combined required metadata. Before writing \`results.json\`, cap every string/array using \`REQUIRED_METADATA_CAPS\`, encode the capped object as UTF-8, and reject it with \`WORKBENCH_ARTIFACT_LIMIT\` if its byte length exceeds the reservation. Required metadata includes \`lease.json\`, status, result, error, run/profile/build paths, cleanup status, readiness timestamps, request/event records, assertions, screenshot paths, and error details. Boundary tests must cover reservation minus one byte, exactly the reservation, and reservation plus one byte after JSON encoding.
 
-Leases contain \`runId\`, \`pid\`, \`startedAt\`, \`heartbeat\`, \`profilePath\`, and status. Create before Chromium, heartbeat every five seconds, reap only heartbeat older than two minutes with a dead PID, and use the ten-minute conservative rule when liveness is unavailable. Reaping marks \`abandoned\`. Cleanup retries exactly after 250, 500, and 1000 ms; the third failure returns \`WORKBENCH_CLEANUP_FAILED\` with the retained path. Count non-stale active leases and refuse the ninth with \`WORKBENCH_CAPACITY\`.
+Leases contain \`runId\`, \`pid\`, \`startedAt\`, \`heartbeat\`, \`profilePath\`, and status. Create before Chromium, heartbeat every five seconds, reap only heartbeat older than two minutes with a dead PID, and use the ten-minute conservative rule when liveness is unavailable. Reaping updates the existing bounded result metadata to AbandonedRunResult with \`ok: true\`, status \`"abandoned"\`, an \`abandoned\` lease, and cleanup \`{ profileRemoved: true }\`; it preserves an existing extensionId only when one was already recorded and otherwise omits it. If orphan cleanup fails after the exact 250, 500, and 1000 ms retries, the reaper writes AbandonedCleanupFailure with \`ok: false\`, status \`"abandoned"\`, code \`WORKBENCH_CLEANUP_FAILED\`, phase \`"cleanup"\`, an \`abandoned\` lease, cleanup \`{ profileRemoved: false, retainedPath }\`, bounded error metadata, and an optional previously recorded extensionId. Both variants require the non-status, non-lease, non-cleanup fields inherited from the existing RunResultStartedMetadata; the reaper reads them from that result and does not synthesize replacements or invent mode, route, scenario, deep-link, command, readiness, screenshot, assertion, or extension metadata. Count non-stale active leases and refuse the ninth with \`WORKBENCH_CAPACITY\`.
 
 All lease-capacity and artifact-retention operations use one cross-process lock under \`.workbench/artifacts/.lock\`. Acquire it with atomic exclusive file creation (\`fs.open(lockPath, "wx")\`), write owner PID/run ID/heartbeat, refresh while the operation runs, and recover only stale locks using the same two-minute dead-PID or ten-minute unavailable-liveness rule. Hold the lock across reap/count/create and across budget-size/prune/write. A failed lock acquisition has a bounded retry and returns \`WORKBENCH_CAPACITY\` or \`WORKBENCH_ARTIFACT_LIMIT\` without a partial write.
 
 The production scan accepts an explicit \`buildPath: string\` and recursively checks every asset below that path for exact UTF-8 markers \`TABROUTE_DEV_WORKBENCH_V1\`, \`data-workbench-control\`, \`tabrouteFixtureRegistryV1\`, and regex \`wb:[a-z0-9-]+\`. It separately parses the manifest and rejects workbench entrypoint keys/names/HTML paths and HTML basename \`workbench\`. It also checks Chrome MV3, \`incognito: "not_allowed"\`, and the exact no-commands manifest contract. Ordinary \`ChromeManagerTransport\`, \`default\`, \`loading\`, and \`offline\` text is allowed.
 
-- [ ] **Step 1: Write red tests** in \`tests/unit/workbench-result-contract.test.ts\` for the discriminated RunResult schema and type surface. Add separate cases for worker timeout (status "failed", extensionId absent), manager timeout (status "failed", extensionId required), restart termination and restart wake (each status "failed", extensionId required), cleanup failure (status "failed", extensionId optional only when discovery succeeded), and artifact-limit failure (status "failed", extensionId optional only when discovery succeeded). Reject extensionId on argument, capacity, and worker-timeout failures; reject missing extensionId on manager-timeout and both restart cases; require the bounded artifact result to omit an unknown ID and remain within the reservation. Also test terminalAt versus capturedAt ordering, all pruning order/budget/rotation rules, required-metadata reservation boundaries and field caps, stale-lock recovery, concurrent eighth/ninth lease creation, concurrent global writes, concurrent pruning/reaping, marker/manifest/HTML rules, and atomic no-partial-write behavior. Spawn two Node processes through \`tests/helpers/workbench-lock-worker.ts\` against the same lock: with seven active leases, exactly one contender creates lease eight and the other returns \`WORKBENCH_CAPACITY\`; concurrent artifact writes serialize, preserve required metadata, and apply one deterministic prune order.
+- [ ] **Step 1: Write red tests** in \`tests/unit/workbench-result-contract.test.ts\` for the discriminated RunResult schema and type surface. Add separate cases for worker timeout (status "failed", extensionId absent), manager timeout (status "failed", extensionId required), restart termination and restart wake (each status "failed", extensionId required), cleanup failure (status "failed", extensionId optional only when discovery succeeded), artifact-limit failure (status "failed", extensionId optional only when discovery succeeded), successful reaping (status "abandoned", lease status abandoned, profileRemoved true, retainedPath absent, and extensionId omitted unless previously recorded), and abandoned cleanup failure (status "abandoned", code WORKBENCH_CLEANUP_FAILED, phase cleanup, lease status abandoned, profileRemoved false, retainedPath and bounded error required, and extensionId optional only when previously recorded). Reject extensionId on argument, capacity, and worker-timeout failures; reject missing extensionId on manager-timeout and both restart cases; require the bounded artifact result to omit an unknown ID and remain within the reservation; reject invented metadata on both abandoned cases. Also test terminalAt versus capturedAt ordering, all pruning order/budget/rotation rules, required-metadata reservation boundaries and field caps, stale-lock recovery, concurrent eighth/ninth lease creation, concurrent global writes, concurrent pruning/reaping, marker/manifest/HTML rules, and atomic no-partial-write behavior. Spawn two Node processes through \`tests/helpers/workbench-lock-worker.ts\` against the same lock: with seven active leases, exactly one contender creates lease eight and the other returns \`WORKBENCH_CAPACITY\`; concurrent artifact writes serialize, preserve required metadata, and apply one deterministic prune order.
 - [ ] **Step 2: Run red tests.**
 
   \`\`\`text
@@ -628,7 +660,7 @@ restartWorker(): Promise<{ terminatedTargetId: string; awakenedTargetId: string 
 close(): Promise<void>;
 }
 
-RunResult, RunResultFailure, RunResultSuccess, and RunStartedFailure are imported from scripts/workbench/contracts.ts. Task 5 must not redefine them; the same phase-specific failure union is used by browser readiness, cleanup, and result writers.
+RunResult, RunResultFailure, RunResultSuccess, AbandonedRunResult, AbandonedCleanupFailure, and RunStartedFailure are imported from scripts/workbench/contracts.ts. Task 5 must not redefine them; the same phase-specific failure union is used by browser readiness, cleanup, reaping, and result writers.
 \`\`\`
 
 Use \`chromium.launchPersistentContext(profilePath, { channel: "chromium", headless, args: ["--disable-extensions-except=<buildPath>", "--load-extension=<buildPath>"] })\` with Playwright's bundled Chromium. The explicit \`channel: "chromium"\` is required for headless extension startup. Never set \`executablePath\`, use a user profile, connect to an existing browser, use a remote debugging endpoint, open \`chrome://extensions\`, or use toolbar interaction.
