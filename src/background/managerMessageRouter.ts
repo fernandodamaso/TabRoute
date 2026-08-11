@@ -27,10 +27,17 @@ function success(configuration: Configuration): ManagerSuccess {
   return { ok: true, configuration, view };
 }
 
+type ManagerFailureKind = "validation" | "reference" | "persistence";
 function failure(kind: ManagerFailureKind, error: unknown): ManagerResponse {
   return { ok: false, error: { kind, message: error instanceof Error ? error.message : "manager command failed" } };
 }
-type ManagerFailureKind = "validation" | "reference" | "persistence";
+
+function domainFailure(error: unknown): ManagerResponse {
+  const kind: ManagerFailureKind = error instanceof Error && /not found|missing/.test(error.message)
+    ? "reference"
+    : "validation";
+  return failure(kind, error);
+}
 
 function ruleFromDraft(draft: RuleDraft, randomUuid: () => string, now: () => number) {
   const timestamp = now();
@@ -101,17 +108,35 @@ export function createManagerMessageRouter(input: {
   return {
     handle(message: ManagerMessage): Promise<ManagerResponse> {
       const run = async (): Promise<ManagerResponse> => {
-      try {
-        const current = validateConfiguration(input.controller.getConfiguration());
-        if (message.kind === "manager-query") return success(current);
-        const next = validateConfiguration(applyCommand(current, message.command, randomUuid, now));
-        await input.repository.save(next);
-        await input.controller.replaceConfiguration(next);
+        let current: Configuration;
+        try {
+          current = validateConfiguration(input.controller.getConfiguration());
+          if (message.kind === "manager-query") return success(current);
+        } catch (error) {
+          return domainFailure(error);
+        }
+
+        let next: Configuration;
+        try {
+          next = validateConfiguration(applyCommand(current, message.command, randomUuid, now));
+        } catch (error) {
+          return domainFailure(error);
+        }
+
+        try {
+          await input.repository.save(next);
+        } catch (error) {
+          return failure("persistence", error);
+        }
+
+        try {
+          await input.controller.replaceConfiguration(next);
+        } catch {
+          // Persistence is authoritative. The concrete controller installs the
+          // accepted configuration before reconciliation, so a later Chrome
+          // reconciliation failure must not make a durable command retryable.
+        }
         return success(next);
-      } catch (error) {
-        const kind: ManagerFailureKind = error instanceof Error && /not found|missing/.test(error.message) ? "reference" : "validation";
-        return failure(kind, error);
-      }
       };
 
       if (message.kind === "manager-query") return run();

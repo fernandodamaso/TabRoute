@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Configuration, ConditionNode, Rule, UUID } from "../../../domain/types";
 import { renderGroupTitle } from "../../../groups/displayTitle";
 import type { ManagerCommand, ManagerResponse } from "../types";
@@ -15,14 +15,32 @@ function summary(node: ConditionNode): string {
   return "value" in node ? node.value : node.kind;
 }
 
-export function RulesOverview({ configuration, command, onEdit, onCreate }: {
+type DeletingRule = { rule: Rule; trigger?: HTMLButtonElement };
+
+export function RulesOverview({
+  configuration,
+  command,
+  initialConfirmDeleteRuleId,
+  onInitialConfirmDeleteConsumed,
+  onEdit,
+  onCreate
+}: {
   configuration: Configuration;
   command: (message: ManagerCommand) => Promise<ManagerResponse>;
+  initialConfirmDeleteRuleId?: UUID;
+  onInitialConfirmDeleteConsumed?: () => void;
   onEdit?: (ruleId: UUID) => void;
   onCreate?: () => void;
 }) {
   const [filter, setFilter] = useState<RuleFilter>("All");
-  const [deleting, setDeleting] = useState<{ rule: Rule; trigger: HTMLButtonElement }>();
+  const [deleting, setDeleting] = useState<DeletingRule>();
+  useEffect(() => {
+    if (!initialConfirmDeleteRuleId) return;
+    const rule = configuration.rules.find((candidate) => candidate.id === initialConfirmDeleteRuleId);
+    if (!rule) return;
+    setDeleting({ rule });
+    onInitialConfirmDeleteConsumed?.();
+  }, [configuration.rules, initialConfirmDeleteRuleId, onInitialConfirmDeleteConsumed]);
   const filtered = configuration.rules.filter((rule) => filter === "All" || ruleStatus(rule) === filter);
   const run = (message: ManagerCommand) => { void command(message); };
   return <div className="rules-overview">
@@ -37,6 +55,6 @@ export function RulesOverview({ configuration, command, onEdit, onCreate }: {
         <div className="rule-row-actions"><label className="rule-enabled"><input type="checkbox" aria-label={`Enabled ${rule.id.slice(0, 8)}`} checked={rule.enabled} onChange={(event) => run({ kind: "manager-command", command: { kind: "setRuleEnabled", ruleId: rule.id, enabled: event.target.checked } })} /> Enabled</label><button type="button" onClick={() => run({ kind: "manager-command", command: { kind: "setRulePaused", ruleId: rule.id, pausedUntil: isPaused(rule.pausedUntil) ? undefined : "restart" } })}>{isPaused(rule.pausedUntil) ? "Resume rule" : "Pause rule"}</button><button type="button" onClick={() => onEdit?.(rule.id)}>Edit</button><RuleActionsMenu rule={rule} onEdit={() => onEdit?.(rule.id)} onDuplicate={() => run({ kind: "manager-command", command: { kind: "duplicateRule", ruleId: rule.id } })} onDelete={(trigger) => setDeleting({ rule, trigger })} /></div>
       </article>;
     })}</div>
-    {deleting && <ConfirmationDialog title="Delete rule?" message="This removes the rule from the active configuration." onCancel={() => { const trigger = deleting.trigger; setDeleting(undefined); queueMicrotask(() => trigger.focus()); }} onConfirm={() => { run({ kind: "manager-command", command: { kind: "deleteRule", ruleId: deleting.rule.id } }); setDeleting(undefined); queueMicrotask(() => deleting.trigger.focus()); }} />}
+    {deleting && <ConfirmationDialog title="Delete rule?" message="This removes the rule from the active configuration." onCancel={() => { const trigger = deleting.trigger; setDeleting(undefined); if (trigger) queueMicrotask(() => trigger.focus()); }} onConfirm={() => { const trigger = deleting.trigger; run({ kind: "manager-command", command: { kind: "deleteRule", ruleId: deleting.rule.id } }); setDeleting(undefined); if (trigger) queueMicrotask(() => trigger.focus()); }} />}
   </div>;
 }

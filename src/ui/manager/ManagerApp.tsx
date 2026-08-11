@@ -1,21 +1,79 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { UUID } from "../../domain/types";
-import type { ManagerRoute } from "./types";
+import type { ManagerAppProps, ManagerDeepLink, ManagerRoute } from "./types";
 import { ManagerShell } from "./ManagerShell";
-import { useManagerState, type ManagerTransport } from "./useManagerState";
+import { useManagerState } from "./useManagerState";
 import { GroupsPage } from "./pages/GroupsPage";
 import { RulesPage } from "./pages/RulesPage";
 import "./manager.css";
 
-export function ManagerApp({ surface: _surface, transport }: { surface?: "popup" | "options"; transport?: ManagerTransport }) {
+function initialRuleEditor(deepLink: ManagerDeepLink | undefined): UUID | "new" | undefined {
+  if (deepLink === "new-rule") return "new";
+  return typeof deepLink === "object" && deepLink.kind === "edit-rule"
+    ? deepLink.ruleId
+    : undefined;
+}
+
+function initialDeleteRule(deepLink: ManagerDeepLink | undefined): UUID | undefined {
+  return typeof deepLink === "object" && deepLink.kind === "confirm-delete"
+    ? deepLink.ruleId
+    : undefined;
+}
+
+export function ManagerApp({
+  surface: _surface,
+  transport,
+  initialRoute,
+  initialDeepLink = "none"
+}: ManagerAppProps) {
   const [route, setRoute] = useState<ManagerRoute>(() => {
+    if (initialRoute) return initialRoute;
     const value = typeof window === "undefined" ? "" : window.location.hash.slice(1);
-    return ["groups", "rules", "activity", "settings"].includes(value) ? value as ManagerRoute : "groups";
+    return ["groups", "rules", "activity", "settings"].includes(value)
+      ? value as ManagerRoute
+      : "groups";
   });
-  const [editingRuleId, setEditingRuleId] = useState<UUID | "new">();
+  const [editingRuleId, setEditingRuleId] = useState<UUID | "new" | undefined>();
+  const [confirmDeleteRuleId, setConfirmDeleteRuleId] = useState<UUID>();
+  const initialDeepLinkApplied = useRef(false);
   const state = useManagerState(transport);
   const title = `${route[0]!.toUpperCase()}${route.slice(1)}`;
-  return <ManagerShell route={route} onRouteChange={setRoute} status={state.status === "error" ? "Offline preview" : state.status === "loading" ? "Loading" : "Ready"}>
-    {route === "groups" ? <GroupsPage configuration={state.configuration} command={state.command} onNavigate={(destination) => setRoute(destination)} /> : route === "rules" ? <RulesPage configuration={state.configuration} command={state.command} editingRuleId={editingRuleId} onEdit={(id) => setEditingRuleId(id)} onCreate={() => setEditingRuleId("new")} onCancel={() => setEditingRuleId(undefined)} onSaved={() => setEditingRuleId(undefined)} /> : <><h1 data-page-heading="true">{title}</h1><section aria-label={`${title} content`} className="manager-page-content"><p className="manager-lede">{`${title} is ready for this manager.`}</p></section></>}
+
+  useEffect(() => {
+    if (initialDeepLinkApplied.current || state.status !== "ready") return;
+    initialDeepLinkApplied.current = true;
+    setEditingRuleId(initialRuleEditor(initialDeepLink));
+    setConfirmDeleteRuleId(initialDeleteRule(initialDeepLink));
+  }, [initialDeepLink, state.status]);
+
+  return <ManagerShell
+    route={route}
+    onRouteChange={setRoute}
+    status={state.status === "error" ? "Offline preview" : state.status === "loading" ? "Loading" : "Ready"}
+  >
+    {route === "groups"
+      ? <GroupsPage
+          configuration={state.configuration}
+          command={state.command}
+          onNavigate={(destination) => setRoute(destination)}
+        />
+      : route === "rules"
+        ? <RulesPage
+            configuration={state.configuration}
+            command={state.command}
+            editingRuleId={editingRuleId}
+            initialConfirmDeleteRuleId={confirmDeleteRuleId}
+            onInitialConfirmDeleteConsumed={() => setConfirmDeleteRuleId(undefined)}
+            onEdit={(id) => setEditingRuleId(id)}
+            onCreate={() => setEditingRuleId("new")}
+            onCancel={() => setEditingRuleId(undefined)}
+            onSaved={() => setEditingRuleId(undefined)}
+          />
+        : <>
+            <h1 data-page-heading="true">{title}</h1>
+            <section aria-label={`${title} content`} className="manager-page-content">
+              <p className="manager-lede">{`${title} is ready for this manager.`}</p>
+            </section>
+          </>}
   </ManagerShell>;
 }

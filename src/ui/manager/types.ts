@@ -41,15 +41,105 @@ export interface ManagerCommand {
 
 export type ManagerMessage = ManagerQuery | ManagerCommand;
 
+export type ManagerDeepLink =
+  | "none"
+  | "new-rule"
+  | { kind: "edit-rule" | "confirm-delete"; ruleId: UUID };
+
+export interface PersistentTabsViewFixture {
+  state: "loading" | "empty" | "populated" | "disabled" | "error";
+  tabs: readonly string[];
+}
+
+export interface ManagerViewFixture {
+  persistentTabsByGroup: Readonly<Record<UUID, PersistentTabsViewFixture>>;
+}
+
 export interface ManagerSuccess {
   ok: true;
   configuration: Configuration;
   view: ManagerViewMetadata;
+  viewFixture?: ManagerViewFixture;
 }
 
 export interface ManagerFailure {
   ok: false;
-  error: { kind: "validation" | "reference" | "persistence"; message: string; field?: string };
+  error: {
+    kind: "validation" | "reference" | "persistence" | "offline" | "transport";
+    message: string;
+    code?: string;
+    field?: string;
+  };
 }
 
 export type ManagerResponse = ManagerSuccess | ManagerFailure;
+
+export interface ManagerTransport {
+  request(message: ManagerMessage): Promise<ManagerResponse>;
+}
+
+export interface ManagerAppProps {
+  surface?: "popup" | "options";
+  transport?: ManagerTransport;
+  initialRoute?: ManagerRoute;
+  initialDeepLink?: ManagerDeepLink;
+}
+
+type FixtureRequestRecordBase = {
+  recordType: "request";
+  mode: "fixture";
+  requestId: string;
+  sequence: number;
+  scenarioId: string;
+  message: ManagerMessage;
+  startedAt: number;
+  latencyMs: number;
+};
+
+type RealRequestRecordBase = {
+  recordType: "request";
+  mode: "real";
+  requestId: string;
+  sequence: number;
+  workerGeneration?: number;
+  message: ManagerMessage;
+  startedAt: number;
+  latencyMs: number;
+};
+
+type PendingRequestRecord = {
+  state: "pending";
+};
+
+type ResolvedRequestRecord = {
+  state: "resolved";
+  endedAt: number;
+  response: ManagerResponse;
+};
+
+type RejectedRequestRecord = {
+  state: "rejected";
+  endedAt: number;
+  error: ManagerFailure["error"];
+};
+
+export type ManagerTransportRecord =
+  | (FixtureRequestRecordBase & PendingRequestRecord)
+  | (FixtureRequestRecordBase & ResolvedRequestRecord)
+  | (FixtureRequestRecordBase & RejectedRequestRecord)
+  | (RealRequestRecordBase & PendingRequestRecord)
+  | (RealRequestRecordBase & ResolvedRequestRecord)
+  | (RealRequestRecordBase & RejectedRequestRecord)
+  | {
+      recordType: "event";
+      mode: "fixture" | "real";
+      source: "page" | "worker" | "transport";
+      at: number;
+      name: string;
+      details: Record<string, string | number | boolean>;
+    };
+
+export type FixtureCommandRecord = Extract<
+  ManagerTransportRecord,
+  { recordType: "request"; mode: "fixture" }
+>;

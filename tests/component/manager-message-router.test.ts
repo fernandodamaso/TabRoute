@@ -1,7 +1,11 @@
 import { expect, it, vi } from "vitest";
 import { createDefaultConfiguration, createManagedGroup } from "../../src/domain/defaults";
 import { createManagerMessageRouter } from "../../src/background/managerMessageRouter";
-import type { ManagerCommand } from "../../src/ui/manager/types";
+import type {
+  ManagerCommand,
+  ManagerResponse,
+  ManagerTransportRecord
+} from "../../src/ui/manager/types";
 
 const fallbackId = "00000000-0000-4000-8000-000000000001";
 const groupId = "00000000-0000-4000-8000-000000000002";
@@ -69,6 +73,60 @@ it("rejects invalid ids and references without replacing the last valid configur
   if (query.ok) expect(query.configuration).toEqual(initial);
 });
 
+it("returns the last valid configuration after a persistence failure", async () => {
+  const initial = setup().initial;
+  let configuration = initial;
+  const save = vi.fn(async () => { throw new Error("storage unavailable"); });
+  const replaceConfiguration = vi.fn(async (next: typeof initial) => { configuration = next; });
+  const router = createManagerMessageRouter({
+    repository: { save },
+    controller: { getConfiguration: () => configuration, replaceConfiguration },
+    now: () => 4
+  });
+
+  const failed = await router.handle({
+    kind: "manager-command",
+    command: { kind: "updateGroup", groupId: groupId as never, patch: { name: "Rejected" } }
+  });
+  expect(failed).toMatchObject({ ok: false, error: { kind: "persistence" } });
+  expect(replaceConfiguration).not.toHaveBeenCalled();
+
+  const query = await router.handle({ kind: "manager-query" });
+  expect(query.ok).toBe(true);
+  if (query.ok) expect(query.configuration).toEqual(initial);
+});
+
+it("keeps a durable mutation accepted when post-save reconciliation throws", async () => {
+  const initial = setup().initial;
+  let configuration = initial;
+  const save = vi.fn(async () => undefined);
+  const replaceConfiguration = vi.fn(async (next: typeof initial) => {
+    configuration = next;
+    throw new Error("inventory unavailable");
+  });
+  const router = createManagerMessageRouter({
+    repository: { save },
+    controller: { getConfiguration: () => configuration, replaceConfiguration },
+    now: () => 5
+  });
+
+  const response = await router.handle({
+    kind: "manager-command",
+    command: { kind: "updateGroup", groupId: groupId as never, patch: { name: "Committed" } }
+  });
+
+  expect(response).toMatchObject({ ok: true });
+  if (response.ok)
+    expect(response.configuration.groups.find((group) => group.id === groupId)?.name).toBe("Committed");
+  expect(save).toHaveBeenCalledTimes(1);
+  expect(replaceConfiguration).toHaveBeenCalledTimes(1);
+
+  const query = await router.handle({ kind: "manager-query" });
+  expect(query.ok).toBe(true);
+  if (query.ok)
+    expect(query.configuration.groups.find((group) => group.id === groupId)?.name).toBe("Committed");
+});
+
 it("serializes concurrent mutations against the latest persisted configuration", async () => {
   const initial = setup().initial;
   let configuration = initial;
@@ -108,4 +166,41 @@ it("declares all manager commands as one exhaustive typed union", () => {
     "deleteRule", "setRuleEnabled", "setRulePaused"
   ];
   expect(commands).toHaveLength(8);
+});
+
+it("keeps typed transport records and failures in the manager contract", () => {
+  const response: ManagerResponse = {
+    ok: false,
+    error: {
+      kind: "transport",
+      code: "NO_RESPONSE",
+      field: "runtime",
+      message: "No manager response"
+    }
+  };
+  const records: ManagerTransportRecord[] = [
+    {
+      recordType: "request",
+      state: "pending",
+      mode: "real",
+      requestId: "request-1",
+      sequence: 1,
+      message: { kind: "manager-query" },
+      startedAt: 1,
+      latencyMs: 0
+    },
+    {
+      recordType: "event",
+      mode: "fixture",
+      source: "transport",
+      at: 2,
+      name: "ready",
+      details: { ok: true }
+    }
+  ];
+
+  expect(response.ok).toBe(false);
+  if (!response.ok)
+    expect(response.error).toMatchObject({ kind: "transport", code: "NO_RESPONSE", field: "runtime" });
+  expect(records).toHaveLength(2);
 });
