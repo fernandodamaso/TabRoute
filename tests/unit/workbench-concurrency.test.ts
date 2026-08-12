@@ -104,6 +104,29 @@ describe("workbench cross-process lock", () => {
     await rm(directory, { recursive: true, force: true });
   });
 
+  it("keeps a live lock name present and parseable through heartbeat, release, and reacquire", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "tabroute-heartbeat-live-"));
+    const lockPath = path.join(directory, ".lock");
+    let heartbeat!: () => void;
+    let observedPresent = false;
+    const lock = createCrossProcessLock(lockPath, {
+      runId: "owner", setInterval: ((callback: () => void) => { heartbeat = callback; return 1 as unknown as NodeJS.Timeout; }) as never,
+      clearInterval: (() => undefined) as never,
+      beforeHeartbeatReplace: async () => { await access(lockPath); observedPresent = true; }
+    });
+    const handle = await lock.acquire();
+    heartbeat();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const raw = await readFile(lockPath, "utf8");
+    expect(observedPresent).toBe(true);
+    expect(raw.startsWith("\0")).toBe(false);
+    expect(JSON.parse(raw).runId).toBe("owner");
+    await handle.release();
+    const reacquired = await lock.acquire();
+    await reacquired.release();
+    await rm(directory, { recursive: true, force: true });
+  });
+
   it("opens the post-validation stale window without deleting a newly acquired owner", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "tabroute-stale-window-"));
     const lockPath = path.join(directory, ".lock");

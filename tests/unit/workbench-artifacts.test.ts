@@ -143,6 +143,33 @@ describe("workbench artifact retention", () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it("enforces affected-run required bytes at minus, exact, and plus boundaries", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-affected-boundary-"));
+    try {
+      const minus = createArtifactStore({ root: path.join(root, "minus"), runId: "minus", globalRoot: path.join(root, "minus"), activeBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES - 1, globalBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES - 1 });
+      await minus.write("lease.json", new Uint8Array(REQUIRED_METADATA_RESERVATION_BYTES - 1), "lease");
+      await expect(minus.write("status.json", new Uint8Array(1), "status")).rejects.toThrow("WORKBENCH_ARTIFACT_LIMIT");
+      const exact = createArtifactStore({ root: path.join(root, "exact"), runId: "exact", globalRoot: path.join(root, "exact"), activeBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES, globalBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES });
+      await exact.write("lease.json", new Uint8Array(REQUIRED_METADATA_RESERVATION_BYTES - 1), "lease");
+      await exact.write("status.json", new Uint8Array(1), "status");
+      const plus = createArtifactStore({ root: path.join(root, "plus"), runId: "plus", globalRoot: path.join(root, "plus"), activeBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 1, globalBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 1 });
+      await plus.write("lease.json", new Uint8Array(REQUIRED_METADATA_RESERVATION_BYTES), "lease");
+      await expect(plus.write("status.json", new Uint8Array(1), "status")).rejects.toThrow("WORKBENCH_ARTIFACT_LIMIT");
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("enforces the separate global required reservation across multiple runs", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-global-boundary-"));
+    try {
+      const first = createArtifactStore({ root: path.join(root, "run-a"), runId: "run-a", globalRoot: root, activeBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 100, globalBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES });
+      const second = createArtifactStore({ root: path.join(root, "run-b"), runId: "run-b", globalRoot: root, activeBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 100, globalBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES });
+      await first.write("lease.json", new Uint8Array(REQUIRED_METADATA_RESERVATION_BYTES - 1), "lease");
+      await expect(second.write("status.json", new Uint8Array(2), "status")).rejects.toThrow("WORKBENCH_ARTIFACT_LIMIT");
+      await second.write("status.json", new Uint8Array(1), "status");
+      await expect(first.write("results.json", new Uint8Array(1), "result")).rejects.toThrow("WORKBENCH_ARTIFACT_LIMIT");
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it("leaves only the remaining required headroom for optional writes", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-required-headroom-"));
     const run = path.join(root, "run-1");

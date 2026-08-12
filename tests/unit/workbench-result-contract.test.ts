@@ -93,6 +93,33 @@ describe("workbench RunResult contracts", () => {
     expect(validateRunResult({ ...metadata, commandRecords: [{ ...record, message: { kind: "manager-command", command: { kind: "saveRule", input: rule } } }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "pending" } })).toBe(false);
   });
 
+  it("accepts a RuleDraft without generated identity timestamps", () => {
+    const draft = { schemaVersion: 1, targetGroupId: "group-1", priority: 1, positive: { kind: "url", operator: "exact", value: "https://example.test" }, negative: [], actions: [{ kind: "group" }], enabled: true };
+    const record = { recordType: "request", mode: "fixture", requestId: "request-1", sequence: 1, scenarioId: "default", message: { kind: "manager-command", command: { kind: "saveRule", rule: draft } }, startedAt: 1, latencyMs: 0, state: "pending" };
+    expect(validateRunResult({ ...metadata, commandRecords: [record], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "draft" } })).toBe(true);
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...record, message: { kind: "manager-command", command: { kind: "saveRule", rule: { ...draft, createdAt: "now" } } } }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "draft" } })).toBe(false);
+  });
+
+  it("requires exact command values and literal configuration values", () => {
+    const base = { recordType: "request", mode: "fixture", requestId: "request-1", sequence: 1, scenarioId: "default", message: { kind: "manager-query" }, startedAt: 1, latencyMs: 0, state: "pending" };
+    const command = (value: unknown) => ({ ...metadata, commandRecords: [{ ...base, message: { kind: "manager-command", command: value } }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "command" } });
+    expect(validateRunResult(command({ kind: "deleteGroup" }))).toBe(false);
+    expect(validateRunResult(command({ kind: "setRuleEnabled", ruleId: "rule-1", enabled: "yes" }))).toBe(false);
+    expect(validateRunResult(command({ kind: "deleteRule", ruleId: "rule-1", extra: true }))).toBe(false);
+    const response = { ok: true, configuration: { schemaVersion: 1, fallbackGroupId: "group-1", automationEnabled: true, groups: [], rules: [], persistentTabs: ["not-empty"], duplicateSettings: { globalPolicy: { kind: "exactUrl" }, globalExclusions: [], trackingParameters: [] }, templates: [], snapshotIntervalMinutes: 5, activityLimit: 500, snapshotLimit: 50, undoTtlMs: 30000, createdAt: 1, updatedAt: 1 }, view: { width: 520, height: 600, headerHeight: 52, navigationHeight: 42, defaultRoute: "groups", routes: ["groups"] } };
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...base, state: "resolved", endedAt: 2, response }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "response" } })).toBe(false);
+  });
+
+  it("keeps fixture scenario IDs and real worker generations disjoint", () => {
+    const real = { recordType: "request", mode: "real", requestId: "request-1", sequence: 1, workerGeneration: 2, message: { kind: "manager-query" }, startedAt: 1, latencyMs: 0, state: "pending" };
+    const fixture = { recordType: "request", mode: "fixture", requestId: "request-1", sequence: 1, scenarioId: "default", message: { kind: "manager-query" }, startedAt: 1, latencyMs: 0, state: "pending" };
+    const result = (record: unknown) => ({ ...metadata, commandRecords: [record], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "mode" } });
+    expect(validateRunResult(result(real))).toBe(true);
+    expect(validateRunResult(result({ ...real, scenarioId: "default" }))).toBe(false);
+    expect(validateRunResult(result(fixture))).toBe(true);
+    expect(validateRunResult(result({ ...fixture, workerGeneration: 2 }))).toBe(false);
+  });
+
   it("validates exact manager success and failure responses in resolved records", () => {
     const base = { recordType: "request", mode: "fixture", requestId: "request-1", sequence: 1, scenarioId: "default", message: { kind: "manager-query" }, startedAt: 1, latencyMs: 0, state: "resolved", endedAt: 2 };
     const success = { ok: true, configuration: { schemaVersion: 1, fallbackGroupId: "group-1", automationEnabled: true, groups: [], rules: [], persistentTabs: [], duplicateSettings: { globalPolicy: { kind: "allow" }, globalExclusions: [], trackingParameters: [] }, templates: [], snapshotIntervalMinutes: 5, activityLimit: 500, snapshotLimit: 50, undoTtlMs: 30000, createdAt: 1, updatedAt: 1 }, view: { width: 520, height: 600, headerHeight: 52, navigationHeight: 42, defaultRoute: "groups", routes: ["groups"] } };

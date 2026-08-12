@@ -51,7 +51,6 @@ export interface ArtifactStoreOptions {
   clock?: () => number;
 }
 
-const requiredKinds = new Set<ArtifactKind>(["lease", "status", "result", "error"]);
 async function filesUnder(root: string): Promise<Array<{ absolutePath: string; relativePath: string; size: number; capturedAt: number }>> {
   const entries: Array<{ absolutePath: string; relativePath: string; size: number; capturedAt: number }> = [];
   async function visit(directory: string): Promise<void> {
@@ -86,7 +85,14 @@ export function createArtifactStore(options: ArtifactStoreOptions): ArtifactStor
     return target;
   };
   const indexPath = (runRoot: string) => path.join(runRoot, ".artifact-index.json");
-  const requiredNames = new Set(["lease.json", "status.json", "results.json", "error.json", ".artifact-index.json"]);
+  // The index is an optional pruning aid. It is part of the ordinary budget,
+  // but never consumes the shared required-metadata reservation.
+  const requiredNames = new Set(["lease.json", "status.json", "results.json", "error.json"]);
+  const isRequiredPath = (relativePath: string): boolean => requiredNames.has(relativePath.replaceAll("\\", "/"));
+  const isRequiredEntry = (relativePath: string): boolean => {
+    const parts = relativePath.replaceAll("\\", "/").split("/");
+    return parts.length <= 2 && requiredNames.has(parts.at(-1) ?? "");
+  };
   async function readIndex(runRoot: string): Promise<Array<{ relativePath: string; kind: ArtifactKind; capturedAt: number }>> {
     try { return JSON.parse(await fs.readFile(indexPath(runRoot), "utf8")) as Array<{ relativePath: string; kind: ArtifactKind; capturedAt: number }>; }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw new Error("WORKBENCH_ARTIFACT_LIMIT"); }
@@ -96,11 +102,11 @@ export function createArtifactStore(options: ArtifactStoreOptions): ArtifactStor
   }
   const requiredBytes = async (directory: string, target?: string): Promise<number> => {
     const entries = await filesUnder(directory);
-    return entries.reduce((sum, entry) => sum + (requiredNames.has(path.basename(entry.absolutePath)) && entry.absolutePath !== target ? entry.size : 0), 0);
+    return entries.reduce((sum, entry) => sum + (isRequiredEntry(entry.relativePath) && entry.absolutePath !== target ? entry.size : 0), 0);
   };
   async function prune(requiredBytes: number, affectedRoot: string): Promise<void> {
     const entries = await filesUnder(affectedRoot);
-    let total = entries.reduce((sum, entry) => sum + entry.size, 0);
+    let total = entries.reduce((sum, entry) => sum + (path.basename(entry.absolutePath) === ".lock" ? 0 : entry.size), 0);
     if (total + requiredBytes <= activeBudget) return;
     const indexed = await readIndex(affectedRoot);
     const evidence = orderRetentionEvidence(indexed.filter((item) => item.kind === "video" || item.kind === "trace" || item.kind === "screenshot").map((item) => ({ ...item, runId: options.runId, category: item.kind as EvidenceCategory })));
@@ -158,30 +164,30 @@ export function createArtifactStore(options: ArtifactStoreOptions): ArtifactStor
         await pruneTerminalRuns();
         const affectedHeadroom = 0;
         const preExisting = await filesUnder(root);
-        const preIndex = requiredNames.has(path.basename(relativePath)) ? undefined : [...(await readIndex(root)).filter((item) => item.relativePath !== relativePath), { relativePath, kind, capturedAt: writeOptions.capturedAt ?? clock() }];
+        const preIndex = isRequiredPath(relativePath) ? undefined : [...(await readIndex(root)).filter((item) => item.relativePath !== relativePath), { relativePath, kind, capturedAt: writeOptions.capturedAt ?? clock() }];
         const preOldIndexSize = preExisting.find((entry) => path.basename(entry.absolutePath) === ".artifact-index.json")?.size ?? 0;
         const preIndexSizeDelta = preIndex ? encodeUtf8(JSON.stringify(preIndex.slice(0, 2000))).byteLength - preOldIndexSize : 0;
         await prune(payload.byteLength + preIndexSizeDelta + affectedHeadroom, root);
         const existing = await filesUnder(root);
-        const current = existing.reduce((sum, entry) => sum + entry.size - (entry.absolutePath === target ? entry.size : 0), 0);
-        const nextIndex = requiredNames.has(path.basename(relativePath)) ? undefined : [...(await readIndex(root)).filter((item) => item.relativePath !== relativePath), { relativePath, kind, capturedAt: writeOptions.capturedAt ?? clock() }];
+        const current = existing.reduce((sum, entry) => sum + (path.basename(entry.absolutePath) === ".lock" ? 0 : entry.size - (entry.absolutePath === target ? entry.size : 0)), 0);
+        const nextIndex = isRequiredPath(relativePath) ? undefined : [...(await readIndex(root)).filter((item) => item.relativePath !== relativePath), { relativePath, kind, capturedAt: writeOptions.capturedAt ?? clock() }];
         const oldIndexSize = existing.find((entry) => path.basename(entry.absolutePath) === ".artifact-index.json")?.size ?? 0;
         const indexSizeDelta = nextIndex ? encodeUtf8(JSON.stringify(nextIndex.slice(0, 2000))).byteLength - oldIndexSize : 0;
         const writeSize = payload.byteLength + indexSizeDelta;
         if (current + writeSize > activeBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
         const affectedRequired = await requiredBytes(root, target);
-        const affectedRequiredAfter = affectedRequired + (requiredKinds.has(kind) ? payload.byteLength : 0);
+        const affectedRequiredAfter = affectedRequired + (isRequiredPath(relativePath) ? payload.byteLength : 0);
         if (affectedRequiredAfter > REQUIRED_METADATA_RESERVATION_BYTES) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
         if (current + writeSize > activeBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
         const globalRequiredBefore = await requiredBytes(globalRoot, target);
-        const globalRequiredAfter = globalRequiredBefore + (requiredKinds.has(kind) ? payload.byteLength : 0);
+        const globalRequiredAfter = globalRequiredBefore + (isRequiredPath(relativePath) ? payload.byteLength : 0);
         if (globalRequiredAfter > REQUIRED_METADATA_RESERVATION_BYTES) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
         await pruneGlobal(writeSize, target);
         const globalEntries = await filesUnder(globalRoot);
         const globalTotal = globalEntries.reduce((sum, entry) => sum + (entry.absolutePath === target || path.basename(entry.absolutePath) === ".lock" ? 0 : entry.size), 0);
         if (globalTotal + writeSize > globalBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
         const globalRequired = await requiredBytes(globalRoot, target);
-        const globalRequiredAfterWrite = globalRequired + (requiredKinds.has(kind) ? payload.byteLength : 0);
+        const globalRequiredAfterWrite = globalRequired + (isRequiredPath(relativePath) ? payload.byteLength : 0);
         if (globalRequiredAfterWrite > REQUIRED_METADATA_RESERVATION_BYTES) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
         if (globalTotal + writeSize > globalBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
         await writeAtomic(target, payload);

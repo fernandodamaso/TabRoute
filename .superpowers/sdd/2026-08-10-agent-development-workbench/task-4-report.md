@@ -295,3 +295,50 @@ Full verification:
 
 - SHA: recorded after commit.
 - Concern: the existing Node `DEP0190` child-process deprecation warning remains non-failing. Git reports normal LF-to-CRLF conversion warnings for edited files.
+
+## Fix Round 5 (final permitted correction round)
+
+### Scope and findings addressed
+
+- Required metadata accounting now counts only root `lease.json`, `status.json`, `results.json`, and `error.json` toward the shared reservation. The optional `.artifact-index.json` and lock file are excluded from required accounting, while index bytes remain in ordinary active/global budgets. Separate affected-run and global boundaries cover multiple required files, exact/minus/plus reservation cases, and optional pruning/headroom.
+- Heartbeat refresh now keeps the exclusive-create file descriptor and public lock name in place. It checks ownership after the deterministic replacement hook, refreshes from offset zero without leading NUL bytes, and cannot overwrite a replacement inode. Release and stale recovery retain non-replacing claim publication for replacement and third-contender safety.
+- Recursive runtime validation now matches `src/ui/manager/types.ts`: `RuleDraft` permits omitted generated identity/timestamps, full rules require them, commands require exact values/types/keys, persistent-tabs/templates are empty fixture types, configuration literals are enforced, and fixture `scenarioId` is disjoint from real `workerGeneration`. Abandoned cleanup failures validate `profileRemoved: false`, `retainedPath`, bounded errors, and optional string `extensionId`; invalid prior results are skipped during reaping.
+- `ArtifactLimitFailure` is now a minimal interface matching the fields actually returned by `createArtifactLimitFailure`; no cast hides the mismatch.
+
+### RED command and result
+
+```text
+npx vitest run tests/unit/workbench-leases.test.ts --run --testTimeout=30000
+```
+
+Observed RED: 1 failure, 9 passed. The new malformed lease identity/timestamp test resolved `countActive()` with `1` instead of rejecting with `WORKBENCH_CAPACITY`.
+
+### GREEN and verification
+
+```text
+npx vitest run tests/unit/workbench-leases.test.ts --run --testTimeout=30000
+```
+
+PASS: 1 file, 10 tests.
+
+```text
+rtk npm test -- --run tests/unit/workbench-result-contract.test.ts tests/unit/workbench-artifacts.test.ts tests/unit/workbench-leases.test.ts tests/unit/workbench-concurrency.test.ts --testTimeout=30000
+```
+
+PASS: 4 files, 49 tests.
+
+```text
+rtk npm test -- --run --testTimeout=30000
+rtk npm run typecheck
+rtk npm run lint
+rtk npm run build
+npx tsx -e "import { scanProductionBuild } from './scripts/workbench/production-scan.ts'; scanProductionBuild('.output/chrome-mv3').then(result => { console.log(JSON.stringify(result)); if (!result.ok) process.exit(1); });"
+git diff --check
+```
+
+Results: full suite PASS, 29 files and 195 tests; typecheck PASS; lint PASS; production build PASS; production scan PASS with `{"ok":true,"errors":[]}`; `git diff --check` PASS with only normal LF-to-CRLF conversion warnings. The existing Node `DEP0190` child-process warning and RTK no-hook notice remain non-failing.
+
+### Fix Round 5 SHA and concerns
+
+- Final SHA placeholder: `<FINAL_SHA_AFTER_COMMIT>`
+- Concern: the existing Node `DEP0190` warning and Git line-ending warnings remain non-failing and outside Task 4 behavior.

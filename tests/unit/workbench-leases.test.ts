@@ -89,6 +89,33 @@ describe("workbench lease lifecycle", () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it("fails closed when lease identity or timestamps have invalid runtime types", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-bad-lease-types-"));
+    const artifacts = path.join(root, "artifacts");
+    await mkdir(path.join(artifacts, "bad"), { recursive: true });
+    await writeFile(path.join(artifacts, "bad", "lease.json"), JSON.stringify({ runId: "bad", pid: "42", startedAt: "not-date", heartbeat: "not-date", profilePath: path.join(root, "profiles", "bad"), status: "active" }));
+    const manager = new LeaseManager({ artifactRoot: artifacts, worktreePath: path.join(root, "worktree"), profileRoot: path.join(root, "profiles"), isProcessAlive: async () => true });
+    await expect(manager.countActive()).rejects.toThrow("WORKBENCH_CAPACITY");
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("skips an invalid prior result instead of inventing abandoned metadata", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-reap-invalid-result-"));
+    const artifactRoot = path.join(root, "artifacts");
+    const profileRoot = path.join(root, "profiles");
+    const profile = path.join(profileRoot, "run-1");
+    await mkdir(path.join(artifactRoot, "run-1"), { recursive: true });
+    await mkdir(profile, { recursive: true });
+    const lease = { runId: "run-1", pid: 42, startedAt: "2020-01-01T00:00:00.000Z", heartbeat: "2020-01-01T00:00:00.000Z", profilePath: profile, status: "active" as const };
+    const invalid = { ok: false, status: "failed", code: "WORKBENCH_MANAGER_TIMEOUT", phase: "manager-query", runId: "run-1", worktreePath: path.join(root, "worktree"), buildPath: "build", profilePath: profile, mode: "fixture", url: "url", scenario: "default", route: "groups", deepLink: "none", commandRecords: [], readiness: {}, screenshotPaths: [], assertions: [], lease, cleanup: { profileRemoved: false }, error: { message: "old" } };
+    await writeFile(path.join(artifactRoot, "run-1", "lease.json"), JSON.stringify(lease));
+    await writeFile(path.join(artifactRoot, "run-1", "results.json"), JSON.stringify(invalid));
+    const manager = new LeaseManager({ artifactRoot, worktreePath: path.join(root, "worktree"), profileRoot, now: () => new Date("2020-01-01T00:03:00.000Z"), isProcessAlive: async () => false, cleanup: async () => { throw new Error("must not run"); } });
+    expect(await manager.reapOrphans()).toEqual([]);
+    expect(JSON.parse(await readFile(path.join(artifactRoot, "run-1", "results.json"), "utf8"))).toEqual(invalid);
+    await rm(root, { recursive: true, force: true });
+  });
+
   it("writes the exact bounded abandoned cleanup failure shape after all retries", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-reap-failure-"));
     const artifactRoot = path.join(root, "artifacts");

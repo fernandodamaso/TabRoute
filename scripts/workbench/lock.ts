@@ -60,24 +60,27 @@ export function createCrossProcessLock(lockPath: string, supplied: LockOptions =
           const handle = await fs.open(absolute, "wx");
           await handle.writeFile(JSON.stringify(owner), "utf8");
           held = true;
+          let heartbeatInFlight = false;
           const timer = (supplied.setInterval ?? setInterval)(() => {
+            if (heartbeatInFlight || !held) return;
+            heartbeatInFlight = true;
             const refreshed = { ...owner, heartbeat: now() };
             void (async () => {
-              const claim = `${absolute}.heartbeat-${process.pid}-${crypto.randomUUID()}`;
               try {
-                // Claim the public name before touching the inode. A contender
-                // may publish a replacement while the name is displaced, but
-                // it can never be overwritten by this refresh.
-                await fs.rename(absolute, claim);
-                const current = JSON.parse(await fs.readFile(claim, "utf8")) as LockOwner;
-                if (current.token !== owner.token) {
-                  await publishWithoutReplacement(claim, absolute);
-                  return;
-                }
+                // Keep the exclusive-create descriptor open for the lifetime
+                // of the lease. Refreshing that inode never unlinks the public
+                // name and cannot overwrite a replacement owner that has
+                // acquired the path after stale recovery.
                 await supplied.beforeHeartbeatReplace?.();
-                await fs.writeFile(claim, JSON.stringify(refreshed), "utf8");
-                if (!await publishWithoutReplacement(claim, absolute)) await fs.rm(claim, { force: true }).catch(() => undefined);
+                try {
+                  const current = JSON.parse(await fs.readFile(absolute, "utf8")) as LockOwner;
+                  if (current.token !== owner.token) return;
+                } catch { return; }
+                await handle.truncate(0);
+                await handle.write(JSON.stringify(refreshed), 0, "utf8");
+                await handle.sync();
               } catch { /* owner was replaced or lock became unreadable */ }
+              finally { heartbeatInFlight = false; }
             })();
           }, 5000);
           timer.unref?.();

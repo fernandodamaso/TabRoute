@@ -70,7 +70,7 @@ export class LeaseManager {
       if (!entry.isDirectory()) continue;
       try {
         const parsed = JSON.parse(await fs.readFile(path.join(this.root, entry.name, "lease.json"), "utf8")) as LeaseRecord;
-        if (!parsed || parsed.runId !== entry.name || !parsed.profilePath || !["active", "abandoned", "completed"].includes(parsed.status)) throw new Error("WORKBENCH_CAPACITY");
+        if (!parsed || parsed.runId !== entry.name || typeof parsed.pid !== "number" || !Number.isInteger(parsed.pid) || typeof parsed.startedAt !== "string" || !Number.isFinite(Date.parse(parsed.startedAt)) || typeof parsed.heartbeat !== "string" || !Number.isFinite(Date.parse(parsed.heartbeat)) || typeof parsed.profilePath !== "string" || !parsed.profilePath || !["active", "abandoned", "completed"].includes(parsed.status)) throw new Error("WORKBENCH_CAPACITY");
         leases.push(parsed);
       } catch { throw new Error("WORKBENCH_CAPACITY"); }
     }
