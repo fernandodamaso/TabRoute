@@ -132,6 +132,17 @@ describe("workbench artifact retention", () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it("accounts lease, status, result, and error as one required reservation", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-required-combined-"));
+    const run = path.join(root, "run-1");
+    const budget = REQUIRED_METADATA_RESERVATION_BYTES + 100;
+    const store = createArtifactStore({ root: run, runId: "run-1", globalRoot: root, activeBudgetBytes: budget, globalBudgetBytes: budget });
+    const half = new Uint8Array(Math.floor(REQUIRED_METADATA_RESERVATION_BYTES / 2));
+    await store.write("lease.json", half, "lease");
+    await expect(store.write("status.json", new Uint8Array(half.byteLength + 1), "status")).rejects.toThrow("WORKBENCH_ARTIFACT_LIMIT");
+    await rm(root, { recursive: true, force: true });
+  });
+
   it("uses each run's index when global pressure prunes optional evidence", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-global-index-"));
     const first = createArtifactStore({ root: path.join(root, "run-a"), runId: "run-a", globalRoot: root, activeBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 1000, globalBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 400 });

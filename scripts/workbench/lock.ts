@@ -2,10 +2,6 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import type { CrossProcessLock } from "./contracts";
-async function writeOwner(filePath: string, bytes: Uint8Array): Promise<void> {
-  const temporary = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  try { await fs.writeFile(temporary, bytes); await fs.rename(temporary, filePath); } catch (error) { await fs.rm(temporary, { force: true }).catch(() => undefined); throw error; }
-}
 
 export interface LockOptions {
   pid?: number;
@@ -53,18 +49,21 @@ export function createCrossProcessLock(lockPath: string, supplied: LockOptions =
         try {
           const handle = await fs.open(absolute, "wx");
           await handle.writeFile(JSON.stringify(owner), "utf8");
-          await handle.close();
           held = true;
           const timer = (supplied.setInterval ?? setInterval)(() => {
             const refreshed = { ...owner, heartbeat: now() };
             void (async () => {
               try {
+                await supplied.beforeHeartbeatReplace?.();
+                // Keep the acquired descriptor open. If another owner replaces
+                // the path, this descriptor still points to the old inode and
+                // cannot overwrite the replacement path between validation and
+                // mutation.
                 const current = JSON.parse(await fs.readFile(absolute, "utf8")) as LockOwner;
                 if (current.token !== owner.token) return;
-                await supplied.beforeHeartbeatReplace?.();
-                const revalidated = JSON.parse(await fs.readFile(absolute, "utf8")) as LockOwner;
-                if (revalidated.token !== owner.token) return;
-                await writeOwner(absolute, new TextEncoder().encode(JSON.stringify(refreshed)));
+                await handle.truncate(0);
+                await handle.writeFile(JSON.stringify(refreshed), "utf8");
+                await handle.sync();
               } catch { /* owner was replaced or lock became unreadable */ }
             })();
           }, 5000);
@@ -77,6 +76,7 @@ export function createCrossProcessLock(lockPath: string, supplied: LockOptions =
               const content = JSON.parse(await fs.readFile(absolute, "utf8")) as LockOwner;
               if (content.token === owner.token) await fs.rm(absolute, { force: true });
             } catch { /* another owner recovered it */ }
+            await handle.close().catch(() => undefined);
           } };
         } catch (error) {
           const code = (error as NodeJS.ErrnoException).code;
@@ -87,8 +87,17 @@ export function createCrossProcessLock(lockPath: string, supplied: LockOptions =
             const current = JSON.parse(await fs.readFile(absolute, "utf8")) as LockOwner;
             if (await stale(current, { now, isPidAlive })) {
               await supplied.beforeStaleRemove?.();
-              const revalidated = JSON.parse(await fs.readFile(absolute, "utf8")) as LockOwner;
-              if (revalidated.token === current.token && revalidated.heartbeat === current.heartbeat) await fs.rm(absolute, { force: true });
+              // Claim the path with one atomic rename. The claimed inode is then
+              // inspected before removal, so a replacement owner is never
+              // removed by a second path-based mutation.
+              const claim = `${absolute}.stale-${process.pid}-${crypto.randomUUID()}`;
+              await fs.rename(absolute, claim);
+              const claimed = JSON.parse(await fs.readFile(claim, "utf8")) as LockOwner;
+              if (claimed.token === current.token && claimed.heartbeat === current.heartbeat) {
+                await fs.rm(claim, { force: true });
+              } else {
+                try { await fs.access(absolute); } catch { await fs.rename(claim, absolute); }
+              }
             }
           } catch { /* partial owner file: retry without deleting it */ }
           await sleep(retryDelayMs);

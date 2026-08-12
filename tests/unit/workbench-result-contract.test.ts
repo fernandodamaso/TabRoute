@@ -80,6 +80,12 @@ describe("workbench RunResult contracts", () => {
     expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_ARTIFACT_LIMIT", phase: "artifact", extensionId: 42, error: { message: "bad" } })).toBe(false);
   });
 
+  it("accepts exact pending request records and rejects pending extras", () => {
+    const pending = { recordType: "request", mode: "fixture", requestId: "request-1", sequence: 1, scenarioId: "default", message: { kind: "manager-query" }, startedAt: 1, latencyMs: 0, state: "pending" };
+    expect(validateRunResult({ ...metadata, commandRecords: [pending], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "pending" } })).toBe(true);
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...pending, endedAt: 2 }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "pending" } })).toBe(false);
+  });
+
   it("distinguishes encoded reservation boundaries", () => {
     const minus = new TextEncoder().encode(JSON.stringify({ value: "x".repeat(REQUIRED_METADATA_RESERVATION_BYTES - 100) })).byteLength;
     const exact = new TextEncoder().encode(JSON.stringify({ value: "x".repeat(REQUIRED_METADATA_RESERVATION_BYTES - 13) })).byteLength;

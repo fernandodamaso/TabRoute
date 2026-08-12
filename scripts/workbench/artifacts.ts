@@ -94,6 +94,10 @@ export function createArtifactStore(options: ArtifactStoreOptions): ArtifactStor
   async function writeIndex(runRoot: string, entries: Array<{ relativePath: string; kind: ArtifactKind; capturedAt: number }>): Promise<void> {
     await writeAtomic(indexPath(runRoot), encodeUtf8(JSON.stringify(entries.slice(0, 2000))));
   }
+  const requiredBytes = async (directory: string, target?: string): Promise<number> => {
+    const entries = await filesUnder(directory);
+    return entries.reduce((sum, entry) => sum + (requiredNames.has(path.basename(entry.absolutePath)) && entry.absolutePath !== target ? entry.size : 0), 0);
+  };
   async function prune(requiredBytes: number, affectedRoot: string): Promise<void> {
     const entries = await filesUnder(affectedRoot);
     let total = entries.reduce((sum, entry) => sum + entry.size, 0);
@@ -160,12 +164,16 @@ export function createArtifactStore(options: ArtifactStoreOptions): ArtifactStor
         const indexSizeDelta = nextIndex ? encodeUtf8(JSON.stringify(nextIndex.slice(0, 2000))).byteLength - oldIndexSize : 0;
         const writeSize = payload.byteLength + indexSizeDelta;
         if (current + writeSize > activeBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
-        if (current + writeSize + REQUIRED_METADATA_RESERVATION_BYTES > activeBudget && !requiredKinds.has(kind)) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
+        const affectedRequired = await requiredBytes(root, target);
+        if (affectedRequired + (requiredKinds.has(kind) ? payload.byteLength : 0) > REQUIRED_METADATA_RESERVATION_BYTES) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
+        if (current + writeSize + (requiredKinds.has(kind) ? 0 : REQUIRED_METADATA_RESERVATION_BYTES) > activeBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
         await pruneGlobal(writeSize + (requiredKinds.has(kind) ? 0 : REQUIRED_METADATA_RESERVATION_BYTES), target);
         const globalEntries = await filesUnder(globalRoot);
         const globalTotal = globalEntries.reduce((sum, entry) => sum + (entry.absolutePath === target || path.basename(entry.absolutePath) === ".lock" ? 0 : entry.size), 0);
         if (globalTotal + writeSize > globalBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
-        if (globalTotal + writeSize + REQUIRED_METADATA_RESERVATION_BYTES > globalBudget && !requiredKinds.has(kind)) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
+        const globalRequired = await requiredBytes(globalRoot, target);
+        if (globalRequired + (requiredKinds.has(kind) ? payload.byteLength : 0) > REQUIRED_METADATA_RESERVATION_BYTES) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
+        if (globalTotal + writeSize + (requiredKinds.has(kind) ? 0 : REQUIRED_METADATA_RESERVATION_BYTES) > globalBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
         await writeAtomic(target, payload);
         if (nextIndex) await writeIndex(root, nextIndex);
       });

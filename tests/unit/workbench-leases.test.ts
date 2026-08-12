@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isLeaseReapable, LeaseManager, type LeaseLiveness } from "../../scripts/workbench/leases";
+import { validateRunResult } from "../../scripts/workbench/contracts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -86,8 +87,14 @@ describe("workbench lease lifecycle", () => {
     const manager = new LeaseManager({ artifactRoot, worktreePath: path.join(root, "worktree"), profileRoot, now: () => new Date("2020-01-01T00:03:00.000Z"), isProcessAlive: async () => false, sleep: async (ms) => { sleeps.push(ms); }, cleanup: async () => { throw new Error("x".repeat(10000)); } });
     const results = await manager.reapOrphans();
     expect(sleeps).toEqual([250, 500, 1000]);
-    expect(results[0]).toMatchObject({ ok: false, status: "abandoned", code: "WORKBENCH_CLEANUP_FAILED", phase: "cleanup", extensionId: "real-id", cleanup: { profileRemoved: false, retainedPath: profile } });
-    expect(results[0]).not.toHaveProperty("old");
+    expect(results[0]).toEqual({
+      ok: false, status: "abandoned", code: "WORKBENCH_CLEANUP_FAILED", phase: "cleanup", runId: "run-1",
+      worktreePath: path.join(root, "worktree"), buildPath: "build", profilePath: profile, mode: "fixture", url: "url", scenario: "default",
+      route: "groups", deepLink: "none", commandRecords: [], readiness: {}, screenshotPaths: [], assertions: [],
+      lease: { ...lease, heartbeat: "2020-01-01T00:03:00.000Z", status: "abandoned" },
+      extensionId: "real-id", cleanup: { profileRemoved: false, retainedPath: profile }, error: { message: "x".repeat(8192) }
+    });
+    expect(validateRunResult(results[0])).toBe(true);
     expect((results[0] as { error: { message: string } }).error.message.length).toBeLessThanOrEqual(8192);
     await rm(root, { recursive: true, force: true });
   });

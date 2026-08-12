@@ -96,20 +96,34 @@ function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[])
 function validString(value: unknown): value is string { return typeof value === "string" && value.length > 0; }
 function validBoundedError(value: unknown): value is BoundedRunError {
   if (!value || typeof value !== "object" || !validString((value as Record<string, unknown>).message)) return false;
+  if (!hasOnlyKeys(value as Record<string, unknown>, ["message", "details"])) return false;
   const details = (value as Record<string, unknown>).details;
-  return details === undefined || (details !== null && typeof details === "object" && Object.values(details as Record<string, unknown>).every((item) => typeof item === "string" || typeof item === "number" || typeof item === "boolean"));
+  return details === undefined || (details !== null && typeof details === "object" && Object.keys(details as Record<string, unknown>).every(validString) && Object.values(details as Record<string, unknown>).every((item) => typeof item === "string" || typeof item === "number" || typeof item === "boolean"));
 }
 function validDetails(value: unknown): boolean {
   return value === undefined || (value !== null && typeof value === "object" && Object.values(value as Record<string, unknown>).every((item) => typeof item === "string" || typeof item === "number" || typeof item === "boolean"));
 }
+function validMessage(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const message = value as Record<string, unknown>;
+  if (message.kind === "manager-query") return hasOnlyKeys(message, ["kind"]);
+  if (message.kind !== "manager-command" || !message.command || typeof message.command !== "object" || !hasOnlyKeys(message, ["kind", "command"])) return false;
+  const command = message.command as Record<string, unknown>;
+  if (!validString(command.kind)) return false;
+  if (command.kind === "updateGroup") return hasOnlyKeys(command, ["kind", "groupId", "patch"]) && validString(command.groupId) && !!command.patch && typeof command.patch === "object" && hasOnlyKeys(command.patch as Record<string, unknown>, ["name", "emoji", "color", "enabled", "isPersistent", "defaultOrder", "defaultCollapsed", "pausedUntil"]);
+  if (command.kind === "createGroup") return hasOnlyKeys(command, ["kind", "input"]) && !!command.input && typeof command.input === "object" && hasOnlyKeys(command.input as Record<string, unknown>, ["name", "color", "emoji", "isPersistent", "defaultCollapsed"]);
+  if (command.kind === "deleteGroup" || command.kind === "duplicateRule" || command.kind === "deleteRule" || command.kind === "setRuleEnabled" || command.kind === "setRulePaused") return hasOnlyKeys(command, command.kind === "setRuleEnabled" ? ["kind", "ruleId", "enabled"] : command.kind === "setRulePaused" ? ["kind", "ruleId", "pausedUntil"] : ["kind", command.kind.includes("Group") ? "groupId" : "ruleId"]);
+  if (command.kind === "saveRule") return hasOnlyKeys(command, ["kind", "input"]) && !!command.input && typeof command.input === "object";
+  return false;
+}
 function validTransportRecord(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
-  if (record.recordType === "event") return (record.mode === "fixture" || record.mode === "real") && ["page", "worker", "transport"].includes(record.source as string) && typeof record.at === "number" && validString(record.name) && validDetails(record.details);
-  if (record.recordType !== "request" || (record.mode !== "fixture" && record.mode !== "real") || !validString(record.requestId) || typeof record.sequence !== "number" || !Number.isInteger(record.sequence) || !record.message || typeof record.message !== "object" || typeof record.startedAt !== "number" || typeof record.latencyMs !== "number") return false;
+  if (record.recordType === "event") return (record.mode === "fixture" || record.mode === "real") && ["page", "worker", "transport"].includes(record.source as string) && typeof record.at === "number" && validString(record.name) && validDetails(record.details) && hasOnlyKeys(record, ["recordType", "mode", "source", "at", "name", "details"]);
+  if (record.recordType !== "request" || (record.mode !== "fixture" && record.mode !== "real") || !validString(record.requestId) || typeof record.sequence !== "number" || !Number.isInteger(record.sequence) || !validMessage(record.message) || typeof record.startedAt !== "number" || typeof record.latencyMs !== "number") return false;
   if (record.mode === "fixture" && !validString(record.scenarioId)) return false;
   if (record.workerGeneration !== undefined && (typeof record.workerGeneration !== "number" || !Number.isInteger(record.workerGeneration))) return false;
-  if (record.state === "pending") return !hasOnlyKeys(record, ["recordType", "mode", "requestId", "sequence", "scenarioId", "workerGeneration", "message", "startedAt", "latencyMs", "state"]);
+  if (record.state === "pending") return hasOnlyKeys(record, ["recordType", "mode", "requestId", "sequence", "scenarioId", "workerGeneration", "message", "startedAt", "latencyMs", "state"]);
   if (record.state === "resolved") return typeof record.endedAt === "number" && !!record.response && typeof record.response === "object" && hasOnlyKeys(record, ["recordType", "mode", "requestId", "sequence", "scenarioId", "workerGeneration", "message", "startedAt", "latencyMs", "state", "endedAt", "response"]);
   if (record.state === "rejected") return typeof record.endedAt === "number" && validBoundedError(record.error) && hasOnlyKeys(record, ["recordType", "mode", "requestId", "sequence", "scenarioId", "workerGeneration", "message", "startedAt", "latencyMs", "state", "endedAt", "error"]);
   return false;
@@ -117,18 +131,18 @@ function validTransportRecord(value: unknown): boolean {
 function validLease(value: unknown, status?: LeaseRecord["status"]): value is LeaseRecord {
   if (!value || typeof value !== "object") return false;
   const lease = value as Record<string, unknown>;
-  return validString(lease.runId) && typeof lease.pid === "number" && Number.isInteger(lease.pid) && validString(lease.startedAt) && validString(lease.heartbeat) && validString(lease.profilePath) && (lease.status === (status ?? lease.status)) && (status ? lease.status === status : lease.status === "active" || lease.status === "completed");
+  return validString(lease.runId) && typeof lease.pid === "number" && Number.isInteger(lease.pid) && validString(lease.startedAt) && validString(lease.heartbeat) && validString(lease.profilePath) && hasOnlyKeys(lease, ["runId", "pid", "startedAt", "heartbeat", "profilePath", "status"]) && (lease.status === (status ?? lease.status)) && (status ? lease.status === status : lease.status === "active" || lease.status === "completed");
 }
 export function validateStartedMetadata(value: unknown): value is RunResultStartedMetadata {
   if (!value || typeof value !== "object") return false;
   const item = value as Record<string, unknown>;
   if (!validString(item.runId) || !validString(item.worktreePath) || !validString(item.buildPath) || !validString(item.profilePath) || (item.mode !== "fixture" && item.mode !== "real") || !validString(item.url) || !validString(item.scenario)) return false;
   const deepLink = item.deepLink;
-  const validDeepLink = deepLink === "none" || deepLink === "new-rule" || (deepLink && typeof deepLink === "object" && ["edit-rule", "confirm-delete"].includes((deepLink as Record<string, unknown>).kind as string) && validString((deepLink as Record<string, unknown>).ruleId));
+  const validDeepLink = deepLink === "none" || deepLink === "new-rule" || (deepLink && typeof deepLink === "object" && ["edit-rule", "confirm-delete"].includes((deepLink as Record<string, unknown>).kind as string) && validString((deepLink as Record<string, unknown>).ruleId) && hasOnlyKeys(deepLink as Record<string, unknown>, ["kind", "ruleId"]));
   if (!["groups", "rules", "activity", "settings"].includes(item.route as string) || !validDeepLink) return false;
-  if (!Array.isArray(item.commandRecords) || !item.commandRecords.every(validTransportRecord) || !item.readiness || typeof item.readiness !== "object" || !hasOnlyKeys(item.readiness as Record<string, unknown>, ["workerDiscoveredAt", "managerQuerySettledAt"]) || !Object.values(item.readiness as Record<string, unknown>).every((entry) => typeof entry === "string") || !Array.isArray(item.screenshotPaths) || !item.screenshotPaths.every((entry) => typeof entry === "string") || !Array.isArray(item.assertions) || !item.assertions.every((entry) => entry && typeof entry === "object" && validString((entry as Record<string, unknown>).name) && typeof (entry as Record<string, unknown>).passed === "boolean" && validDetails((entry as Record<string, unknown>).details)) || !validLease(item.lease) || !item.cleanup || typeof item.cleanup !== "object") return false;
+  if (!Array.isArray(item.commandRecords) || !item.commandRecords.every(validTransportRecord) || !item.readiness || typeof item.readiness !== "object" || !hasOnlyKeys(item.readiness as Record<string, unknown>, ["workerDiscoveredAt", "managerQuerySettledAt"]) || !Object.values(item.readiness as Record<string, unknown>).every((entry) => typeof entry === "string") || !Array.isArray(item.screenshotPaths) || !item.screenshotPaths.every((entry) => typeof entry === "string") || !Array.isArray(item.assertions) || !item.assertions.every((entry) => entry && typeof entry === "object" && validString((entry as Record<string, unknown>).name) && typeof (entry as Record<string, unknown>).passed === "boolean" && validDetails((entry as Record<string, unknown>).details) && hasOnlyKeys(entry as Record<string, unknown>, ["name", "passed", "details"])) || !validLease(item.lease) || !item.cleanup || typeof item.cleanup !== "object") return false;
   const cleanup = item.cleanup as Record<string, unknown>;
-  return typeof cleanup.profileRemoved === "boolean" && (!('retainedPath' in cleanup) || validString(cleanup.retainedPath));
+  return typeof cleanup.profileRemoved === "boolean" && hasOnlyKeys(cleanup, ["profileRemoved", "retainedPath"]) && (!('retainedPath' in cleanup) || validString(cleanup.retainedPath));
 }
 
 export function validateRunResult(value: unknown): value is RunResult {
@@ -143,13 +157,14 @@ export function validateRunResult(value: unknown): value is RunResult {
     if (!cleanup || typeof cleanup.profileRemoved !== "boolean") return false;
     if (cleanup.profileRemoved === false && typeof cleanup.retainedPath !== "string") return false;
     if (cleanup.profileRemoved === true && "retainedPath" in cleanup) return false;
-    if (result.ok) return cleanup.profileRemoved === true && hasOnlyKeys(result, ["ok", "status", "runId", "worktreePath", "buildPath", "profilePath", "mode", "url", "scenario", "route", "deepLink", "commandRecords", "readiness", "screenshotPaths", "assertions", "lease", "cleanup", "extensionId"]);
+    if (result.ok) return cleanup.profileRemoved === true && (!('extensionId' in result) || typeof result.extensionId === "string") && hasOnlyKeys(result, ["ok", "status", "runId", "worktreePath", "buildPath", "profilePath", "mode", "url", "scenario", "route", "deepLink", "commandRecords", "readiness", "screenshotPaths", "assertions", "lease", "cleanup", "extensionId"]);
     return result.code === "WORKBENCH_CLEANUP_FAILED" && result.phase === "cleanup" && validBoundedError(result.error) && hasOnlyKeys(result, ["ok", "status", "code", "phase", "runId", "worktreePath", "buildPath", "profilePath", "mode", "url", "scenario", "route", "deepLink", "commandRecords", "readiness", "screenshotPaths", "assertions", "lease", "cleanup", "extensionId", "error"]);
   }
   if (result.status !== "failed" || result.ok !== false || typeof result.code !== "string" || typeof result.phase !== "string") return false;
   if (result.code === "WORKBENCH_ARGUMENT" || result.code === "WORKBENCH_CAPACITY") return !("extensionId" in result) && result.phase === (result.code === "WORKBENCH_ARGUMENT" ? "argument" : "capacity") && typeof result.runId === "string" && typeof result.worktreePath === "string" && validBoundedError(result.error) && hasOnlyKeys(result, ["ok", "status", "code", "phase", "runId", "worktreePath", "error"]);
-  if (result.code === "WORKBENCH_ARTIFACT_LIMIT" && result.phase === "artifact" && validBoundedError(result.error) && typeof result.runId === "string" && validLease(result.lease, "active") && typeof result.buildPath === "string" && typeof result.profilePath === "string" && result.cleanup && typeof result.cleanup === "object") {
-    return hasOnlyKeys(result, ["ok", "status", "code", "phase", "runId", "worktreePath", "buildPath", "profilePath", "lease", "cleanup", "error", "extensionId"]);
+  if (result.code === "WORKBENCH_ARTIFACT_LIMIT" && result.phase === "artifact" && validBoundedError(result.error) && typeof result.runId === "string" && typeof result.worktreePath === "string" && validLease(result.lease, "active") && typeof result.buildPath === "string" && typeof result.profilePath === "string" && result.cleanup && typeof result.cleanup === "object") {
+    const cleanup = result.cleanup as Record<string, unknown>;
+    return hasOnlyKeys(result, ["ok", "status", "code", "phase", "runId", "worktreePath", "buildPath", "profilePath", "lease", "cleanup", "error", "extensionId"]) && hasOnlyKeys(cleanup, ["profileRemoved", "retainedPath"]) && typeof cleanup.profileRemoved === "boolean" && (cleanup.profileRemoved ? !('retainedPath' in cleanup) : typeof cleanup.retainedPath === "string") && (!('extensionId' in result) || typeof result.extensionId === "string");
   }
   if (!validateStartedMetadata(result) || !validBoundedError(result.error)) return false;
   const startedKeys = ["ok", "status", "code", "phase", "runId", "worktreePath", "buildPath", "profilePath", "mode", "url", "scenario", "route", "deepLink", "commandRecords", "readiness", "screenshotPaths", "assertions", "lease", "cleanup", "extensionId", "error"];
