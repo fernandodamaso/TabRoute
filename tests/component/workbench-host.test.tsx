@@ -128,6 +128,41 @@ it("reports the latest terminal typed failure instead of an earlier pending quer
   expect(screen.getByRole("status", { name: "Result status" }).textContent).toContain("error");
 });
 
+it("reports a resolved typed manager failure as an error", () => {
+  const state: WorkbenchUrlState = {
+    workbench: true,
+    mode: "real",
+    route: "groups",
+    scenarioId: "wb:default",
+    deepLink: "none",
+    latencyMs: 0,
+    failure: { mode: "none" }
+  };
+  const response = {
+    ok: false as const,
+    error: { kind: "offline" as const, code: "OFFLINE", message: "Worker is offline" }
+  };
+  const records: ManagerTransportRecord[] = [{
+    recordType: "request",
+    mode: "real",
+    requestId: "manager-real-typed-failure",
+    sequence: 1,
+    message: { kind: "manager-query" },
+    startedAt: 1,
+    latencyMs: 0,
+    endedAt: 2,
+    state: "resolved",
+    response
+  }];
+
+  render(<WorkbenchHost state={state} real={{ request: async () => response }} records={records} onStateChange={() => undefined}>
+    <div />
+  </WorkbenchHost>);
+
+  expect(document.querySelector('[data-workbench-status="manager-error"]')).toBeTruthy();
+  expect(screen.getByRole("status", { name: "Result status" }).textContent).toContain("error");
+});
+
 it("lets a deep-link UUID be typed before committing the validated URL", async () => {
   const user = userEvent.setup();
   setSearch("?workbench=1&mode=fixture&route=rules&scenario=wb%3Aedit-rule&deep-link=edit-rule%3A00000000-0000-4000-8000-000000000101&latency=0&failure=none");

@@ -32,7 +32,8 @@ function requestStatus(
     return record.mode === mode && record.message.kind === "manager-query";
   }).at(-1);
   if (!query || query.state === "pending") return "manager-pending";
-  return query.state === "resolved" ? "manager-ready" : "manager-error";
+  if (query.state === "rejected") return "manager-error";
+  return query.response.ok ? "manager-ready" : "manager-error";
 }
 
 function deepLinkValue(state: WorkbenchUrlState): string {
