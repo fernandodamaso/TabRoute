@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { UUID } from "../../domain/types";
-import type { ManagerAppProps, ManagerDeepLink, ManagerRoute } from "./types";
+import type { ManagerAppProps, ManagerDeepLink, ManagerRoute, ManagerViewFixture } from "./types";
 import { ManagerShell } from "./ManagerShell";
 import { useManagerState } from "./useManagerState";
 import { GroupsPage } from "./pages/GroupsPage";
@@ -25,7 +25,7 @@ export function ManagerApp({
   transport,
   initialRoute,
   initialDeepLink = "none"
-}: ManagerAppProps) {
+}: ManagerAppProps & { viewFixture?: ManagerViewFixture }) {
   const [route, setRoute] = useState<ManagerRoute>(() => {
     if (initialRoute) return initialRoute;
     const value = typeof window === "undefined" ? "" : window.location.hash.slice(1);
@@ -36,6 +36,7 @@ export function ManagerApp({
   const [editingRuleId, setEditingRuleId] = useState<UUID | "new" | undefined>();
   const [confirmDeleteRuleId, setConfirmDeleteRuleId] = useState<UUID>();
   const initialDeepLinkApplied = useRef(false);
+  const lastInitialRoute = useRef(initialRoute);
   const state = useManagerState(transport);
   const title = `${route[0]!.toUpperCase()}${route.slice(1)}`;
 
@@ -46,6 +47,12 @@ export function ManagerApp({
     setConfirmDeleteRuleId(initialDeleteRule(initialDeepLink));
   }, [initialDeepLink, state.status]);
 
+  useEffect(() => {
+    if (initialRoute === undefined || initialRoute === lastInitialRoute.current) return;
+    lastInitialRoute.current = initialRoute;
+    setRoute(initialRoute);
+  }, [initialRoute, route]);
+
   return <ManagerShell
     route={route}
     onRouteChange={setRoute}
@@ -55,6 +62,7 @@ export function ManagerApp({
       ? <GroupsPage
           configuration={state.configuration}
           command={state.command}
+          viewFixture={state.viewFixture}
           onNavigate={(destination) => setRoute(destination)}
         />
       : route === "rules"
