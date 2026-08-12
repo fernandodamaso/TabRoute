@@ -86,6 +86,23 @@ describe("workbench RunResult contracts", () => {
     expect(validateRunResult({ ...metadata, commandRecords: [{ ...pending, endedAt: 2 }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "pending" } })).toBe(false);
   });
 
+  it("validates save-rule records with the real rule field", () => {
+    const rule = { schemaVersion: 1, id: "rule-1", targetGroupId: "group-1", priority: 1, positive: { kind: "url", operator: "exact", value: "https://example.test" }, negative: [], actions: [{ kind: "group" }], enabled: true, createdAt: 1, updatedAt: 1 };
+    const record = { recordType: "request", mode: "fixture", requestId: "request-1", sequence: 1, scenarioId: "default", message: { kind: "manager-command", command: { kind: "saveRule", rule } }, startedAt: 1, latencyMs: 0, state: "pending" };
+    expect(validateRunResult({ ...metadata, commandRecords: [record], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "pending" } })).toBe(true);
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...record, message: { kind: "manager-command", command: { kind: "saveRule", input: rule } } }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "pending" } })).toBe(false);
+  });
+
+  it("validates exact manager success and failure responses in resolved records", () => {
+    const base = { recordType: "request", mode: "fixture", requestId: "request-1", sequence: 1, scenarioId: "default", message: { kind: "manager-query" }, startedAt: 1, latencyMs: 0, state: "resolved", endedAt: 2 };
+    const success = { ok: true, configuration: { schemaVersion: 1, fallbackGroupId: "group-1", automationEnabled: true, groups: [], rules: [], persistentTabs: [], duplicateSettings: { globalPolicy: { kind: "allow" }, globalExclusions: [], trackingParameters: [] }, templates: [], snapshotIntervalMinutes: 5, activityLimit: 500, snapshotLimit: 50, undoTtlMs: 30000, createdAt: 1, updatedAt: 1 }, view: { width: 520, height: 600, headerHeight: 52, navigationHeight: 42, defaultRoute: "groups", routes: ["groups"] } };
+    const failure = { ok: false, error: { kind: "transport", message: "offline" } };
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...base, response: success }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "x" } })).toBe(true);
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...base, response: { ...success, extra: true } }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "x" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...base, response: failure }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "x" } })).toBe(true);
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...base, response: { ...failure, extra: true } }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "x" } })).toBe(false);
+  });
+
   it("distinguishes encoded reservation boundaries", () => {
     const minus = new TextEncoder().encode(JSON.stringify({ value: "x".repeat(REQUIRED_METADATA_RESERVATION_BYTES - 100) })).byteLength;
     const exact = new TextEncoder().encode(JSON.stringify({ value: "x".repeat(REQUIRED_METADATA_RESERVATION_BYTES - 13) })).byteLength;

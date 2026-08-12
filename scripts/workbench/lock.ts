@@ -20,6 +20,16 @@ export interface LockOptions {
 
 interface LockOwner { pid: number; runId: string; heartbeat: number; token: string; }
 const defaultSleep = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+async function publishWithoutReplacement(source: string, destination: string): Promise<boolean> {
+  try {
+    await fs.link(source, destination);
+    await fs.rm(source, { force: true });
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST" || (error as NodeJS.ErrnoException).code === "EPERM") return false;
+    throw error;
+  }
+}
 
 async function stale(owner: LockOwner | undefined, options: Required<Pick<LockOptions, "now" | "isPidAlive">>): Promise<boolean> {
   if (!owner) return false;
@@ -53,17 +63,20 @@ export function createCrossProcessLock(lockPath: string, supplied: LockOptions =
           const timer = (supplied.setInterval ?? setInterval)(() => {
             const refreshed = { ...owner, heartbeat: now() };
             void (async () => {
+              const claim = `${absolute}.heartbeat-${process.pid}-${crypto.randomUUID()}`;
               try {
+                // Claim the public name before touching the inode. A contender
+                // may publish a replacement while the name is displaced, but
+                // it can never be overwritten by this refresh.
+                await fs.rename(absolute, claim);
+                const current = JSON.parse(await fs.readFile(claim, "utf8")) as LockOwner;
+                if (current.token !== owner.token) {
+                  await publishWithoutReplacement(claim, absolute);
+                  return;
+                }
                 await supplied.beforeHeartbeatReplace?.();
-                // Keep the acquired descriptor open. If another owner replaces
-                // the path, this descriptor still points to the old inode and
-                // cannot overwrite the replacement path between validation and
-                // mutation.
-                const current = JSON.parse(await fs.readFile(absolute, "utf8")) as LockOwner;
-                if (current.token !== owner.token) return;
-                await handle.truncate(0);
-                await handle.writeFile(JSON.stringify(refreshed), "utf8");
-                await handle.sync();
+                await fs.writeFile(claim, JSON.stringify(refreshed), "utf8");
+                if (!await publishWithoutReplacement(claim, absolute)) await fs.rm(claim, { force: true }).catch(() => undefined);
               } catch { /* owner was replaced or lock became unreadable */ }
             })();
           }, 5000);
@@ -72,9 +85,17 @@ export function createCrossProcessLock(lockPath: string, supplied: LockOptions =
             (supplied.clearInterval ?? clearInterval)(timer);
             if (!held) return;
             held = false;
+            const claim = `${absolute}.release-${process.pid}-${crypto.randomUUID()}`;
             try {
-              const content = JSON.parse(await fs.readFile(absolute, "utf8")) as LockOwner;
-              if (content.token === owner.token) await fs.rm(absolute, { force: true });
+              await fs.rename(absolute, claim);
+              const content = JSON.parse(await fs.readFile(claim, "utf8")) as LockOwner;
+              if (content.token === owner.token) {
+                await fs.rm(claim, { force: true });
+              } else {
+                // The claimed inode is not ours. Restore it only if the public
+                // name is still free; rename never replaces a new owner.
+                if (!await publishWithoutReplacement(claim, absolute)) await fs.rm(claim, { force: true }).catch(() => undefined);
+              }
             } catch { /* another owner recovered it */ }
             await handle.close().catch(() => undefined);
           } };
@@ -86,17 +107,18 @@ export function createCrossProcessLock(lockPath: string, supplied: LockOptions =
           try {
             const current = JSON.parse(await fs.readFile(absolute, "utf8")) as LockOwner;
             if (await stale(current, { now, isPidAlive })) {
-              await supplied.beforeStaleRemove?.();
               // Claim the path with one atomic rename. The claimed inode is then
-              // inspected before removal, so a replacement owner is never
-              // removed by a second path-based mutation.
+              // inspected before removal. The public name is free while the
+              // stale inode is inspected, so a third contender can acquire it
+              // without being displaced by recovery.
               const claim = `${absolute}.stale-${process.pid}-${crypto.randomUUID()}`;
               await fs.rename(absolute, claim);
+              await supplied.beforeStaleRemove?.();
               const claimed = JSON.parse(await fs.readFile(claim, "utf8")) as LockOwner;
               if (claimed.token === current.token && claimed.heartbeat === current.heartbeat) {
                 await fs.rm(claim, { force: true });
               } else {
-                try { await fs.access(absolute); } catch { await fs.rename(claim, absolute); }
+                if (!await publishWithoutReplacement(claim, absolute)) await fs.rm(claim, { force: true }).catch(() => undefined);
               }
             }
           } catch { /* partial owner file: retry without deleting it */ }

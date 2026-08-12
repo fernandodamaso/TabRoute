@@ -94,6 +94,7 @@ export function createArtifactLimitFailure(metadata: RunResultStartedMetadata, e
 
 function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean { return Object.keys(value).every((key) => allowed.includes(key)); }
 function validString(value: unknown): value is string { return typeof value === "string" && value.length > 0; }
+function validRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function validBoundedError(value: unknown): value is BoundedRunError {
   if (!value || typeof value !== "object" || !validString((value as Record<string, unknown>).message)) return false;
   if (!hasOnlyKeys(value as Record<string, unknown>, ["message", "details"])) return false;
@@ -103,29 +104,81 @@ function validBoundedError(value: unknown): value is BoundedRunError {
 function validDetails(value: unknown): boolean {
   return value === undefined || (value !== null && typeof value === "object" && Object.values(value as Record<string, unknown>).every((item) => typeof item === "string" || typeof item === "number" || typeof item === "boolean"));
 }
+const managerRoutes = ["groups", "rules", "activity", "settings"] as const;
+const groupColors = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"] as const;
+function validCondition(value: unknown): boolean {
+  if (!validRecord(value) || typeof value.kind !== "string") return false;
+  if (value.kind === "all" || value.kind === "any") return hasOnlyKeys(value, ["kind", "children"]) && Array.isArray(value.children) && value.children.every(validCondition);
+  if (value.kind === "pinned") return hasOnlyKeys(value, ["kind", "value"]) && typeof value.value === "boolean";
+  if (value.kind === "currentGroup") return hasOnlyKeys(value, ["kind", "placement"]) && validRecord(value.placement) && typeof value.placement.kind === "string";
+  const operators: Record<string, readonly string[]> = { url: ["exact", "pattern", "regex"], host: ["exact", "suffix"], path: ["exact", "prefix"], title: ["contains", "exact", "regex"], openerUrl: ["exact", "pattern", "suffix"], openerHost: ["exact", "pattern", "suffix"] };
+  const allowedOperators = operators[value.kind];
+  return allowedOperators !== undefined && hasOnlyKeys(value, ["kind", "operator", "value"]) && typeof value.operator === "string" && allowedOperators.includes(value.operator) && validString(value.value);
+}
+function validRule(value: unknown): boolean {
+  if (!validRecord(value) || value.schemaVersion !== 1 || !validString(value.id) || !validString(value.targetGroupId) || typeof value.priority !== "number" || !Number.isInteger(value.priority) || !validCondition(value.positive) || !Array.isArray(value.negative) || !value.negative.every(validCondition) || !Array.isArray(value.actions) || !value.actions.every(validAction) || typeof value.enabled !== "boolean" || typeof value.createdAt !== "number" || typeof value.updatedAt !== "number") return false;
+  if (!hasOnlyKeys(value, ["schemaVersion", "id", "targetGroupId", "priority", "positive", "negative", "actions", "duplicatePolicy", "enabled", "pausedUntil", "createdAt", "updatedAt"])) return false;
+  if (value.pausedUntil !== undefined && typeof value.pausedUntil !== "number" && value.pausedUntil !== "restart") return false;
+  return value.duplicatePolicy === undefined || validDuplicatePolicy(value.duplicatePolicy);
+}
+function validDuplicatePolicy(value: unknown): boolean {
+  if (!validRecord(value) || typeof value.kind !== "string") return false;
+  if (["allow", "exactUrl", "fragmentlessUrl", "domain", "urlAndTitle"].includes(value.kind)) return hasOnlyKeys(value, ["kind"]);
+  return value.kind === "pattern" && hasOnlyKeys(value, ["kind", "pattern"]) && validString(value.pattern);
+}
+function validAction(value: unknown): boolean {
+  if (!validRecord(value) || typeof value.kind !== "string") return false;
+  if (value.kind === "group" || value.kind === "ungroup" || value.kind === "makePersistent") return hasOnlyKeys(value, ["kind"]);
+  if (value.kind === "setCollapsed") return hasOnlyKeys(value, ["kind", "collapsed"]) && typeof value.collapsed === "boolean";
+  return value.kind === "setDuplicatePolicy" && hasOnlyKeys(value, ["kind", "policy"]) && validDuplicatePolicy(value.policy);
+}
+function validManagedGroup(value: unknown): boolean {
+  return validRecord(value) && value.schemaVersion === 1 && validString(value.id) && validString(value.name) && groupColors.includes(value.color as typeof groupColors[number]) && typeof value.isFallback === "boolean" && typeof value.enabled === "boolean" && typeof value.isPersistent === "boolean" && typeof value.defaultOrder === "number" && Number.isInteger(value.defaultOrder) && typeof value.defaultCollapsed === "boolean" && typeof value.createdAt === "number" && typeof value.updatedAt === "number" && (value.pausedUntil === undefined || typeof value.pausedUntil === "number" || value.pausedUntil === "restart") && hasOnlyKeys(value, ["schemaVersion", "id", "name", "emoji", "color", "isFallback", "enabled", "isPersistent", "defaultOrder", "defaultCollapsed", "pausedUntil", "createdAt", "updatedAt"]);
+}
+function validConfiguration(value: unknown): boolean {
+  if (!validRecord(value) || value.schemaVersion !== 1 || !validString(value.fallbackGroupId) || typeof value.automationEnabled !== "boolean" || !Array.isArray(value.groups) || !value.groups.every(validManagedGroup) || !Array.isArray(value.rules) || !value.rules.every(validRule) || !Array.isArray(value.persistentTabs) || !Array.isArray(value.templates) || !validRecord(value.duplicateSettings) || !hasOnlyKeys(value.duplicateSettings, ["globalPolicy", "globalExclusions", "trackingParameters"]) || !validDuplicatePolicy(value.duplicateSettings.globalPolicy) || !Array.isArray(value.duplicateSettings.globalExclusions) || !value.duplicateSettings.globalExclusions.every(validString) || !Array.isArray(value.duplicateSettings.trackingParameters) || !value.duplicateSettings.trackingParameters.every(validString) || typeof value.snapshotIntervalMinutes !== "number" || typeof value.activityLimit !== "number" || typeof value.snapshotLimit !== "number" || typeof value.undoTtlMs !== "number" || typeof value.createdAt !== "number" || typeof value.updatedAt !== "number") return false;
+  return hasOnlyKeys(value, ["schemaVersion", "fallbackGroupId", "automationEnabled", "globalPausedUntil", "groups", "rules", "persistentTabs", "duplicateSettings", "templates", "snapshotIntervalMinutes", "activityLimit", "snapshotLimit", "undoTtlMs", "createdAt", "updatedAt"]) && (value.globalPausedUntil === undefined || typeof value.globalPausedUntil === "number" || value.globalPausedUntil === "restart");
+}
+function validView(value: unknown): boolean {
+  return validRecord(value) && value.width === 520 && value.height === 600 && value.headerHeight === 52 && value.navigationHeight === 42 && value.defaultRoute === "groups" && Array.isArray(value.routes) && value.routes.every((route) => managerRoutes.includes(route as typeof managerRoutes[number])) && hasOnlyKeys(value, ["width", "height", "headerHeight", "navigationHeight", "defaultRoute", "routes"]);
+}
+function validManagerError(value: unknown): boolean {
+  if (!validRecord(value) || !["validation", "reference", "persistence", "offline", "transport"].includes(value.kind as string) || !validString(value.message) || !hasOnlyKeys(value, ["kind", "message", "code", "field"])) return false;
+  return (value.code === undefined || validString(value.code)) && (value.field === undefined || validString(value.field));
+}
+function validManagerResponse(value: unknown): boolean {
+  if (!validRecord(value) || typeof value.ok !== "boolean") return false;
+  if (value.ok) {
+    if (!hasOnlyKeys(value, ["ok", "configuration", "view", "viewFixture"]) || !validConfiguration(value.configuration) || !validView(value.view)) return false;
+    if (value.viewFixture === undefined) return true;
+    if (!validRecord(value.viewFixture) || !validRecord(value.viewFixture.persistentTabsByGroup) || !hasOnlyKeys(value.viewFixture, ["persistentTabsByGroup"])) return false;
+    return Object.values(value.viewFixture.persistentTabsByGroup).every((fixture) => validRecord(fixture) && ["loading", "empty", "populated", "disabled", "error"].includes(fixture.state as string) && Array.isArray(fixture.tabs) && fixture.tabs.every(validString) && hasOnlyKeys(fixture, ["state", "tabs"]));
+  }
+  return hasOnlyKeys(value, ["ok", "error"]) && validManagerError(value.error);
+}
 function validMessage(value: unknown): boolean {
-  if (!value || typeof value !== "object") return false;
+  if (!validRecord(value)) return false;
   const message = value as Record<string, unknown>;
   if (message.kind === "manager-query") return hasOnlyKeys(message, ["kind"]);
   if (message.kind !== "manager-command" || !message.command || typeof message.command !== "object" || !hasOnlyKeys(message, ["kind", "command"])) return false;
   const command = message.command as Record<string, unknown>;
   if (!validString(command.kind)) return false;
-  if (command.kind === "updateGroup") return hasOnlyKeys(command, ["kind", "groupId", "patch"]) && validString(command.groupId) && !!command.patch && typeof command.patch === "object" && hasOnlyKeys(command.patch as Record<string, unknown>, ["name", "emoji", "color", "enabled", "isPersistent", "defaultOrder", "defaultCollapsed", "pausedUntil"]);
-  if (command.kind === "createGroup") return hasOnlyKeys(command, ["kind", "input"]) && !!command.input && typeof command.input === "object" && hasOnlyKeys(command.input as Record<string, unknown>, ["name", "color", "emoji", "isPersistent", "defaultCollapsed"]);
+  if (command.kind === "updateGroup") return hasOnlyKeys(command, ["kind", "groupId", "patch"]) && validString(command.groupId) && validRecord(command.patch) && hasOnlyKeys(command.patch, ["name", "emoji", "color", "enabled", "isPersistent", "defaultOrder", "defaultCollapsed", "pausedUntil"]) && (command.patch.name === undefined || validString(command.patch.name)) && (command.patch.emoji === undefined || typeof command.patch.emoji === "string") && (command.patch.color === undefined || groupColors.includes(command.patch.color as typeof groupColors[number])) && (command.patch.enabled === undefined || typeof command.patch.enabled === "boolean") && (command.patch.isPersistent === undefined || typeof command.patch.isPersistent === "boolean") && (command.patch.defaultOrder === undefined || typeof command.patch.defaultOrder === "number") && (command.patch.defaultCollapsed === undefined || typeof command.patch.defaultCollapsed === "boolean") && (command.patch.pausedUntil === undefined || typeof command.patch.pausedUntil === "number" || command.patch.pausedUntil === "restart");
+  if (command.kind === "createGroup") return hasOnlyKeys(command, ["kind", "input"]) && validRecord(command.input) && hasOnlyKeys(command.input, ["name", "color", "emoji", "isPersistent", "defaultCollapsed"]) && validString(command.input.name) && groupColors.includes(command.input.color as typeof groupColors[number]) && (command.input.emoji === undefined || typeof command.input.emoji === "string") && (command.input.isPersistent === undefined || typeof command.input.isPersistent === "boolean") && (command.input.defaultCollapsed === undefined || typeof command.input.defaultCollapsed === "boolean");
   if (command.kind === "deleteGroup" || command.kind === "duplicateRule" || command.kind === "deleteRule" || command.kind === "setRuleEnabled" || command.kind === "setRulePaused") return hasOnlyKeys(command, command.kind === "setRuleEnabled" ? ["kind", "ruleId", "enabled"] : command.kind === "setRulePaused" ? ["kind", "ruleId", "pausedUntil"] : ["kind", command.kind.includes("Group") ? "groupId" : "ruleId"]);
-  if (command.kind === "saveRule") return hasOnlyKeys(command, ["kind", "input"]) && !!command.input && typeof command.input === "object";
+  if (command.kind === "saveRule") return hasOnlyKeys(command, ["kind", "rule"]) && validRecord(command.rule) && validRule(command.rule);
   return false;
 }
 function validTransportRecord(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
-  if (record.recordType === "event") return (record.mode === "fixture" || record.mode === "real") && ["page", "worker", "transport"].includes(record.source as string) && typeof record.at === "number" && validString(record.name) && validDetails(record.details) && hasOnlyKeys(record, ["recordType", "mode", "source", "at", "name", "details"]);
+  if (record.recordType === "event") return (record.mode === "fixture" || record.mode === "real") && ["page", "worker", "transport"].includes(record.source as string) && typeof record.at === "number" && Number.isFinite(record.at) && validString(record.name) && validRecord(record.details) && validDetails(record.details) && hasOnlyKeys(record, ["recordType", "mode", "source", "at", "name", "details"]);
   if (record.recordType !== "request" || (record.mode !== "fixture" && record.mode !== "real") || !validString(record.requestId) || typeof record.sequence !== "number" || !Number.isInteger(record.sequence) || !validMessage(record.message) || typeof record.startedAt !== "number" || typeof record.latencyMs !== "number") return false;
   if (record.mode === "fixture" && !validString(record.scenarioId)) return false;
   if (record.workerGeneration !== undefined && (typeof record.workerGeneration !== "number" || !Number.isInteger(record.workerGeneration))) return false;
   if (record.state === "pending") return hasOnlyKeys(record, ["recordType", "mode", "requestId", "sequence", "scenarioId", "workerGeneration", "message", "startedAt", "latencyMs", "state"]);
-  if (record.state === "resolved") return typeof record.endedAt === "number" && !!record.response && typeof record.response === "object" && hasOnlyKeys(record, ["recordType", "mode", "requestId", "sequence", "scenarioId", "workerGeneration", "message", "startedAt", "latencyMs", "state", "endedAt", "response"]);
-  if (record.state === "rejected") return typeof record.endedAt === "number" && validBoundedError(record.error) && hasOnlyKeys(record, ["recordType", "mode", "requestId", "sequence", "scenarioId", "workerGeneration", "message", "startedAt", "latencyMs", "state", "endedAt", "error"]);
+  if (record.state === "resolved") return typeof record.endedAt === "number" && Number.isFinite(record.endedAt) && validManagerResponse(record.response) && hasOnlyKeys(record, ["recordType", "mode", "requestId", "sequence", "scenarioId", "workerGeneration", "message", "startedAt", "latencyMs", "state", "endedAt", "response"]);
+  if (record.state === "rejected") return typeof record.endedAt === "number" && Number.isFinite(record.endedAt) && validManagerError(record.error) && hasOnlyKeys(record, ["recordType", "mode", "requestId", "sequence", "scenarioId", "workerGeneration", "message", "startedAt", "latencyMs", "state", "endedAt", "error"]);
   return false;
 }
 function validLease(value: unknown, status?: LeaseRecord["status"]): value is LeaseRecord {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { isLeaseReapable, LeaseManager, type LeaseLiveness } from "../../scripts/workbench/leases";
 import { validateRunResult } from "../../scripts/workbench/contracts";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -59,6 +59,22 @@ describe("workbench lease lifecycle", () => {
     const handle = manager.startHeartbeat("run-1", { setInterval: ((callback: () => void, ms: number) => { calls.push(`start:${ms}`); callback(); return 1 as unknown as NodeJS.Timeout; }) as never, clearInterval: (() => { calls.push("stop"); }) as never }, async () => { calls.push("beat"); });
     handle.stop();
     expect(calls).toEqual(["start:5000", "beat", "stop"]);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("writes parseable heartbeat JSON and permits release and reacquisition", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-heartbeat-json-"));
+    const manager = new LeaseManager({ artifactRoot: path.join(root, "artifacts"), worktreePath: path.join(root, "worktree"), profileRoot: path.join(root, "profiles"), pid: 42, isProcessAlive: async () => true });
+    const profile = path.join(root, "profiles", "run-1");
+    await mkdir(profile, { recursive: true });
+    await manager.createLease({ runId: "run-1", pid: 42, startedAt: "2026-01-01T00:00:00.000Z", heartbeat: "2026-01-01T00:00:00.000Z", profilePath: profile });
+    await manager.heartbeat("run-1", "2026-01-01T00:00:05.000Z");
+    const refreshed = JSON.parse(await readFile(path.join(root, "artifacts", "run-1", "lease.json"), "utf8"));
+    expect(refreshed.heartbeat).toBe("2026-01-01T00:00:05.000Z");
+    expect(refreshed.status).toBe("active");
+    expect(await manager.countActive()).toBe(1);
+    await manager.heartbeat("run-1", "2026-01-01T00:00:10.000Z");
+    expect(await manager.countActive()).toBe(1);
     await rm(root, { recursive: true, force: true });
   });
 

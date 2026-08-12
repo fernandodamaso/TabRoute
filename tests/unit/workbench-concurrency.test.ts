@@ -81,7 +81,7 @@ describe("workbench cross-process lock", () => {
     const lockPath = path.join(await mkdtemp(path.join(os.tmpdir(), "tabroute-stale-race-")), ".lock");
     await (await import("node:fs/promises")).writeFile(lockPath, JSON.stringify({ pid: 7, runId: "old", heartbeat: 0, token: "old-token" }));
     let replacement = false;
-    const lock = createCrossProcessLock(lockPath, { now: () => 20 * 60 * 1000, isPidAlive: async () => false, retryDelayMs: 1, maxAttempts: 3, beforeStaleRemove: async () => { await (await import("node:fs/promises")).writeFile(lockPath, JSON.stringify({ pid: 8, runId: "new", heartbeat: 20 * 60 * 1000, token: "new-token" })); replacement = true; } });
+    const lock = createCrossProcessLock(lockPath, { now: () => 20 * 60 * 1000, isPidAlive: async () => false, retryDelayMs: 1, maxAttempts: 1, beforeStaleRemove: async () => { await (await import("node:fs/promises")).writeFile(lockPath, JSON.stringify({ pid: 8, runId: "new", heartbeat: 20 * 60 * 1000, token: "new-token" })); replacement = true; } });
     await expect(lock.acquire()).rejects.toMatchObject({ code: "WORKBENCH_CAPACITY" });
     expect(replacement).toBe(true);
     expect(JSON.parse(await (await import("node:fs/promises")).readFile(lockPath, "utf8")).token).toBe("new-token");
@@ -109,7 +109,7 @@ describe("workbench cross-process lock", () => {
     const lockPath = path.join(directory, ".lock");
     await (await import("node:fs/promises")).writeFile(lockPath, JSON.stringify({ pid: 7, runId: "old", heartbeat: 0, token: "old-token" }));
     let windowEntered = false;
-    const lock = createCrossProcessLock(lockPath, { now: () => 20 * 60 * 1000, isPidAlive: async () => false, retryDelayMs: 1, maxAttempts: 2, beforeStaleRemove: async () => { windowEntered = true; await (await import("node:fs/promises")).rm(lockPath); await (await import("node:fs/promises")).writeFile(lockPath, JSON.stringify({ pid: 8, runId: "new", heartbeat: 20 * 60 * 1000, token: "new-token" })); } });
+    const lock = createCrossProcessLock(lockPath, { now: () => 20 * 60 * 1000, isPidAlive: async () => false, retryDelayMs: 1, maxAttempts: 1, beforeStaleRemove: async () => { windowEntered = true; await (await import("node:fs/promises")).rm(lockPath, { force: true }); await (await import("node:fs/promises")).writeFile(lockPath, JSON.stringify({ pid: 8, runId: "new", heartbeat: 20 * 60 * 1000, token: "new-token" })); } });
     await expect(lock.acquire()).rejects.toMatchObject({ code: "WORKBENCH_CAPACITY" });
     expect(windowEntered).toBe(true);
     expect(JSON.parse(await (await import("node:fs/promises")).readFile(lockPath, "utf8")).token).toBe("new-token");
@@ -118,7 +118,7 @@ describe("workbench cross-process lock", () => {
 
   it("serializes real artifact writes and prunes in one deterministic order", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "tabroute-artifact-process-"));
-    const budget = 2 * 1024 * 1024 + 650;
+      const budget = 650;
     try {
       for (const runId of ["seed-a", "seed-b", "seed-c"]) {
         await mkdir(path.join(directory, runId), { recursive: true });

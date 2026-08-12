@@ -143,10 +143,23 @@ describe("workbench artifact retention", () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it("leaves only the remaining required headroom for optional writes", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-required-headroom-"));
+    const run = path.join(root, "run-1");
+    const reservation = REQUIRED_METADATA_RESERVATION_BYTES;
+    const store = createArtifactStore({ root: run, runId: "run-1", globalRoot: root, activeBudgetBytes: reservation + 100, globalBudgetBytes: reservation + 100 });
+    await store.write("lease.json", new Uint8Array(reservation - 100), "lease");
+    await store.write("trace/a.zip", new Uint8Array(50), "trace");
+    await store.write("trace/b.zip", new Uint8Array(51), "trace");
+    await expect(readFile(path.join(run, "trace", "b.zip"))).resolves.toHaveLength(51);
+    await expect(readFile(path.join(run, "trace", "a.zip"))).rejects.toBeDefined();
+    await rm(root, { recursive: true, force: true });
+  });
+
   it("uses each run's index when global pressure prunes optional evidence", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-global-index-"));
-    const first = createArtifactStore({ root: path.join(root, "run-a"), runId: "run-a", globalRoot: root, activeBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 1000, globalBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 400 });
-    const second = createArtifactStore({ root: path.join(root, "run-b"), runId: "run-b", globalRoot: root, activeBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 1000, globalBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 400 });
+    const first = createArtifactStore({ root: path.join(root, "run-a"), runId: "run-a", globalRoot: root, activeBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 1000, globalBudgetBytes: 400 });
+    const second = createArtifactStore({ root: path.join(root, "run-b"), runId: "run-b", globalRoot: root, activeBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 1000, globalBudgetBytes: 400 });
     await first.write("video/a.webm", new Uint8Array(100), "video", { capturedAt: 1 });
     await second.write("trace/b.zip", new Uint8Array(100), "trace", { capturedAt: 2 });
     await second.write("trace/second.zip", new Uint8Array(100), "trace", { capturedAt: 2 });
