@@ -3,6 +3,8 @@ import path from "node:path";
 import type { AbandonedCleanupFailure, AbandonedRunResult, CapacityFailure, LeaseRecord, RunResult } from "./contracts";
 import { writeAtomic } from "./artifacts";
 import { createCrossProcessLock } from "./lock";
+import { assertOwnedProfilePath, isOwnedProfilePath } from "./paths";
+import { boundedError, validateRunResult, validateStartedMetadata } from "./contracts";
 
 export type LeaseLiveness = { kind: "alive" | "dead" | "unavailable" };
 export const MAX_ACTIVE_LEASES = 8;
@@ -26,6 +28,7 @@ export interface LeaseManagerOptions {
   isProcessAlive?: (pid: number) => Promise<boolean | undefined>;
   sleep?: (milliseconds: number) => Promise<void>;
   cleanup?: (profilePath: string) => Promise<void>;
+  profileRoot?: string;
 }
 
 export class LeaseManager {
@@ -36,6 +39,7 @@ export class LeaseManager {
   private readonly isProcessAlive: (pid: number) => Promise<boolean | undefined>;
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private readonly cleanup: (profilePath: string) => Promise<void>;
+  private readonly profileRoot: string;
   constructor(private readonly options: LeaseManagerOptions) {
     this.root = path.resolve(options.artifactRoot);
     this.now = options.now ?? (() => new Date());
@@ -46,7 +50,11 @@ export class LeaseManager {
     });
     this.sleep = options.sleep ?? ((milliseconds) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
     this.cleanup = options.cleanup ?? (async (profilePath) => { await fs.rm(profilePath, { recursive: true, force: true }); });
+    this.profileRoot = path.resolve(options.profileRoot ?? path.join(path.dirname(this.options.artifactRoot), "profiles"));
     this.lock = createCrossProcessLock(path.join(this.root, ".lock"), { runId: "lease-manager", isPidAlive: this.isProcessAlive });
+  }
+  validateProfilePath(profilePath: string | undefined, runId: string): profilePath is string {
+    return isOwnedProfilePath(profilePath, this.profileRoot, runId, this.options.worktreePath);
   }
   private runDirectory(runId: string): string {
     if (!runId || runId.includes("/") || runId.includes("\\")) throw new Error("WORKBENCH_ARGUMENT");
@@ -56,11 +64,15 @@ export class LeaseManager {
   }
   private async readLeases(): Promise<LeaseRecord[]> {
     let entries: import("node:fs").Dirent[];
-    try { entries = await fs.readdir(this.root, { withFileTypes: true }); } catch { return []; }
+    try { entries = await fs.readdir(this.root, { withFileTypes: true }); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw new Error("WORKBENCH_CAPACITY"); }
     const leases: LeaseRecord[] = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      try { leases.push(JSON.parse(await fs.readFile(path.join(this.root, entry.name, "lease.json"), "utf8")) as LeaseRecord); } catch { /* incomplete run is not an active lease */ }
+      try {
+        const parsed = JSON.parse(await fs.readFile(path.join(this.root, entry.name, "lease.json"), "utf8")) as LeaseRecord;
+        if (!parsed || parsed.runId !== entry.name || !parsed.profilePath || !["active", "abandoned", "completed"].includes(parsed.status)) throw new Error("WORKBENCH_CAPACITY");
+        leases.push(parsed);
+      } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw new Error("WORKBENCH_CAPACITY"); }
     }
     return leases;
   }
@@ -78,7 +90,8 @@ export class LeaseManager {
     });
   }
   async createLease(record: Omit<LeaseRecord, "status"> & { status?: LeaseRecord["status"] }): Promise<LeaseRecord | CapacityFailure> {
-    return this.lock.withLock(async () => {
+    if (!this.validateProfilePath(record.profilePath, record.runId)) return { ok: false, status: "failed", code: "WORKBENCH_CAPACITY", phase: "capacity", runId: record.runId, worktreePath: this.options.worktreePath, error: { message: "profile path is not owned by this run" } };
+    try { return await this.lock.withLock(async () => {
       const active = await this.countActiveUnlocked();
       if (active >= MAX_ACTIVE_LEASES) return { ok: false, status: "failed", code: "WORKBENCH_CAPACITY", phase: "capacity", runId: record.runId, worktreePath: this.options.worktreePath, error: { message: "workbench active lease capacity reached" } };
       const lease: LeaseRecord = { ...record, status: record.status ?? "active" };
@@ -86,7 +99,7 @@ export class LeaseManager {
       await fs.mkdir(directory, { recursive: true });
       await writeAtomic(path.join(directory, "lease.json"), new TextEncoder().encode(JSON.stringify(lease)));
       return lease;
-    });
+    }); } catch (error) { return { ok: false, status: "failed", code: "WORKBENCH_CAPACITY", phase: "capacity", runId: record.runId, worktreePath: this.options.worktreePath, error: { message: error instanceof Error ? error.message : "workbench capacity unavailable" } }; }
   }
   create(record: Omit<LeaseRecord, "status"> & { status?: LeaseRecord["status"] }) { return this.createLease(record); }
   async heartbeat(runId: string, at = this.now().toISOString()): Promise<void> {
@@ -120,30 +133,42 @@ export class LeaseManager {
         const resultFile = path.join(directory, "results.json");
         let existing: RunResult;
         try { existing = JSON.parse(await fs.readFile(resultFile, "utf8")) as RunResult; } catch { continue; }
+        if (!validateRunResult(existing) || existing.status === "abandoned" || !validateStartedMetadata(existing)) continue;
         const abandonedLease = { ...lease, heartbeat: this.now().toISOString(), status: "abandoned" as const };
         let removed = false;
         let lastError: unknown;
-        for (let attempt = 0; attempt < CLEANUP_BACKOFF_MS.length; attempt += 1) {
+        for (let attempt = 0; attempt <= CLEANUP_BACKOFF_MS.length; attempt += 1) {
           try {
-            const profile = path.resolve(lease.profilePath);
-            if (profile === path.parse(profile).root || profile === path.resolve(this.options.worktreePath)) throw new Error("WORKBENCH_PATH_BOUNDARY");
+            const profile = assertOwnedProfilePath(lease.profilePath, this.profileRoot, lease.runId, this.options.worktreePath);
             await this.cleanup(profile); removed = true; break;
           } catch (error) {
             lastError = error;
+            if (attempt === CLEANUP_BACKOFF_MS.length) break;
             const delay = attempt === 0 ? 250 : attempt === 1 ? 500 : 1000;
             await this.sleep(delay);
           }
         }
-        const base = { ...existing, status: "abandoned" as const, lease: abandonedLease } as Omit<AbandonedRunResult, "ok" | "cleanup">;
+        const base = {
+          status: "abandoned" as const,
+          runId: existing.runId, worktreePath: existing.worktreePath, buildPath: existing.buildPath, profilePath: existing.profilePath,
+          mode: existing.mode, url: existing.url, scenario: existing.scenario, route: existing.route, deepLink: existing.deepLink,
+          commandRecords: existing.commandRecords, readiness: existing.readiness, screenshotPaths: existing.screenshotPaths, assertions: existing.assertions,
+          lease: abandonedLease,
+          ...(typeof (existing as Partial<RunResult & { extensionId?: unknown }>).extensionId === "string" ? { extensionId: (existing as unknown as { extensionId: string }).extensionId } : {})
+        };
         const updated = removed
           ? { ...base, ok: true as const, cleanup: { profileRemoved: true as const } }
-          : { ...base, ok: false as const, code: "WORKBENCH_CLEANUP_FAILED" as const, phase: "cleanup" as const, cleanup: { profileRemoved: false as const, retainedPath: lease.profilePath }, error: { message: lastError instanceof Error ? lastError.message : "orphan cleanup failed" } };
+          : { ...base, ok: false as const, code: "WORKBENCH_CLEANUP_FAILED" as const, phase: "cleanup" as const, cleanup: { profileRemoved: false as const, retainedPath: lease.profilePath }, error: boundedError({ message: lastError instanceof Error ? lastError.message : "orphan cleanup failed" }) };
         await writeAtomic(resultFile, new TextEncoder().encode(JSON.stringify(updated)));
         await writeAtomic(path.join(directory, "lease.json"), new TextEncoder().encode(JSON.stringify(abandonedLease)));
         reaped.push(updated as AbandonedRunResult | AbandonedCleanupFailure);
       }
       return reaped;
     });
+  }
+  startHeartbeat(runId: string, timers: Pick<typeof globalThis, "setInterval" | "clearInterval"> = globalThis, beat: () => Promise<void> = () => this.heartbeat(runId)): { stop(): void } {
+    const timer = timers.setInterval(() => { void beat(); }, HEARTBEAT_INTERVAL_MS);
+    return { stop: () => timers.clearInterval(timer) };
   }
   reap() { return this.reapOrphans(); }
 }

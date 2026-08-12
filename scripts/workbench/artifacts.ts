@@ -51,19 +51,14 @@ export interface ArtifactStoreOptions {
 }
 
 const requiredKinds = new Set<ArtifactKind>(["lease", "status", "result", "error"]);
-const categoryFor = (relativePath: string): EvidenceCategory | undefined => {
-  const normalized = relativePath.replaceAll("\\", "/").toLowerCase();
-  if (normalized.includes("video")) return "video";
-  if (normalized.includes("trace")) return "trace";
-  if (normalized.includes("screenshot")) return "screenshot";
-  return undefined;
-};
-
 async function filesUnder(root: string): Promise<Array<{ absolutePath: string; relativePath: string; size: number; capturedAt: number }>> {
   const entries: Array<{ absolutePath: string; relativePath: string; size: number; capturedAt: number }> = [];
   async function visit(directory: string): Promise<void> {
     let children: import("node:fs").Dirent[];
-    try { children = await fs.readdir(directory, { withFileTypes: true }); } catch { return; }
+    try { children = await fs.readdir(directory, { withFileTypes: true }); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT" && directory === root) return;
+      throw new Error("WORKBENCH_ARTIFACT_LIMIT");
+    }
     for (const child of children) {
       const absolutePath = path.join(directory, child.name);
       if (child.isDirectory()) await visit(absolutePath);
@@ -80,7 +75,7 @@ async function filesUnder(root: string): Promise<Array<{ absolutePath: string; r
 export function createArtifactStore(options: ArtifactStoreOptions): ArtifactStore & { writeRequiredResult(metadata: Record<string, unknown>): Promise<void> } {
   const root = path.resolve(options.root);
   const globalRoot = path.resolve(options.globalRoot ?? path.dirname(root));
-  const lock = createCrossProcessLock(path.join(globalRoot, ".lock"), { runId: options.runId });
+  const lock = createCrossProcessLock(path.join(globalRoot, ".lock"), { runId: options.runId, failureCode: "WORKBENCH_ARTIFACT_LIMIT" });
   const activeBudget = options.activeBudgetBytes ?? ACTIVE_RUN_BUDGET_BYTES;
   const globalBudget = options.globalBudgetBytes ?? GLOBAL_BUDGET_BYTES;
   const clock = options.clock ?? Date.now;
@@ -89,30 +84,57 @@ export function createArtifactStore(options: ArtifactStoreOptions): ArtifactStor
     if (target !== root && !target.startsWith(`${root}${path.sep}`)) throw new Error("artifact path escapes run root");
     return target;
   };
+  const indexPath = (runRoot: string) => path.join(runRoot, ".artifact-index.json");
+  const requiredNames = new Set(["lease.json", "status.json", "results.json", "error.json", ".artifact-index.json"]);
+  async function readIndex(runRoot: string): Promise<Array<{ relativePath: string; kind: ArtifactKind; capturedAt: number }>> {
+    try { return JSON.parse(await fs.readFile(indexPath(runRoot), "utf8")) as Array<{ relativePath: string; kind: ArtifactKind; capturedAt: number }>; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw new Error("WORKBENCH_ARTIFACT_LIMIT"); }
+  }
+  async function writeIndex(runRoot: string, entries: Array<{ relativePath: string; kind: ArtifactKind; capturedAt: number }>): Promise<void> {
+    await writeAtomic(indexPath(runRoot), encodeUtf8(JSON.stringify(entries.slice(0, 2000))));
+  }
   async function prune(requiredBytes: number, affectedRoot: string): Promise<void> {
     const entries = await filesUnder(affectedRoot);
     let total = entries.reduce((sum, entry) => sum + entry.size, 0);
     if (total + requiredBytes <= activeBudget) return;
-    const evidence = orderOptionalEvidence(entries.flatMap((entry) => {
-      const category = categoryFor(entry.relativePath);
-      return category ? [{ runId: options.runId, relativePath: entry.relativePath, capturedAt: entry.capturedAt, category, size: entry.size }] : [];
-    })).sort((a, b) => ["video", "trace", "screenshot"].indexOf(a.category) - ["video", "trace", "screenshot"].indexOf(b.category) || a.capturedAt - b.capturedAt || a.runId.localeCompare(b.runId) || a.relativePath.localeCompare(b.relativePath));
+    const indexed = await readIndex(affectedRoot);
+    const evidence = orderOptionalEvidence(indexed.filter((item) => item.kind === "video" || item.kind === "trace" || item.kind === "screenshot").map((item) => ({ ...item, runId: options.runId, category: item.kind as EvidenceCategory })));
+    const sizes = new Map(entries.map((entry) => [entry.relativePath.replaceAll("\\", "/"), entry.size]));
     for (const item of evidence) {
       if (total + requiredBytes <= activeBudget) break;
+      const size = sizes.get(item.relativePath.replaceAll("\\", "/")) ?? 0;
       await fs.rm(pathFor(item.relativePath), { force: true });
-      total -= item.size;
+      total -= size;
     }
   }
+  async function pruneTerminalRuns(): Promise<void> {
+    let dirs: import("node:fs").Dirent[];
+    try { dirs = await fs.readdir(globalRoot, { withFileTypes: true }); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw new Error("WORKBENCH_ARTIFACT_LIMIT"); }
+    const now = clock();
+    const terminal: Array<{ runId: string; terminalAt: number }> = [];
+    for (const dir of dirs) {
+      if (!dir.isDirectory() || dir.name === ".lock" || dir.name === options.runId) continue;
+      try {
+        const status = JSON.parse(await fs.readFile(path.join(globalRoot, dir.name, "status.json"), "utf8")) as { status?: string; terminalAt?: number };
+        if (["completed", "failed", "abandoned"].includes(status.status ?? "") && typeof status.terminalAt === "number") terminal.push({ runId: dir.name, terminalAt: status.terminalAt });
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("WORKBENCH_ARTIFACT_LIMIT"); }
+    }
+    for (const run of orderTerminalRuns(terminal.filter((item) => now - item.terminalAt > TERMINAL_RUN_RETENTION_MS))) await fs.rm(path.join(globalRoot, run.runId), { recursive: true, force: true });
+    const remaining = orderTerminalRuns(terminal.filter((item) => now - item.terminalAt <= TERMINAL_RUN_RETENTION_MS));
+    for (const run of remaining.slice(0, Math.max(0, remaining.length - TERMINAL_RUN_LIMIT))) await fs.rm(path.join(globalRoot, run.runId), { recursive: true, force: true });
+  }
   async function pruneGlobal(requiredBytes: number, target: string): Promise<void> {
-    let entries = await filesUnder(globalRoot);
-    let total = entries.reduce((sum, entry) => sum + (entry.absolutePath === target ? 0 : entry.size), 0);
+    const entries = await filesUnder(globalRoot);
+    let total = entries.reduce((sum, entry) => sum + (entry.absolutePath === target || path.basename(entry.absolutePath) === ".lock" ? 0 : entry.size), 0);
     if (total + requiredBytes <= globalBudget) return;
-    const evidence = orderOptionalEvidence(entries.flatMap((entry) => {
-      const category = categoryFor(entry.relativePath);
-      return category && entry.absolutePath !== target
-        ? [{ runId: path.basename(path.dirname(entry.absolutePath)), relativePath: entry.relativePath, capturedAt: entry.capturedAt, category, size: entry.size, absolutePath: entry.absolutePath }]
-        : [];
-    })).sort((a, b) => ["video", "trace", "screenshot"].indexOf(a.category) - ["video", "trace", "screenshot"].indexOf(b.category) || a.capturedAt - b.capturedAt || a.runId.localeCompare(b.runId) || a.relativePath.localeCompare(b.relativePath));
+    const evidence: Array<OptionalEvidence & { size: number; absolutePath: string }> = [];
+    for (const entry of entries) {
+      const runId = path.basename(path.dirname(entry.absolutePath));
+      const index = await readIndex(path.dirname(entry.absolutePath));
+      const item = index.find((candidate) => candidate.relativePath.replaceAll("\\", "/") === entry.relativePath.replaceAll("\\", "/") && (candidate.kind === "video" || candidate.kind === "trace" || candidate.kind === "screenshot"));
+      if (item && entry.absolutePath !== target && path.basename(entry.absolutePath) !== ".lock") evidence.push({ runId, relativePath: item.relativePath, capturedAt: item.capturedAt, category: item.kind as EvidenceCategory, size: entry.size, absolutePath: entry.absolutePath });
+    }
+    evidence.sort((a, b) => ["video", "trace", "screenshot"].indexOf(a.category) - ["video", "trace", "screenshot"].indexOf(b.category) || a.capturedAt - b.capturedAt || a.runId.localeCompare(b.runId) || a.relativePath.localeCompare(b.relativePath));
     for (const item of evidence) {
       if (total + requiredBytes <= globalBudget) break;
       await fs.rm(item.absolutePath, { force: true });
@@ -120,21 +142,27 @@ export function createArtifactStore(options: ArtifactStoreOptions): ArtifactStor
     }
   }
   return {
-    async write(relativePath, bytes, kind) {
+    async write(relativePath, bytes, kind, writeOptions = {}) {
       await lock.withLock(async () => {
         const target = pathFor(relativePath);
         const payload = relativePath.toLowerCase().endsWith(".log") ? rotateTextLog(bytes) : bytes;
+        await pruneTerminalRuns();
         await prune(payload.byteLength, root);
         const existing = await filesUnder(root);
         const current = existing.reduce((sum, entry) => sum + entry.size - (entry.absolutePath === target ? entry.size : 0), 0);
-        if (current + payload.byteLength > activeBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
-        if (current + payload.byteLength + REQUIRED_METADATA_RESERVATION_BYTES > activeBudget && !requiredKinds.has(kind)) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
-        await pruneGlobal(payload.byteLength, target);
+        const nextIndex = requiredNames.has(path.basename(relativePath)) ? undefined : [...(await readIndex(root)).filter((item) => item.relativePath !== relativePath), { relativePath, kind, capturedAt: writeOptions.capturedAt ?? clock() }];
+        const oldIndexSize = existing.find((entry) => path.basename(entry.absolutePath) === ".artifact-index.json")?.size ?? 0;
+        const indexSizeDelta = nextIndex ? encodeUtf8(JSON.stringify(nextIndex.slice(0, 2000))).byteLength - oldIndexSize : 0;
+        const writeSize = payload.byteLength + indexSizeDelta;
+        if (current + writeSize > activeBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
+        if (current + writeSize + REQUIRED_METADATA_RESERVATION_BYTES > activeBudget && !requiredKinds.has(kind)) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
+        await pruneGlobal(writeSize, target);
         const globalEntries = await filesUnder(globalRoot);
-        const globalTotal = globalEntries.reduce((sum, entry) => sum + (entry.absolutePath === target ? 0 : entry.size), 0);
-        if (globalTotal + payload.byteLength > globalBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
-        if (globalTotal + payload.byteLength + REQUIRED_METADATA_RESERVATION_BYTES > globalBudget && !requiredKinds.has(kind)) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
+        const globalTotal = globalEntries.reduce((sum, entry) => sum + (entry.absolutePath === target || path.basename(entry.absolutePath) === ".lock" ? 0 : entry.size), 0);
+        if (globalTotal + writeSize > globalBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
+        if (globalTotal + writeSize + REQUIRED_METADATA_RESERVATION_BYTES > globalBudget && !requiredKinds.has(kind)) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
         await writeAtomic(target, payload);
+        if (nextIndex) await writeIndex(root, nextIndex);
       });
     },
     async writeRequiredResult(metadata) {
