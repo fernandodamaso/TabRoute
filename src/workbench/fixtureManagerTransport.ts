@@ -266,11 +266,14 @@ export function createFixtureManagerTransport(input: FixtureOptions): FixtureMan
         requestId: string;
         finalState: "resolved" | "rejected";
       }> = [];
+      const releasing = pending;
+      pending = [];
       holdPending = false;
-      while (pending.length > 0) {
-        const entry = pending.shift()!;
-        const result = await enqueue(entry);
+
+      const results = await Promise.all(releasing.map((entry) => enqueue(entry)));
+      for (const [index, result] of results.entries()) {
         if (!result) continue;
+        const entry = releasing[index]!;
         released.push({ requestId: entry.requestId, finalState: result.finalState });
       }
       return { released };

@@ -241,6 +241,74 @@ it("records loading requests as pending and releases queued requests in request 
   expect(await fixture.controls.releasePending()).toEqual({ released: [] });
 });
 
+it("queues new requests after every held request when opening the pending gate", async () => {
+  const fixture = createFixtureManagerTransport({
+    scenarioId: "wb:loading",
+    latencyMs: 0
+  });
+  const firstPromise = fixture.transport.request(createGroupNamed("First"));
+  const secondPromise = fixture.transport.request(createGroupNamed("Second"));
+  const heldRequestIds = fixture.controls.commandLog().map((record) => record.requestId);
+
+  const releasePromise = fixture.controls.releasePending();
+  const thirdPromise = fixture.transport.request(createGroupNamed("Third"));
+
+  expect(await releasePromise).toEqual({
+    released: [
+      { requestId: heldRequestIds[0], finalState: "resolved" },
+      { requestId: heldRequestIds[1], finalState: "resolved" }
+    ]
+  });
+  const first = await firstPromise;
+  const second = await secondPromise;
+  const third = await thirdPromise;
+  expectSuccess(first);
+  expectSuccess(second);
+  expectSuccess(third);
+
+  expect(second.configuration.groups.find((group) => group.name === "First")?.id).toBe(
+    "10000000-0000-4000-8000-000000000001"
+  );
+  expect(second.configuration.groups.find((group) => group.name === "Second")?.id).toBe(
+    "10000000-0000-4000-8000-000000000002"
+  );
+  expect(third.configuration.groups.find((group) => group.name === "Third")?.id).toBe(
+    "10000000-0000-4000-8000-000000000003"
+  );
+});
+
+it("does not let an in-progress release drain requests from a reset generation", async () => {
+  vi.useFakeTimers();
+  try {
+    const fixture = createFixtureManagerTransport({
+      scenarioId: "wb:loading",
+      latencyMs: 200
+    });
+    fixture.transport.request(query);
+    fixture.transport.request(query);
+
+    const releasePromise = fixture.controls.releasePending();
+    await vi.advanceTimersByTimeAsync(0);
+    await fixture.controls.reset();
+
+    const freshPromise = fixture.transport.request(query);
+    expect(fixture.controls.commandLog()[0]?.state).toBe("pending");
+
+    await vi.advanceTimersByTimeAsync(200);
+    expect(await releasePromise).toEqual({ released: [] });
+    expect(fixture.controls.commandLog()[0]?.state).toBe("pending");
+
+    const freshRelease = fixture.controls.releasePending();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(await freshRelease).toEqual({
+      released: [{ requestId: "manager-fixture-1", finalState: "resolved" }]
+    });
+    expectSuccess(await freshPromise);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("cancels delayed requests before reset initializes fresh fixture state", async () => {
   vi.useFakeTimers();
   try {
