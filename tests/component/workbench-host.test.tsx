@@ -5,6 +5,9 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { App as OptionsApp } from "../../entrypoints/options/App";
 import { App as PopupApp } from "../../entrypoints/popup/App";
 import { WorkbenchOptionsApp } from "../../src/workbench/WorkbenchOptionsApp";
+import { WorkbenchHost } from "../../src/workbench/WorkbenchHost";
+import type { ManagerTransportRecord } from "../../src/ui/manager/types";
+import type { WorkbenchUrlState } from "../../src/workbench/types";
 
 const DEFAULT_SEARCH = "?workbench=1&mode=fixture&route=groups&scenario=wb%3Adefault&deep-link=none&latency=0&failure=none";
 
@@ -82,4 +85,61 @@ it("does not expose workbench markers or controls on popup and normal options su
   render(<OptionsApp />);
   expect(document.querySelector('[data-workbench-marker="TABROUTE_DEV_WORKBENCH_V1"]')).toBeNull();
   expect(document.querySelector("[data-workbench-control]")).toBeNull();
+});
+
+it("reports the latest terminal typed failure instead of an earlier pending query", () => {
+  const state: WorkbenchUrlState = {
+    workbench: true,
+    mode: "real",
+    route: "groups",
+    scenarioId: "wb:default",
+    deepLink: "none",
+    latencyMs: 0,
+    failure: { mode: "none" }
+  };
+  const records: ManagerTransportRecord[] = [
+    {
+      recordType: "request",
+      mode: "real",
+      requestId: "manager-real-1",
+      sequence: 1,
+      message: { kind: "manager-query" },
+      startedAt: 1,
+      latencyMs: 0,
+      state: "pending"
+    },
+    {
+      recordType: "request",
+      mode: "real",
+      requestId: "manager-real-1",
+      sequence: 1,
+      message: { kind: "manager-query" },
+      startedAt: 1,
+      latencyMs: 0,
+      endedAt: 2,
+      state: "rejected",
+      error: { kind: "transport", code: "NO_RESPONSE", message: "No response" }
+    }
+  ];
+  render(<WorkbenchHost state={state} real={{ request: async () => ({ ok: false, error: { kind: "transport", message: "No response" } }) }} records={records} onStateChange={() => undefined}>
+    <div />
+  </WorkbenchHost>);
+  expect(document.querySelector('[data-workbench-status="manager-error"]')).toBeTruthy();
+  expect(screen.getByRole("status", { name: "Result status" }).textContent).toContain("error");
+});
+
+it("lets a deep-link UUID be typed before committing the validated URL", async () => {
+  const user = userEvent.setup();
+  setSearch("?workbench=1&mode=fixture&route=rules&scenario=wb%3Aedit-rule&deep-link=edit-rule%3A00000000-0000-4000-8000-000000000101&latency=0&failure=none");
+  render(<WorkbenchOptionsApp />);
+  const uuid = await screen.findByRole("textbox", { name: "Deep-link UUID" });
+  await user.clear(uuid);
+  await user.type(uuid, "00000000-0000-4000-8000-000000000101");
+  expect((uuid as HTMLInputElement).value).toBe("00000000-0000-4000-8000-000000000101");
+});
+
+it("keeps workbench CSS isolated from shared manager CSS", async () => {
+  render(<WorkbenchOptionsApp />);
+  await screen.findByRole("heading", { name: "Groups" });
+  expect(document.querySelector("style[data-workbench-style]" )).toBeTruthy();
 });

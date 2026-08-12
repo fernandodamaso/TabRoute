@@ -36,6 +36,7 @@ export function ManagerApp({
   const [editingRuleId, setEditingRuleId] = useState<UUID | "new" | undefined>();
   const [confirmDeleteRuleId, setConfirmDeleteRuleId] = useState<UUID>();
   const initialDeepLinkApplied = useRef(false);
+  const lastInitialRoute = useRef(initialRoute);
   const state = useManagerState(transport);
   const title = `${route[0]!.toUpperCase()}${route.slice(1)}`;
 
@@ -47,7 +48,9 @@ export function ManagerApp({
   }, [initialDeepLink, state.status]);
 
   useEffect(() => {
-    if (initialRoute && initialRoute !== route) setRoute(initialRoute);
+    if (initialRoute === undefined || initialRoute === lastInitialRoute.current) return;
+    lastInitialRoute.current = initialRoute;
+    setRoute(initialRoute);
   }, [initialRoute, route]);
 
   return <ManagerShell

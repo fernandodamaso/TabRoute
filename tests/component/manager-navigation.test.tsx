@@ -111,6 +111,13 @@ it("honors the initial rules route and new-rule deep link", async () => {
   expect(request).toHaveBeenCalledWith({ kind: "manager-query" });
 });
 
+it("does not reapply the initial route after manager-owned navigation", async () => {
+  render(<ManagerApp surface="options" initialRoute="groups" />);
+  await screen.findByRole("heading", { name: "Groups" });
+  await userEvent.setup().click(screen.getByRole("button", { name: "Open Rules" }));
+  expect(await screen.findByRole("heading", { name: "Rules" })).toBeTruthy();
+});
+
 it("waits for loaded configuration before mounting a new-rule deep link", async () => {
   const pending = deferred<ManagerResponse>();
   const request = vi.fn(() => pending.promise);

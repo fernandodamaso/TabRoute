@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import type { UUID } from "../domain/types";
 import { SCENARIO_DEFINITIONS, getScenarioDefaultUrlState } from "./scenarios";
 import {
@@ -11,6 +11,8 @@ import {
 import { serializeWorkbenchUrl } from "./url";
 import type { FixtureFailurePolicy, FixtureManagerControls, WorkbenchUrlState } from "./types";
 import type { ManagerTransportRecord } from "../ui/manager/types";
+
+const WORKBENCH_CSS = `.workbench-host{display:grid;gap:12px;width:800px;min-height:100%;padding:16px;box-sizing:border-box;overflow:auto;background:#eeeae4}.workbench-controls{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:8px;padding:12px;border:1px solid #dedbd5;border-radius:10px;background:#fbfaf8}.workbench-controls label{display:grid;gap:4px;color:#625d58;font-size:10px}.workbench-controls input,.workbench-controls select{min-height:28px;box-sizing:border-box;padding:4px 6px;border:1px solid #cfc9c1;border-radius:5px;background:#fff;color:#25242a;font:inherit;font-size:11px}.workbench-controls button{min-height:28px;align-self:end;border:1px solid #9b5e3b;border-radius:5px;background:#9b5e3b;color:#fff;font:inherit;font-size:11px;cursor:pointer}.workbench-controls output{align-self:end;color:#76716b;font-size:10px}.workbench-preview{width:520px;height:600px;min-width:520px;min-height:600px;overflow:hidden;box-shadow:0 4px 18px #4f403522}.workbench-command-log{width:520px;box-sizing:border-box;padding:8px 12px;border:1px solid #dedbd5;border-radius:8px;background:#fbfaf8;color:#625d58;font-size:11px}.workbench-command-log pre{max-height:240px;overflow:auto;white-space:pre-wrap}`;
 
 export interface WorkbenchHostProps {
   state: WorkbenchUrlState;
@@ -25,10 +27,10 @@ function requestStatus(
   mode: WorkbenchUrlState["mode"],
   records: readonly ManagerTransportRecord[]
 ): WorkbenchManagerStatus {
-  const query = records.find((record): record is Extract<ManagerTransportRecord, { recordType: "request" }> => {
+  const query = records.filter((record): record is Extract<ManagerTransportRecord, { recordType: "request" }> => {
     if (record.recordType !== "request") return false;
     return record.mode === mode && record.message.kind === "manager-query";
-  });
+  }).at(-1);
   if (!query || query.state === "pending") return "manager-pending";
   return query.state === "resolved" ? "manager-ready" : "manager-error";
 }
@@ -46,6 +48,43 @@ export function WorkbenchHost({ state, fixture, real: _real, records, children, 
   const status = requestStatus(state.mode, records);
   const payload = useMemo(() => createWorkbenchMarkerPayload(state, status), [state, status]);
   const fixtureMode = state.mode === "fixture" && fixture !== undefined;
+  const [deepLinkDraft, setDeepLinkDraft] = useState(() =>
+    typeof state.deepLink === "object" ? state.deepLink.ruleId : ""
+  );
+
+  useEffect(() => {
+    setDeepLinkDraft(typeof state.deepLink === "object" ? state.deepLink.ruleId : "");
+  }, [state.deepLink]);
+
+  useLayoutEffect(() => {
+    const elements = [document.documentElement, document.body, document.getElementById("root")].filter(
+      (element): element is HTMLElement => element !== null
+    );
+    const previous = elements.map((element) => ({
+      element,
+      width: element.style.width,
+      minWidth: element.style.minWidth,
+      height: element.style.height,
+      minHeight: element.style.minHeight,
+      overflow: element.style.overflow
+    }));
+    for (const element of elements) {
+      element.style.width = "auto";
+      element.style.minWidth = "0";
+      element.style.height = "auto";
+      element.style.minHeight = "0";
+      element.style.overflow = "auto";
+    }
+    return () => {
+      for (const item of previous) {
+        item.element.style.width = item.width;
+        item.element.style.minWidth = item.minWidth;
+        item.element.style.height = item.height;
+        item.element.style.minHeight = item.minHeight;
+        item.element.style.overflow = item.overflow;
+      }
+    };
+  }, []);
 
   function change(next: WorkbenchUrlState): void {
     try {
@@ -85,6 +124,11 @@ export function WorkbenchHost({ state, fixture, real: _real, records, children, 
     update({ deepLink: value as WorkbenchUrlState["deepLink"] });
   }
 
+  function commitDeepLinkDraft(): void {
+    if (typeof state.deepLink !== "object") return;
+    change({ ...state, deepLink: { ...state.deepLink, ruleId: deepLinkDraft as UUID } });
+  }
+
   function changeFailureMode(mode: FixtureFailurePolicy["mode"]): void {
     update({ failure: mode === "none" ? { mode: "none" } : { mode, scope: state.failure.mode === "none" ? "persistent" : state.failure.scope } });
   }
@@ -103,12 +147,13 @@ export function WorkbenchHost({ state, fixture, real: _real, records, children, 
     data-workbench-registry={FIXTURE_REGISTRY_MARKER}
     data-workbench-payload={JSON.stringify(payload)}
   >
+    <style data-workbench-style>{WORKBENCH_CSS}</style>
     <section className="workbench-controls" aria-label="Workbench controls">
       <label>Mode<select aria-label="Mode" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "mode" }} value={state.mode} onChange={(event) => changeMode(event.target.value as WorkbenchUrlState["mode"])}><option value="fixture">Fixture</option><option value="real">Real</option></select></label>
       <label>Scenario<select aria-label="Scenario" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "scenario" }} value={state.scenarioId} onChange={(event) => changeScenario(event.target.value)}>{SCENARIO_DEFINITIONS.map((scenario) => <option key={scenario.id} value={scenario.id}>{scenario.id}</option>)}</select></label>
       <label>Route<select aria-label="Route" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "route" }} value={state.route} onChange={(event) => update({ route: event.target.value as WorkbenchUrlState["route"] })}><option value="groups">Groups</option><option value="rules">Rules</option><option value="activity">Activity</option><option value="settings">Settings</option></select></label>
       <label>Deep link<select aria-label="Deep link" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "deep-link" }} value={deepLinkValue(state)} onChange={(event) => changeDeepLink(event.target.value)}><option value="none">None</option><option value="new-rule">New rule</option><option value="edit-rule">Edit rule</option><option value="confirm-delete">Confirm delete</option></select></label>
-      {typeof state.deepLink === "object" && (() => { const deepLink = state.deepLink; return <label>Deep-link UUID<input aria-label="Deep-link UUID" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "deep-link-uuid" }} value={deepLink.ruleId} onChange={(event) => update({ deepLink: { ...deepLink, ruleId: event.target.value as UUID } })} /></label>; })()}
+      {typeof state.deepLink === "object" && <label>Deep-link UUID<input aria-label="Deep-link UUID" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "deep-link-uuid" }} value={deepLinkDraft} onChange={(event) => setDeepLinkDraft(event.target.value)} onBlur={commitDeepLinkDraft} onKeyDown={(event) => { if (event.key === "Enter") commitDeepLinkDraft(); }} /></label>}
       {fixtureMode && <>
         <label>Latency (ms)<input type="number" min="0" max="5000" aria-label="Latency" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "latency" }} value={state.latencyMs} onChange={(event) => { const value = Number(event.target.value); if (Number.isInteger(value) && value >= 0 && value <= 5000) { fixture.controls.setLatency(value); update({ latencyMs: value }); } }} /></label>
         <label>Failure mode<select aria-label="Failure mode" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "failure-mode" }} value={failureModeValue(state)} onChange={(event) => { const value = event.target.value as FixtureFailurePolicy["mode"]; fixture.controls.setFailure(value === "none" ? { mode: "none" } : { mode: value, scope: state.failure.mode === "none" ? "persistent" : state.failure.scope }); changeFailureMode(value); }}><option value="none">None</option><option value="query">Query</option><option value="command">Command</option><option value="validation">Validation</option><option value="offline">Offline</option></select></label>
