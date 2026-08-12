@@ -1,14 +1,15 @@
 import type { ManagedGroup } from "../../../domain/types";
 import { renderGroupTitle } from "../../../groups/displayTitle";
-import type { ManagerCommand, ManagerResponse } from "../types";
+import type { ManagerCommand, ManagerResponse, PersistentTabsViewFixture } from "../types";
 import { PersistentTabsSection } from "./PersistentTabsSection";
 import { useGroupAutosave } from "./useGroupAutosave";
 
 const colors: ManagedGroup["color"][] = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 
-export function GroupInspector({ group, command, onNavigate }: {
+export function GroupInspector({ group, command, viewFixture, onNavigate }: {
   group: ManagedGroup;
   command: (message: ManagerCommand) => Promise<ManagerResponse>;
+  viewFixture?: PersistentTabsViewFixture;
   onNavigate?: (route: "rules") => void;
 }) {
   const autosave = useGroupAutosave({
@@ -29,6 +30,9 @@ export function GroupInspector({ group, command, onNavigate }: {
     </section>
     <section className="manager-card" aria-labelledby="routing-heading"><div className="section-title"><h3 id="routing-heading">Routing rules</h3><button type="button" onClick={() => onNavigate?.("rules")}>Open Rules</button></div><p className="manager-note">Rules that target {renderGroupTitle(group)}.</p></section>
     <section className="manager-card" aria-labelledby="behavior-heading"><h3 id="behavior-heading">Behavior</h3><p className="manager-note">Group presentation and pause behavior use the typed controller boundary.</p></section>
-    <PersistentTabsSection state={group.enabled ? "empty" : "disabled"} />
+    <PersistentTabsSection
+      state={viewFixture?.state ?? (group.enabled ? "empty" : "disabled")}
+      tabs={viewFixture?.tabs ? [...viewFixture.tabs] : []}
+    />
   </article>;
 }
