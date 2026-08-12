@@ -72,7 +72,7 @@ export class LeaseManager {
         const parsed = JSON.parse(await fs.readFile(path.join(this.root, entry.name, "lease.json"), "utf8")) as LeaseRecord;
         if (!parsed || parsed.runId !== entry.name || !parsed.profilePath || !["active", "abandoned", "completed"].includes(parsed.status)) throw new Error("WORKBENCH_CAPACITY");
         leases.push(parsed);
-      } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw new Error("WORKBENCH_CAPACITY"); }
+      } catch { throw new Error("WORKBENCH_CAPACITY"); }
     }
     return leases;
   }

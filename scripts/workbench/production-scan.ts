@@ -48,7 +48,7 @@ export async function scanProductionBuild(buildPath: string, supplied: Productio
     } else if (typeof value === "string" && (/(^|[\\/])workbench\.html$/i.test(value) || /(^|[\\/])workbench([\\/]|$)/i.test(value))) errors.push(`manifest contains workbench path: ${keyPath}`);
   };
   inspectManifest(manifest, "manifest");
-  if ("browser_specific_settings" in manifest || "applications" in manifest || "firefox" in manifest || "edge" in manifest || "safari" in manifest || ("target" in manifest && manifest.target !== "chrome") || ("targets" in manifest && JSON.stringify(manifest.targets).toLowerCase().includes("chrome") === false)) errors.push("manifest is not Chrome-only");
+  if ("browser_specific_settings" in manifest || "applications" in manifest || "firefox" in manifest || "edge" in manifest || "safari" in manifest || ("target" in manifest && manifest.target !== "chrome") || ("targets" in manifest && (!Array.isArray(manifest.targets) || manifest.targets.length !== 1 || manifest.targets[0] !== "chrome"))) errors.push("manifest is not Chrome-only");
   let files: string[] = [];
   try { files = await listFiles(); } catch { errors.push("production build cannot be enumerated"); }
   for (const relativePath of files) {

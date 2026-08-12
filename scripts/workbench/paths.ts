@@ -26,7 +26,7 @@ export function isOwnedProfilePath(profilePath: string | undefined, profileRoot:
   const worktree = worktreePath ? path.resolve(worktreePath) : undefined;
   if (candidate === root || !candidate.startsWith(`${root}${path.sep}`) || candidate === worktree || (worktree && candidate.startsWith(`${worktree}${path.sep}`))) return false;
   const name = path.basename(candidate);
-  return name === runId || name === `profile-${runId}`;
+  return path.dirname(candidate) === root && (name === runId || name === `profile-${runId}`);
 }
 
 export function assertOwnedProfilePath(profilePath: string | undefined, profileRoot: string, runId: string, worktreePath?: string): string {

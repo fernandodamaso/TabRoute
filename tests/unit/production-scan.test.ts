@@ -44,4 +44,11 @@ describe("production build scan", () => {
     const valid = await scanProductionBuild("C:/build", { readManifest: async () => JSON.stringify({ manifest_version: 3, incognito: "not_allowed", permissions: ["tabs", "tabGroups", "storage"] }), listFiles: async () => ["data.bin"], readFile: async () => new Uint8Array([0, 255, 1, 2]) });
     expect(valid.ok).toBe(true);
   });
+
+  it("rejects mixed and non-Chrome targets", async () => {
+    for (const target of [["chrome", "firefox"], ["firefox"]]) {
+      const result = await scanProductionBuild("C:/build", { readManifest: async () => JSON.stringify({ manifest_version: 3, incognito: "not_allowed", permissions: ["tabs", "tabGroups", "storage"], targets: target }), listFiles: async () => [], readFile: async () => new Uint8Array() });
+      expect(result.ok).toBe(false);
+    }
+  });
 });

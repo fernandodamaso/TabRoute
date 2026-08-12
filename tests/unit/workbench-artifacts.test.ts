@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capMetadata, createArtifactStore, encodeUtf8, orderOptionalEvidence, orderTerminalRuns, rotateTextLog } from "../../scripts/workbench/artifacts";
+import { capMetadata, createArtifactStore, encodeRequiredMetadata, encodeUtf8, orderOptionalEvidence, orderRetentionEvidence, orderTerminalRuns, rotateTextLog } from "../../scripts/workbench/artifacts";
 import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -72,6 +72,75 @@ describe("workbench artifact retention", () => {
     expect(parsed.status).toBe("failed");
     expect(parsed.code).toBe("WORKBENCH_ARTIFACT_LIMIT");
     expect(new TextEncoder().encode(JSON.stringify(parsed)).byteLength).toBeLessThanOrEqual(REQUIRED_METADATA_RESERVATION_BYTES);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("keeps at most twenty terminal runs including the affected run", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-terminal-limit-"));
+    for (let i = 0; i < 20; i += 1) {
+      const run = path.join(root, `run-${String(i).padStart(2, "0")}`);
+      await mkdir(run, { recursive: true });
+      await writeFile(path.join(run, "status.json"), JSON.stringify({ status: "completed", terminalAt: Date.now() + i }));
+      await writeFile(path.join(run, "results.json"), "required");
+    }
+    const target = path.join(root, "run-new");
+    const store = createArtifactStore({ root: target, runId: "run-new", globalRoot: root });
+    await store.write("results.json", new Uint8Array([1]), "result");
+    await store.finalize("completed");
+    const terminal = (await readdir(root)).filter((entry) => entry.startsWith("run-"));
+    expect(terminal).toHaveLength(20);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("prunes optional evidence by video, trace, screenshot, then capturedAt and path", async () => {
+    expect(orderRetentionEvidence([
+      { runId: "a", relativePath: "s", capturedAt: 1, category: "screenshot" },
+      { runId: "a", relativePath: "v", capturedAt: 30, category: "video" },
+      { runId: "b", relativePath: "t", capturedAt: 20, category: "trace" }
+    ]).map((item) => item.category)).toEqual(["video", "trace", "screenshot"]);
+  });
+
+  it("enforces store-level UTF-8 reservation boundaries and atomic overflow replacement", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-boundaries-"));
+    const run = path.join(root, "run-1");
+    const budget = REQUIRED_METADATA_RESERVATION_BYTES + 4096;
+    const store = createArtifactStore({ root: run, runId: "run-1", globalRoot: root, activeBudgetBytes: budget, globalBudgetBytes: budget });
+    const make = (length: number) => ({ runId: "run-1", worktreePath: "worktree", buildPath: "build", profilePath: "profile", mode: "fixture", url: "url", scenario: "default", route: "groups", deepLink: "none", commandRecords: length ? Array.from({ length: 1000 }, () => "x".repeat(length)) : [], readiness: {}, screenshotPaths: [], assertions: [], lease: { runId: "run-1", pid: 1, startedAt: "x", heartbeat: "x", profilePath: "profile", status: "active" }, cleanup: { profileRemoved: false }, error: { message: "x" } });
+    await store.writeRequiredResult(make(100));
+    await store.writeRequiredResult(make(4096));
+    const result = JSON.parse(await readFile(path.join(run, "results.json"), "utf8"));
+    expect(result.status).toBe("failed");
+    expect(result.code).toBe("WORKBENCH_ARTIFACT_LIMIT");
+    expect(new TextEncoder().encode(JSON.stringify(result)).byteLength).toBeLessThanOrEqual(REQUIRED_METADATA_RESERVATION_BYTES);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("accepts required metadata at exact encoded size and rejects one byte below", async () => {
+    const metadata = { runId: "run-1", commandRecords: Array.from({ length: 1000 }, () => ({ name: "x".repeat(2000) })) };
+    const encoded = encodeRequiredMetadata(metadata);
+    expect(encoded.ok).toBe(true);
+    if (!encoded.ok) return;
+    const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-reservation-store-"));
+    const below = createArtifactStore({ root: path.join(root, "below"), runId: "below", globalRoot: root, activeBudgetBytes: encoded.bytes.byteLength - 1, globalBudgetBytes: encoded.bytes.byteLength - 1 });
+    await expect(below.writeRequiredResult(metadata)).rejects.toThrow("WORKBENCH_ARTIFACT_LIMIT");
+    const exact = createArtifactStore({ root: path.join(root, "exact"), runId: "exact", globalRoot: root, activeBudgetBytes: encoded.bytes.byteLength, globalBudgetBytes: encoded.bytes.byteLength });
+    await exact.writeRequiredResult(metadata);
+    const plusRoot = await mkdtemp(path.join(os.tmpdir(), "tabroute-reservation-plus-"));
+    const plus = createArtifactStore({ root: path.join(plusRoot, "plus"), runId: "plus", globalRoot: plusRoot, activeBudgetBytes: encoded.bytes.byteLength + 1, globalBudgetBytes: encoded.bytes.byteLength + 1 });
+    await plus.writeRequiredResult(metadata);
+    await rm(plusRoot, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("uses each run's index when global pressure prunes optional evidence", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-global-index-"));
+    const first = createArtifactStore({ root: path.join(root, "run-a"), runId: "run-a", globalRoot: root, activeBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 1000, globalBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 400 });
+    const second = createArtifactStore({ root: path.join(root, "run-b"), runId: "run-b", globalRoot: root, activeBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 1000, globalBudgetBytes: REQUIRED_METADATA_RESERVATION_BYTES + 400 });
+    await first.write("video/a.webm", new Uint8Array(100), "video", { capturedAt: 1 });
+    await second.write("trace/b.zip", new Uint8Array(100), "trace", { capturedAt: 2 });
+    await second.write("trace/second.zip", new Uint8Array(100), "trace", { capturedAt: 2 });
+    expect(await readFile(path.join(root, "run-a/video/a.webm")).catch(() => undefined)).toBeUndefined();
+    expect(await readFile(path.join(root, "run-b/trace/b.zip")).catch(() => undefined)).toBeTruthy();
     await rm(root, { recursive: true, force: true });
   });
 });

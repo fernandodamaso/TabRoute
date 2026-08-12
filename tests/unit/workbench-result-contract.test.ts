@@ -67,6 +67,19 @@ describe("workbench RunResult contracts", () => {
     expect(validateRunResult({ ...metadata, ok: false, status: "abandoned", lease: { ...metadata.lease, status: "abandoned" }, cleanup: { profileRemoved: false }, error: { message: "cleanup" }, code: "WORKBENCH_CLEANUP_FAILED", phase: "cleanup" })).toBe(false);
   });
 
+  it("rejects malformed nested records, readiness, screenshots, assertions, and cleanup", () => {
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", commandRecords: [{ recordType: "event", mode: "fixture", source: "page", at: "not-a-number", name: "x", details: {} }], error: { message: "bad" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", readiness: { workerDiscoveredAt: 42 }, error: { message: "bad" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", screenshotPaths: [42], error: { message: "bad" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", assertions: [{ name: "x", passed: "yes" }], error: { message: "bad" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", cleanup: { profileRemoved: "no" }, error: { message: "bad" } })).toBe(false);
+  });
+
+  it("requires a string worktree path and optional artifact extension id type", () => {
+    expect(validateRunResult({ ...metadata, ok: false, worktreePath: 42, code: "WORKBENCH_ARTIFACT_LIMIT", phase: "artifact", error: { message: "bad" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_ARTIFACT_LIMIT", phase: "artifact", extensionId: 42, error: { message: "bad" } })).toBe(false);
+  });
+
   it("distinguishes encoded reservation boundaries", () => {
     const minus = new TextEncoder().encode(JSON.stringify({ value: "x".repeat(REQUIRED_METADATA_RESERVATION_BYTES - 100) })).byteLength;
     const exact = new TextEncoder().encode(JSON.stringify({ value: "x".repeat(REQUIRED_METADATA_RESERVATION_BYTES - 13) })).byteLength;

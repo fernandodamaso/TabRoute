@@ -16,6 +16,10 @@ export interface LockOptions {
   retryDelayMs?: number;
   maxAttempts?: number;
   failureCode?: "WORKBENCH_CAPACITY" | "WORKBENCH_ARTIFACT_LIMIT";
+  beforeStaleRemove?: () => Promise<void>;
+  beforeHeartbeatReplace?: () => Promise<void>;
+  setInterval?: typeof setInterval;
+  clearInterval?: typeof clearInterval;
 }
 
 interface LockOwner { pid: number; runId: string; heartbeat: number; token: string; }
@@ -51,13 +55,22 @@ export function createCrossProcessLock(lockPath: string, supplied: LockOptions =
           await handle.writeFile(JSON.stringify(owner), "utf8");
           await handle.close();
           held = true;
-          const timer = setInterval(() => {
+          const timer = (supplied.setInterval ?? setInterval)(() => {
             const refreshed = { ...owner, heartbeat: now() };
-            void writeOwner(absolute, new TextEncoder().encode(JSON.stringify(refreshed))).catch(() => undefined);
+            void (async () => {
+              try {
+                const current = JSON.parse(await fs.readFile(absolute, "utf8")) as LockOwner;
+                if (current.token !== owner.token) return;
+                await supplied.beforeHeartbeatReplace?.();
+                const revalidated = JSON.parse(await fs.readFile(absolute, "utf8")) as LockOwner;
+                if (revalidated.token !== owner.token) return;
+                await writeOwner(absolute, new TextEncoder().encode(JSON.stringify(refreshed)));
+              } catch { /* owner was replaced or lock became unreadable */ }
+            })();
           }, 5000);
           timer.unref?.();
           return { release: async () => {
-            clearInterval(timer);
+            (supplied.clearInterval ?? clearInterval)(timer);
             if (!held) return;
             held = false;
             try {
@@ -73,6 +86,7 @@ export function createCrossProcessLock(lockPath: string, supplied: LockOptions =
           try {
             const current = JSON.parse(await fs.readFile(absolute, "utf8")) as LockOwner;
             if (await stale(current, { now, isPidAlive })) {
+              await supplied.beforeStaleRemove?.();
               const revalidated = JSON.parse(await fs.readFile(absolute, "utf8")) as LockOwner;
               if (revalidated.token === current.token && revalidated.heartbeat === current.heartbeat) await fs.rm(absolute, { force: true });
             }

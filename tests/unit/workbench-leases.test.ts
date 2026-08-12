@@ -23,6 +23,7 @@ describe("workbench lease lifecycle", () => {
     const profileRoot = path.join(root, "profiles");
     const manager = new LeaseManager({ artifactRoot: path.join(root, "artifacts"), worktreePath: path.join(root, "worktree"), profileRoot, pid: 42, isProcessAlive: async () => true });
     expect(manager.validateProfilePath(path.join(profileRoot, "run-1"), "run-1")).toBe(true);
+    expect(manager.validateProfilePath(path.join(profileRoot, "nested", "run-1"), "run-1")).toBe(false);
     for (const candidate of [path.join(root, "worktree", "child"), root, path.join(root, "sibling"), path.join(os.tmpdir(), "unrelated")]) expect(manager.validateProfilePath(candidate, "run-1")).toBe(false);
     expect(manager.validateProfilePath(undefined, "run-1")).toBe(false);
     await rm(root, { recursive: true, force: true });
@@ -57,6 +58,37 @@ describe("workbench lease lifecycle", () => {
     const handle = manager.startHeartbeat("run-1", { setInterval: ((callback: () => void, ms: number) => { calls.push(`start:${ms}`); callback(); return 1 as unknown as NodeJS.Timeout; }) as never, clearInterval: (() => { calls.push("stop"); }) as never }, async () => { calls.push("beat"); });
     handle.stop();
     expect(calls).toEqual(["start:5000", "beat", "stop"]);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("fails closed when a run directory has a missing or malformed lease", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-bad-lease-"));
+    const artifacts = path.join(root, "artifacts");
+    await mkdir(path.join(artifacts, "missing"), { recursive: true });
+    const manager = new LeaseManager({ artifactRoot: artifacts, worktreePath: path.join(root, "worktree"), profileRoot: path.join(root, "profiles"), isProcessAlive: async () => true });
+    await expect(manager.countActive()).rejects.toThrow("WORKBENCH_CAPACITY");
+    await writeFile(path.join(artifacts, "missing", "lease.json"), "not-json");
+    await expect(manager.countActive()).rejects.toThrow("WORKBENCH_CAPACITY");
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("writes the exact bounded abandoned cleanup failure shape after all retries", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-reap-failure-"));
+    const artifactRoot = path.join(root, "artifacts");
+    const profileRoot = path.join(root, "profiles");
+    const profile = path.join(profileRoot, "run-1");
+    await mkdir(path.join(artifactRoot, "run-1"), { recursive: true });
+    const lease = { runId: "run-1", pid: 42, startedAt: "2020-01-01T00:00:00.000Z", heartbeat: "2020-01-01T00:00:00.000Z", profilePath: profile, status: "active" as const };
+    const result = { ok: false, status: "failed", code: "WORKBENCH_MANAGER_TIMEOUT", phase: "manager-query", runId: "run-1", worktreePath: path.join(root, "worktree"), buildPath: "build", profilePath: profile, mode: "fixture", url: "url", scenario: "default", route: "groups", deepLink: "none", commandRecords: [], readiness: {}, screenshotPaths: [], assertions: [], lease, cleanup: { profileRemoved: false }, extensionId: "real-id", error: { message: "old error", details: { old: "field" } } };
+    await writeFile(path.join(artifactRoot, "run-1", "lease.json"), JSON.stringify(lease));
+    await writeFile(path.join(artifactRoot, "run-1", "results.json"), JSON.stringify(result));
+    const sleeps: number[] = [];
+    const manager = new LeaseManager({ artifactRoot, worktreePath: path.join(root, "worktree"), profileRoot, now: () => new Date("2020-01-01T00:03:00.000Z"), isProcessAlive: async () => false, sleep: async (ms) => { sleeps.push(ms); }, cleanup: async () => { throw new Error("x".repeat(10000)); } });
+    const results = await manager.reapOrphans();
+    expect(sleeps).toEqual([250, 500, 1000]);
+    expect(results[0]).toMatchObject({ ok: false, status: "abandoned", code: "WORKBENCH_CLEANUP_FAILED", phase: "cleanup", extensionId: "real-id", cleanup: { profileRemoved: false, retainedPath: profile } });
+    expect(results[0]).not.toHaveProperty("old");
+    expect((results[0] as { error: { message: string } }).error.message.length).toBeLessThanOrEqual(8192);
     await rm(root, { recursive: true, force: true });
   });
 });
