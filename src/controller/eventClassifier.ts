@@ -2,6 +2,7 @@ import { isRoutableUrl, findTab } from "../chrome/types";
 import type {
   ChromeEventHint,
   ChromeInventory,
+  Configuration,
   ManualOverride,
   ManualPlacement,
   RuntimeSession,
@@ -11,6 +12,10 @@ import {
   purgeClosedTab,
   transferReplacedTab
 } from "../state/runtimeSession";
+import {
+  settlePendingGroupRemovals,
+  startPendingGroupRemoval
+} from "../groups/groupLifecycle";
 import { classifyGuardedEvent } from "../actions/operationGuards";
 
 export interface EventClassification {
@@ -205,7 +210,8 @@ export function classifyChromeEvent(
   event: ChromeEventHint,
   inventory: ChromeInventory,
   session: RuntimeSession,
-  now: number
+  now: number,
+  configuration?: Configuration
 ): EventClassification {
   if (event.kind === "tabRemoved") {
     const current = purgeClosedTab(session, event.tabId);
@@ -354,8 +360,42 @@ export function classifyChromeEvent(
     }
     case "groupCreated":
     case "groupUpdated":
-    case "groupMoved":
+    case "groupMoved": {
+      if (configuration) {
+        current = settlePendingGroupRemovals({
+          session: current,
+          inventory,
+          configuration,
+          now
+        });
+      }
+      return {
+        guarded: false,
+        deferred: false,
+        requests: [
+          {
+            scope: { kind: "group", chromeGroupId: event.group.id },
+            reason: event.kind
+          }
+        ],
+        session: current
+      };
+    }
     case "groupRemoved": {
+      current = startPendingGroupRemoval({
+        session: current,
+        inventoryBeforeRemoval: inventory,
+        removed: event.group,
+        now
+      });
+      if (configuration) {
+        current = settlePendingGroupRemovals({
+          session: current,
+          inventory,
+          configuration,
+          now
+        });
+      }
       return {
         guarded: false,
         deferred: false,
