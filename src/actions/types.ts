@@ -31,7 +31,12 @@ export type ActionPlan = RouteToGroupPlan | UngroupPlan;
 export type ActionResult =
   | {
       kind: "held";
-      reason: "not-routable" | "incognito" | "unmanaged-placement" | "paused";
+      reason:
+        | "not-routable"
+        | "incognito"
+        | "unmanaged-placement"
+        | "manual-override"
+        | "paused";
     }
   | { kind: "noop"; reason: "already-in-target" | "already-ungrouped" }
   | {

@@ -1,9 +1,11 @@
-import { isRoutableUrl } from "../chrome/types";
+import { isRoutableUrl, findTab } from "../chrome/types";
 import type {
   ChromeEventHint,
   ChromeInventory,
   ManualOverride,
-  RuntimeSession
+  ManualPlacement,
+  RuntimeSession,
+  ChromeAssociation
 } from "../domain/types";
 import {
   purgeClosedTab,
@@ -26,6 +28,23 @@ export type ReconciliationRequest =
 
 function tabFromInventory(inventory: ChromeInventory, tabId: number) {
   return inventory.tabs.find((tab) => tab.id === tabId);
+}
+
+function tabIdFromEvent(event: ChromeEventHint): number | undefined {
+  switch (event.kind) {
+    case "tabCreated":
+    case "tabUpdated":
+    case "tabActivated":
+    case "tabMoved":
+    case "tabAttached":
+    case "tabDetached":
+    case "tabRemoved":
+      return event.tabId;
+    case "tabReplaced":
+      return event.addedTabId;
+    default:
+      return undefined;
+  }
 }
 
 function windowForTab(inventory: ChromeInventory, tabId: number) {
@@ -137,6 +156,51 @@ function placementRequest(
   return { scope: { kind: "tab", tabId }, reason };
 }
 
+function deriveManualPlacement(
+  inventory: ChromeInventory,
+  tabId: number,
+  associations: readonly ChromeAssociation[]
+): ManualPlacement | undefined {
+  const tab = tabFromInventory(inventory, tabId);
+  if (!tab) return undefined;
+  const group =
+    tab.chromeGroupId >= 0
+      ? inventory.groups.find((candidate) => candidate.id === tab.chromeGroupId)
+      : undefined;
+  if (group?.shared) return { kind: "leaveWherePlaced" };
+  if (tab.chromeGroupId < 0) return { kind: "ungrouped" };
+  const association = associations.find(
+    (candidate) => candidate.chromeGroupId === tab.chromeGroupId
+  );
+  if (association) {
+    return { kind: "managedGroup", managedGroupId: association.managedGroupId };
+  }
+  return { kind: "leaveWherePlaced" };
+}
+
+function writeManualOverride(
+  session: RuntimeSession,
+  tabId: number,
+  placement: ManualPlacement,
+  now: number
+): RuntimeSession {
+  return {
+    ...session,
+    manualOverrides: {
+      ...session.manualOverrides,
+      [String(tabId)]: { tabId, placement, createdAt: now }
+    }
+  };
+}
+
+function isPlacementChangeEvent(event: ChromeEventHint): boolean {
+  return (
+    event.kind === "tabMoved" ||
+    event.kind === "tabAttached" ||
+    (event.kind === "tabUpdated" && event.groupChanged)
+  );
+}
+
 export function classifyChromeEvent(
   event: ChromeEventHint,
   inventory: ChromeInventory,
@@ -194,6 +258,45 @@ export function classifyChromeEvent(
   }
   if (guardDecision.kind === "manual") {
     current = guardDecision.session;
+    const tabId = tabIdFromEvent(event);
+    if (tabId !== undefined) {
+      const placement = deriveManualPlacement(
+        inventory,
+        tabId,
+        current.associations
+      );
+      if (placement) {
+        current = writeManualOverride(current, tabId, placement, now);
+        return {
+          guarded: false,
+          deferred: false,
+          manualOverride: current.manualOverrides[String(tabId)],
+          requests: [],
+          session: current
+        };
+      }
+    }
+  }
+
+  if (isPlacementChangeEvent(event)) {
+    const tabId = tabIdFromEvent(event);
+    if (tabId !== undefined && !isSharedGroupMember(inventory, tabId)) {
+      const placement = deriveManualPlacement(
+        inventory,
+        tabId,
+        current.associations
+      );
+      if (placement) {
+        current = writeManualOverride(current, tabId, placement, now);
+        return {
+          guarded: false,
+          deferred: false,
+          manualOverride: current.manualOverrides[String(tabId)],
+          requests: [],
+          session: current
+        };
+      }
+    }
   }
 
   switch (event.kind) {
