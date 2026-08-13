@@ -197,9 +197,18 @@ export function resolveUndoPlacement(
   );
   if (!groupExists) {
     const windowExists = isNormalWindow(inventory, placement.windowIdHint);
+    if (!windowExists) {
+      return {
+        kind: "managedGroup",
+        managedGroupId: configuration.fallbackGroupId,
+        windowId,
+        index: placement.index,
+        degraded: true
+      };
+    }
     return {
       kind: "ungrouped",
-      windowId: windowExists ? placement.windowIdHint : windowId,
+      windowId: placement.windowIdHint,
       index: placement.index,
       degraded: true
     };

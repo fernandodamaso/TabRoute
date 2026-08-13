@@ -315,4 +315,74 @@ describe("undo planner", () => {
       degraded: true
     });
   });
+
+  it("routes stale unmanaged group to Other when the hinted window is gone", () => {
+    const configuration = createDefaultConfiguration(
+      () => "00000000-0000-4000-8000-000000000001"
+    );
+    const plan = planUndoActions({
+      payload: {
+        kind: "restoreClosedTab",
+        sessionId: "closed-1",
+        url: "https://example.com/",
+        title: "Example",
+        placement: {
+          kind: "unmanagedGroup",
+          chromeGroupIdHint: 77,
+          windowIdHint: 99,
+          index: 1
+        }
+      },
+      windowId: 2,
+      configuration,
+      inventory: {
+        windows: [{ id: 2, focused: true, incognito: false, type: "normal" }],
+        tabs: [],
+        groups: [],
+        capturedAt: 1
+      },
+      associations: []
+    });
+    expect("status" in plan).toBe(false);
+    if ("status" in plan) return;
+    expect(plan.actions.map((action) => action.kind)).toEqual([
+      "restoreClosedTab",
+      "assignTabsToManagedGroup",
+      "moveTabs"
+    ]);
+    const assign = plan.actions[1];
+    expect(assign?.kind).toBe("assignTabsToManagedGroup");
+    if (assign?.kind !== "assignTabsToManagedGroup") return;
+    expect(assign.managedGroupId).toBe(configuration.fallbackGroupId);
+    expect(assign.windowId).toBe(2);
+  });
+
+  it("keeps stale unmanaged group ungrouped when the hinted window survives", () => {
+    const configuration = createDefaultConfiguration(
+      () => "00000000-0000-4000-8000-000000000001"
+    );
+    const resolved = resolveUndoPlacement(
+      {
+        kind: "unmanagedGroup",
+        chromeGroupIdHint: 77,
+        windowIdHint: 1,
+        index: 2
+      },
+      2,
+      configuration,
+      {
+        windows: [{ id: 1, focused: false, incognito: false, type: "normal" }],
+        tabs: [],
+        groups: [],
+        capturedAt: 1
+      },
+      []
+    );
+    expect(resolved).toEqual({
+      kind: "ungrouped",
+      windowId: 1,
+      index: 2,
+      degraded: true
+    });
+  });
 });
