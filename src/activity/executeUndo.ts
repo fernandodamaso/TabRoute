@@ -39,14 +39,21 @@ export async function executeUndo(input: {
 
   const degradedBeforeExecute =
     payload.kind === "restoreClosedTab" || payload.kind === "restorePlacement"
-      ? undoPlanIsDegraded(payload, windowId, input.configuration, inventory)
+      ? undoPlanIsDegraded(
+          payload,
+          windowId,
+          input.configuration,
+          inventory,
+          runtime.associations
+        )
       : false;
 
   const planResult = planUndoActions({
     payload,
     windowId,
     configuration: input.configuration,
-    inventory
+    inventory,
+    associations: runtime.associations
   });
   if ("status" in planResult) return "unavailable";
 

@@ -12,7 +12,8 @@ import type {
   TabSnapshot,
   UndoPayload,
   UndoPlacement,
-  UndoRecord
+  UndoRecord,
+  UUID
 } from "../domain/types";
 
 export function planUndoRestore(input: {
@@ -39,7 +40,7 @@ export const WINDOW_ID_NONE = -1;
 type ResolvedUndoPlacement =
   | {
       kind: "managedGroup";
-      managedGroupId: import("../domain/types").UUID;
+      managedGroupId: UUID;
       windowId: number;
       index: number;
       degraded: boolean;
@@ -52,6 +53,83 @@ type ResolvedUndoPlacement =
       index: number;
       degraded: boolean;
     };
+
+function isNormalWindow(inventory: ChromeInventory, windowId: number): boolean {
+  return inventory.windows.some(
+    (candidate) =>
+      candidate.id === windowId &&
+      !candidate.incognito &&
+      candidate.type === "normal"
+  );
+}
+
+function managedGroupHomeWindow(
+  managedGroupId: UUID,
+  inventory: ChromeInventory,
+  associations: readonly ChromeAssociation[]
+): number | null {
+  for (const association of associations) {
+    if (association.managedGroupId !== managedGroupId) continue;
+    const group = inventory.groups.find(
+      (candidate) =>
+        candidate.id === association.chromeGroupId &&
+        candidate.windowId === association.chromeWindowId &&
+        !candidate.shared
+    );
+    if (group && isNormalWindow(inventory, association.chromeWindowId)) {
+      return association.chromeWindowId;
+    }
+  }
+  return null;
+}
+
+function resolveManagedGroupPlacement(
+  placement: Extract<UndoPlacement, { kind: "managedGroup" }>,
+  fallbackWindowId: number,
+  configuration: Configuration,
+  inventory: ChromeInventory,
+  associations: readonly ChromeAssociation[]
+): Extract<ResolvedUndoPlacement, { kind: "managedGroup" }> {
+  const originalGroup = configuration.groups.find(
+    (candidate) => candidate.id === placement.managedGroupId
+  );
+  let managedGroupId = placement.managedGroupId;
+  let degraded = !originalGroup;
+
+  if (!originalGroup) {
+    managedGroupId = configuration.fallbackGroupId;
+  }
+
+  let windowId = fallbackWindowId;
+  if (
+    placement.windowIdHint !== undefined &&
+    isNormalWindow(inventory, placement.windowIdHint)
+  ) {
+    windowId = placement.windowIdHint;
+  } else {
+    if (placement.windowIdHint !== undefined) degraded = true;
+    const homeWindow = managedGroupHomeWindow(
+      managedGroupId,
+      inventory,
+      associations
+    );
+    if (homeWindow !== null) {
+      windowId = homeWindow;
+    } else if (originalGroup) {
+      managedGroupId = configuration.fallbackGroupId;
+      degraded = true;
+      windowId = fallbackWindowId;
+    }
+  }
+
+  return {
+    kind: "managedGroup",
+    managedGroupId,
+    windowId,
+    index: placement.index,
+    degraded
+  };
+}
 
 export function deriveUndoPlacementFromTab(
   tab: Pick<TabSnapshot, "windowId" | "index" | "chromeGroupId">,
@@ -89,29 +167,21 @@ export function resolveUndoPlacement(
   placement: UndoPlacement,
   windowId: number,
   configuration: Configuration,
-  inventory: ChromeInventory
+  inventory: ChromeInventory,
+  associations: readonly ChromeAssociation[] = []
 ): ResolvedUndoPlacement {
   if (placement.kind === "managedGroup") {
-    const targetWindow = placement.windowIdHint ?? windowId;
-    const group = configuration.groups.find(
-      (candidate) => candidate.id === placement.managedGroupId
+    return resolveManagedGroupPlacement(
+      placement,
+      windowId,
+      configuration,
+      inventory,
+      associations
     );
-    return {
-      kind: "managedGroup",
-      managedGroupId: placement.managedGroupId,
-      windowId: targetWindow,
-      index: placement.index,
-      degraded: !group
-    };
   }
   if (placement.kind === "ungrouped") {
     const targetWindow = placement.windowIdHint ?? windowId;
-    const windowExists = inventory.windows.some(
-      (candidate) =>
-        candidate.id === targetWindow &&
-        !candidate.incognito &&
-        candidate.type === "normal"
-    );
+    const windowExists = isNormalWindow(inventory, targetWindow);
     return {
       kind: "ungrouped",
       windowId: windowExists ? targetWindow : windowId,
@@ -126,12 +196,7 @@ export function resolveUndoPlacement(
       !candidate.shared
   );
   if (!groupExists) {
-    const windowExists = inventory.windows.some(
-      (candidate) =>
-        candidate.id === placement.windowIdHint &&
-        !candidate.incognito &&
-        candidate.type === "normal"
-    );
+    const windowExists = isNormalWindow(inventory, placement.windowIdHint);
     return {
       kind: "ungrouped",
       windowId: windowExists ? placement.windowIdHint : windowId,
@@ -168,6 +233,30 @@ function appendPlacementActions(
     );
     if (!group) {
       degraded = true;
+      const fallback = configuration.groups.find(
+        (candidate) => candidate.id === configuration.fallbackGroupId
+      );
+      if (!fallback) {
+        push({
+          id: createUuid() as unknown as ActionId,
+          dependsOn: [lastId],
+          kind: "moveTabs",
+          tabs: [{ kind: "actionOutput", actionId: createId }],
+          windowId: resolved.windowId,
+          index: resolved.index
+        });
+        return { actions, degraded };
+      }
+      push({
+        id: createUuid() as unknown as ActionId,
+        dependsOn: [lastId],
+        kind: "assignTabsToManagedGroup",
+        tabs: [{ kind: "actionOutput", actionId: createId }],
+        managedGroupId: configuration.fallbackGroupId,
+        windowId: resolved.windowId,
+        title: renderGroupTitle(fallback),
+        color: fallback.color
+      });
       push({
         id: createUuid() as unknown as ActionId,
         dependsOn: [lastId],
@@ -187,6 +276,14 @@ function appendPlacementActions(
       windowId: resolved.windowId,
       title: renderGroupTitle(group),
       color: group.color
+    });
+    push({
+      id: createUuid() as unknown as ActionId,
+      dependsOn: [lastId],
+      kind: "moveTabs",
+      tabs: [{ kind: "actionOutput", actionId: createId }],
+      windowId: resolved.windowId,
+      index: resolved.index
     });
     return { actions, degraded };
   }
@@ -227,6 +324,7 @@ export function planUndoActions(input: {
   windowId: number;
   configuration: Configuration;
   inventory: ChromeInventory;
+  associations?: readonly ChromeAssociation[];
 }): ActionPlan | { status: "unavailable" } {
   if (input.windowId === WINDOW_ID_NONE) {
     return { status: "unavailable" };
@@ -235,6 +333,8 @@ export function planUndoActions(input: {
     (window) => !window.incognito && window.type === "normal"
   );
   if (!normalWindow) return { status: "unavailable" };
+
+  const associations = input.associations ?? [];
 
   if (input.payload.kind === "restoreClosedTab") {
     const createId = createUuid() as unknown as ActionId;
@@ -259,7 +359,8 @@ export function planUndoActions(input: {
       input.payload.placement,
       input.windowId,
       input.configuration,
-      input.inventory
+      input.inventory,
+      associations
     );
     const placed = appendPlacementActions(
       [create],
@@ -281,11 +382,17 @@ export function undoPlanIsDegraded(
   payload: UndoPayload,
   windowId: number,
   configuration: Configuration,
-  inventory: ChromeInventory
+  inventory: ChromeInventory,
+  associations: readonly ChromeAssociation[] = []
 ): boolean {
   if (payload.kind !== "restoreClosedTab" && payload.kind !== "restorePlacement") {
     return false;
   }
-  return resolveUndoPlacement(payload.placement, windowId, configuration, inventory)
-    .degraded;
+  return resolveUndoPlacement(
+    payload.placement,
+    windowId,
+    configuration,
+    inventory,
+    associations
+  ).degraded;
 }

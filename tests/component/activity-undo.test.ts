@@ -272,13 +272,19 @@ describe("activity undo", () => {
         tabs: [],
         groups: [],
         capturedAt: 1
-      }
+      },
+      associations: []
     });
     expect("status" in plan).toBe(false);
     if ("status" in plan) return;
     expect(plan.actions.map((action) => action.kind)).toEqual([
       "restoreClosedTab",
-      "assignTabsToManagedGroup"
+      "assignTabsToManagedGroup",
+      "moveTabs"
     ]);
+    const move = plan.actions[2];
+    expect(move?.kind).toBe("moveTabs");
+    if (move?.kind !== "moveTabs") return;
+    expect(move.index).toBe(0);
   });
 });
