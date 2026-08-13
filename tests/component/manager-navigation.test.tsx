@@ -6,6 +6,7 @@ import { createDefaultConfiguration, createManagedGroup } from "../../src/domain
 import type { Configuration, UUID } from "../../src/domain/types";
 import { ManagerApp } from "../../src/ui/manager/ManagerApp";
 import { createChromeManagerTransport } from "../../src/ui/manager/chromeManagerTransport";
+import "../../src/ui/manager/manager.css";
 import type {
   ManagerMessage,
   ManagerResponse,
@@ -248,6 +249,62 @@ it("keeps Settings aria-current on snapshots subpanel", async () => {
   expect(screen.getByRole("button", { name: "Settings" }).getAttribute("aria-current")).toBe("page");
   await userEvent.setup().click(screen.getByRole("button", { name: "Back to Settings" }));
   expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
+});
+
+it("keeps header and nav outside the snapshots scroll body", async () => {
+  const style = document.createElement("style");
+  style.textContent = `
+    .manager-shell { display: grid; grid-template-rows: 52px 42px minmax(0, 1fr); height: 600px; }
+    .manager-page-scroll.route-settings-snapshots { overflow: hidden; padding: 0; }
+    .snapshots-page { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+    .snapshots-scroll-body { flex: 1; min-height: 0; overflow-y: auto; }
+  `;
+  document.head.append(style);
+
+  const configuration = createDefaultConfiguration(
+    () => "00000000-0000-4000-8000-000000000001"
+  );
+  const request = vi.fn(async (message: ManagerMessage): Promise<ManagerResponse> => {
+    if (message.kind === "snapshots-query") {
+      return {
+        ok: true,
+        configuration,
+        view,
+        viewFixture: {
+          persistentTabsByGroup: {},
+          snapshots: Array.from({ length: 30 }, (_, index) => ({
+            schemaVersion: 1 as const,
+            id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}` as UUID,
+            name: `Snapshot ${index}`,
+            kind: "named" as const,
+            scope: { kind: "browser" as const },
+            groups: [],
+            createdAt: index,
+            updatedAt: index
+          }))
+        }
+      };
+    }
+    return { ok: true, configuration, view };
+  });
+
+  render(<ManagerApp transport={{ request }} initialRoute="settings" />);
+  await screen.findByRole("heading", { name: "Settings" });
+  await userEvent.setup().click(screen.getByRole("button", { name: "Snapshots" }));
+  await screen.findByRole("heading", { name: "Snapshots" });
+
+  const main = document.querySelector("main.manager-page-scroll.route-settings-snapshots")!;
+  const scrollBody = document.querySelector(".snapshots-scroll-body")!;
+  const header = document.querySelector(".manager-header")!;
+  const nav = document.querySelector(".manager-primary-nav")!;
+  expect(main.classList.contains("route-settings-snapshots")).toBe(true);
+  expect(scrollBody.contains(screen.getByRole("heading", { name: "Snapshots" }))).toBe(false);
+  expect(scrollBody.contains(header)).toBe(false);
+  expect(scrollBody.contains(nav)).toBe(false);
+  expect(header.contains(scrollBody)).toBe(false);
+  expect(nav.contains(scrollBody)).toBe(false);
+  expect(scrollBody.querySelectorAll(".snapshot-row")).toHaveLength(30);
+  style.remove();
 });
 
 it("uses typed runtime messaging through the Chrome transport", async () => {

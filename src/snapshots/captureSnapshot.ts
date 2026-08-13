@@ -1,17 +1,36 @@
 import { createUuid } from "../domain/ids";
 import type {
   BrowserInventory,
+  ChromeAssociation,
   Configuration,
   Snapshot,
   SnapshotGroup,
   SnapshotScope,
+  TabSnapshot,
   UUID,
   WindowOwnershipDescriptor
 } from "../domain/types";
+import {
+  isTabInSharedGroup,
+  managedGroupIdForTab
+} from "../persistence/requirements";
 
 export interface SnapshotContext {
   configuration: Configuration;
   ownership: Record<UUID, WindowOwnershipDescriptor>;
+  associations: readonly ChromeAssociation[];
+}
+
+function memberTabsForManagedGroup(
+  managedGroupId: UUID,
+  inventory: BrowserInventory,
+  associations: readonly ChromeAssociation[]
+): TabSnapshot[] {
+  return inventory.tabs.filter((tab) => {
+    if (tab.routing.kind !== "routable") return false;
+    if (isTabInSharedGroup(tab, inventory)) return false;
+    return managedGroupIdForTab(tab, inventory, associations) === managedGroupId;
+  });
 }
 
 export function captureSnapshot(
@@ -36,13 +55,11 @@ export function captureSnapshot(
       (group) => group.id === managedGroupId
     );
     if (!managed) continue;
-    const memberTabs = inventory.tabs.filter((tab) => {
-      if (tab.routing.kind !== "routable") return false;
-      const group = inventory.groups.find(
-        (candidate) => candidate.id === tab.chromeGroupId
-      );
-      return !group?.shared;
-    });
+    const memberTabs = memberTabsForManagedGroup(
+      managedGroupId,
+      inventory,
+      context.associations
+    );
     groups.push({
       managedGroupId,
       name: managed.name,

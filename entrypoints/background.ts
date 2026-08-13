@@ -189,10 +189,15 @@ export default defineBackground(() => {
     localRef.current = local;
     const checkpoints = createPreMutationCheckpointService({
       local,
-      captureContext: async () => ({
-        configuration,
-        ownership: await local.loadWindowOwnership()
-      })
+      captureContext: async () => {
+        const currentConfiguration = controller!.getConfiguration();
+        const inventory = await controller!.actionDeps().reads.readInventory();
+        return {
+          configuration: currentConfiguration,
+          ownership: await local.loadWindowOwnership(),
+          associations: reconstructAssociations(inventory, currentConfiguration)
+        };
+      }
     });
     controller = createTabRouteController({
       configuration,

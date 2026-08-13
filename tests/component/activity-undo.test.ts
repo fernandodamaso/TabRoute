@@ -27,7 +27,7 @@ function undoDeps(fake: ReturnType<typeof createFakeChromePort>) {
       mutations: fake,
       checkpoints: createPreMutationCheckpointService({
         local,
-        captureContext: async () => ({ configuration, ownership: {} })
+        captureContext: async () => ({ configuration, ownership: {}, associations: [] })
       }),
       local,
       session,

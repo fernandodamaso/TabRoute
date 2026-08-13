@@ -6,6 +6,7 @@ import { reconstructAssociations } from "../chrome/reconstructAssociations";
 import { createUuid } from "../domain/ids";
 import type {
   BrowserInventory,
+  ChromeInventory,
   Configuration,
   Snapshot,
   SnapshotScope,
@@ -196,9 +197,13 @@ export async function restoreSnapshotFromRecord(input: {
 export async function buildSnapshotContext(input: {
   configuration: Configuration;
   local: LocalRepository;
+  inventory?: ChromeInventory;
 }): Promise<SnapshotContext> {
   return {
     configuration: input.configuration,
-    ownership: await input.local.loadWindowOwnership()
+    ownership: await input.local.loadWindowOwnership(),
+    associations: input.inventory
+      ? reconstructAssociations(input.inventory, input.configuration)
+      : []
   };
 }

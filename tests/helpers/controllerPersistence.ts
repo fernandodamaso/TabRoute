@@ -25,7 +25,8 @@ export function createControllerPersistence(input?: {
     local,
     captureContext: async () => ({
       configuration,
-      ownership: await local.loadWindowOwnership()
+      ownership: await local.loadWindowOwnership(),
+      associations: []
     })
   });
   return { configuration, local, session, checkpoints };

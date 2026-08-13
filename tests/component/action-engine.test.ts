@@ -75,7 +75,7 @@ describe("action engine", () => {
       mutations: fake,
       checkpoints: createPreMutationCheckpointService({
         local,
-        captureContext: async () => ({ configuration, ownership: {} })
+        captureContext: async () => ({ configuration, ownership: {}, associations: [] })
       }),
       local,
       session: createMemorySessionRepository(),
@@ -184,7 +184,7 @@ describe("action engine", () => {
       mutations: fake,
       checkpoints: createPreMutationCheckpointService({
         local,
-        captureContext: async () => ({ configuration, ownership: {} })
+        captureContext: async () => ({ configuration, ownership: {}, associations: [] })
       }),
       local,
       session: createMemorySessionRepository(),
@@ -246,7 +246,7 @@ describe("action engine", () => {
       mutations: fake,
       checkpoints: createPreMutationCheckpointService({
         local,
-        captureContext: async () => ({ configuration, ownership: {} })
+        captureContext: async () => ({ configuration, ownership: {}, associations: [] })
       }),
       local,
       session: createMemorySessionRepository(),
@@ -305,7 +305,7 @@ describe("action engine", () => {
       mutations: fake,
       checkpoints: createPreMutationCheckpointService({
         local,
-        captureContext: async () => ({ configuration, ownership: {} })
+        captureContext: async () => ({ configuration, ownership: {}, associations: [] })
       }),
       local,
       session: createMemorySessionRepository(),

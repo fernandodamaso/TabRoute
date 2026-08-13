@@ -21,7 +21,7 @@ export function SnapshotsPage({ snapshots, command, onBack }: SnapshotsPageProps
   const [pending, setPending] = useState<PendingAction | null>(null);
 
   return (
-    <section aria-label="Snapshots content" className="manager-page-content snapshots-page">
+    <section aria-label="Snapshots content" className="snapshots-page">
       <button type="button" className="snapshots-back" onClick={onBack}>
         Back to Settings
       </button>

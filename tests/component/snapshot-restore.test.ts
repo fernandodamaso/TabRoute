@@ -128,7 +128,7 @@ describe("snapshot restore component", () => {
             );
             await createPreMutationCheckpointService({
               local,
-              captureContext: async () => ({ configuration, ownership: {} })
+              captureContext: async () => ({ configuration, ownership: {}, associations: [] })
             }).captureBefore(plan, inventory);
           }
         },
@@ -186,7 +186,7 @@ describe("snapshot restore component", () => {
       name: "fiftieth",
       scope: { kind: "browser" },
       inventory,
-      context: { configuration, ownership: {} }
+      context: { configuration, ownership: {}, associations: [] }
     });
     expect(result.ok).toBe(true);
     const snapshots = await local.listSnapshots();

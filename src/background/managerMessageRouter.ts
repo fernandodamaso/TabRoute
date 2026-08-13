@@ -8,7 +8,7 @@ import type { ActionEngineDeps } from "../actions/executeActionPlan";
 import { reconstructAssociations } from "../chrome/reconstructAssociations";
 import { createManagedGroup, removeManagedGroup, updateManagedGroup } from "../domain/defaults";
 import { validateConfiguration } from "../domain/schemas";
-import type { Configuration, PersistentTab, UUID } from "../domain/types";
+import type { Configuration, PersistentTab, UUID, ChromeInventory } from "../domain/types";
 import {
   makePersistentDefinition,
   pinGroupDefinitions,
@@ -156,10 +156,11 @@ export function createSnapshotManagerPort(input: {
     const snapshots = listUserSnapshots(await input.local.listSnapshots());
     return { persistentTabsByGroup: {}, snapshots };
   }
-  async function captureContext() {
+  async function captureContext(inventory?: ChromeInventory) {
     return buildSnapshotContext({
       configuration: input.getConfiguration(),
-      local: input.local
+      local: input.local,
+      inventory
     });
   }
   return {
@@ -175,7 +176,7 @@ export function createSnapshotManagerPort(input: {
         name,
         scope,
         inventory,
-        context: await captureContext(),
+        context: await captureContext(raw),
         now: () => now()
       });
       if (!result.ok) {
@@ -228,7 +229,7 @@ export function createSnapshotManagerPort(input: {
         local: input.local,
         snapshotId,
         inventory,
-        context: await captureContext(),
+        context: await captureContext(raw),
         now: () => now()
       });
       if (!result.ok) {

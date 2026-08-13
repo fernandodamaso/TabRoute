@@ -1,16 +1,17 @@
 import { useEffect, useRef } from "react";
-import type { ManagerRoute } from "./types";
+import type { ManagerRoute, SettingsPanel } from "./types";
 
 const navigation: Array<{ route: ManagerRoute; label: string }> = [
   { route: "groups", label: "Groups" }, { route: "rules", label: "Rules" },
   { route: "activity", label: "Activity" }, { route: "settings", label: "Settings" }
 ];
 
-export function ManagerShell({ route, onRouteChange, children, status }: {
+export function ManagerShell({ route, onRouteChange, children, status, settingsPanel }: {
   route: ManagerRoute;
   onRouteChange: (route: ManagerRoute) => void;
   children: React.ReactNode;
   status?: string;
+  settingsPanel?: SettingsPanel;
 }) {
   const pageRef = useRef<HTMLElement>(null);
   const firstRender = useRef(true);
@@ -28,6 +29,6 @@ export function ManagerShell({ route, onRouteChange, children, status }: {
     <nav className="manager-primary-nav" aria-label="Primary">
       {navigation.map(({ route: destination, label }) => <button key={destination} type="button" data-route-focus={destination} aria-current={route === destination ? "page" : undefined} onClick={() => onRouteChange(destination)}>{label}</button>)}
     </nav>
-    <main ref={pageRef} className={`manager-page-scroll route-${route}`} tabIndex={-1} data-route-focus={route} aria-label={`${route} page`}>{children}</main>
+    <main ref={pageRef} className={`manager-page-scroll route-${route}${route === "settings" && settingsPanel === "snapshots" ? " route-settings-snapshots" : ""}`} tabIndex={-1} data-route-focus={route} aria-label={`${route} page`}>{children}</main>
   </div>;
 }

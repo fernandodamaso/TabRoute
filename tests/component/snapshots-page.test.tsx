@@ -6,6 +6,8 @@ import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { createUuid } from "../../src/domain/ids";
 import type { Snapshot } from "../../src/domain/types";
 import { SnapshotsPage } from "../../src/ui/manager/pages/SnapshotsPage";
+import { ManagerShell } from "../../src/ui/manager/ManagerShell";
+import "../../src/ui/manager/manager.css";
 
 const snapshot: Snapshot = {
   schemaVersion: 1,
@@ -93,4 +95,37 @@ it("confirms update and delete actions", async () => {
 it("keeps templates as never in configuration", () => {
   const configuration = createDefaultConfiguration(() => createUuid());
   expect(configuration.templates).toEqual([]);
+});
+
+it("scrolls only the snapshots list body", () => {
+  const style = document.createElement("style");
+  style.textContent = `
+    .manager-shell { display: grid; grid-template-rows: 52px 42px minmax(0, 1fr); height: 600px; }
+    .manager-page-scroll.route-settings-snapshots { overflow: hidden; padding: 0; }
+    .snapshots-page { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+    .snapshots-scroll-body { flex: 1; min-height: 0; overflow-y: auto; }
+  `;
+  document.head.append(style);
+
+  const many = Array.from({ length: 30 }, (_, index) => ({
+    ...snapshot,
+    id: createUuid(),
+    name: `Snapshot ${index}`
+  }));
+  const { container } = render(
+    <ManagerShell route="settings" settingsPanel="snapshots" onRouteChange={() => undefined}>
+      <SnapshotsPage snapshots={many} command={async () => undefined} onBack={() => undefined} />
+    </ManagerShell>
+  );
+  const main = container.querySelector("main.route-settings-snapshots")!;
+  const page = container.querySelector(".snapshots-page")!;
+  const scrollBody = container.querySelector(".snapshots-scroll-body")!;
+  const heading = screen.getByRole("heading", { name: "Snapshots" });
+  expect(main.classList.contains("route-settings-snapshots")).toBe(true);
+  expect(scrollBody.contains(heading)).toBe(false);
+  expect(page.contains(container.querySelector(".snapshots-back"))).toBe(true);
+  expect(page.contains(container.querySelector(".snapshots-toolbar"))).toBe(true);
+  expect(scrollBody.querySelectorAll(".snapshot-row")).toHaveLength(30);
+  expect(page.querySelector(".snapshots-toolbar")?.nextElementSibling).toBe(scrollBody);
+  style.remove();
 });

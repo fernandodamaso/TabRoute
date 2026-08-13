@@ -14,7 +14,7 @@ describe("checkpoint service", () => {
     const configuration = createDefaultConfiguration(() => createUuid());
     const checkpoint = createPreMutationCheckpointService({
       local,
-      captureContext: async () => ({ configuration, ownership: {} })
+      captureContext: async () => ({ configuration, ownership: {}, associations: [] })
     });
     const raw = {
       windows: [{ id: 1, focused: true, incognito: false as const, type: "normal" as const }],
@@ -53,7 +53,7 @@ describe("checkpoint service", () => {
     const configuration = createDefaultConfiguration(() => createUuid());
     const checkpoint = createPreMutationCheckpointService({
       local,
-      captureContext: async () => ({ configuration, ownership: {} })
+      captureContext: async () => ({ configuration, ownership: {}, associations: [] })
     });
     const raw = {
       windows: [{ id: 1, focused: true, incognito: false as const, type: "normal" as const }],

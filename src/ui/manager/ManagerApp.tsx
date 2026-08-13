@@ -69,6 +69,7 @@ export function ManagerApp({
 
   return <ManagerShell
     route={route}
+    settingsPanel={route === "settings" ? settingsPanel : undefined}
     onRouteChange={setRoute}
     status={state.status === "error" ? "Offline preview" : state.status === "loading" ? "Loading" : "Ready"}
   >

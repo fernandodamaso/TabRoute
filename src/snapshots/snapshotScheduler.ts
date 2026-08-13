@@ -51,10 +51,13 @@ function isSnapshotRelevantEvent(event: ChromeEventHint): boolean {
 
 async function readBrowserInventory(
   deps: SnapshotSchedulerDeps
-): Promise<ReturnType<typeof observeInventory>["inventory"]> {
+): Promise<{
+  raw: Awaited<ReturnType<ChromeReadPort["readInventory"]>>;
+  inventory: ReturnType<typeof observeInventory>["inventory"];
+}> {
   const raw = await deps.reads.readInventory();
   const session = await deps.session.loadSession();
-  return observeInventory(raw, session).inventory;
+  return { raw, inventory: observeInventory(raw, session).inventory };
 }
 
 export async function ensureSnapshotAlarms(
@@ -82,8 +85,12 @@ export async function noteSnapshotRelevantEvent(
     return;
   }
   const configuration = deps.configuration();
-  const inventory = await readBrowserInventory(deps);
-  const context = await buildSnapshotContext({ configuration, local: deps.local });
+  const { raw, inventory } = await readBrowserInventory(deps);
+  const context = await buildSnapshotContext({
+    configuration,
+    local: deps.local,
+    inventory: raw
+  });
   const snapshot = captureSnapshot(
     { kind: "browser" },
     inventory,
@@ -113,8 +120,12 @@ export async function handleSnapshotAlarm(
 ): Promise<void> {
   if (name === SNAPSHOT_ALARMS.interval) {
     const configuration = deps.configuration();
-    const inventory = await readBrowserInventory(deps);
-    const context = await buildSnapshotContext({ configuration, local: deps.local });
+    const { raw, inventory } = await readBrowserInventory(deps);
+    const context = await buildSnapshotContext({
+      configuration,
+      local: deps.local,
+      inventory: raw
+    });
     await captureAutomaticSnapshot({
       local: deps.local,
       inventory,
@@ -126,8 +137,12 @@ export async function handleSnapshotAlarm(
   if (name !== SNAPSHOT_ALARMS.checkpoint) return;
   const now = deps.now?.() ?? Date.now();
   const configuration = deps.configuration();
-  const inventory = await readBrowserInventory(deps);
-  const context = await buildSnapshotContext({ configuration, local: deps.local });
+  const { raw, inventory } = await readBrowserInventory(deps);
+  const context = await buildSnapshotContext({
+    configuration,
+    local: deps.local,
+    inventory: raw
+  });
   const snapshot = captureSnapshot(
     { kind: "browser" },
     inventory,
