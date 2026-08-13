@@ -261,6 +261,8 @@ it("preserves revision markers and associations through one serialized Session r
       managedGroupId: "00000000-0000-4000-8000-000000000071" as UUID,
       chromeGroupId: 7,
       chromeWindowId: 8,
+      observedTitle: "Other",
+      observedMemberUrls: [],
       observedAt: 9
     }
   ];
@@ -269,11 +271,15 @@ it("preserves revision markers and associations through one serialized Session r
   await session.saveAssociations(associations);
   await session.updateRuntime({ pendingSyncRevision: "revision-b" });
 
-  expect(storage.values["runtime:v1"]).toEqual({
+  expect(storage.values["runtime:v1"]).toMatchObject({
     lastAppliedSyncRevisionId: "revision-a",
     pendingSyncRevision: "revision-b",
-    associations
+    associations,
+    schemaVersion: 1
   });
+  expect(
+    typeof (storage.values["runtime:v1"] as { browserSessionId?: string }).browserSessionId
+  ).toBe("string");
   await expect(session.loadAssociations()).resolves.toEqual(associations);
 });
 

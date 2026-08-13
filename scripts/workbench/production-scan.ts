@@ -18,7 +18,7 @@ export interface ProductionGateResult {
   productionBuildPath: string;
   productionScan: { ok: true };
 }
-const EXPECTED_PERMISSIONS = ["tabs", "tabGroups", "storage"] as const;
+const EXPECTED_PERMISSIONS = ["tabs", "tabGroups", "storage", "alarms"] as const;
 const MARKERS = [
   "TABROUTE_DEV_WORKBENCH_V1",
   "data-workbench-control",

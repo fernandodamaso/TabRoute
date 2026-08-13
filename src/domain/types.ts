@@ -138,12 +138,156 @@ export interface ChromeInventory {
   capturedAt: number;
 }
 
+export type BrowserSessionId = string & {
+  readonly __brand: "BrowserSessionId";
+};
+export type ActionId = string & { readonly __brand: "ActionId" };
+
+export type GuardEventKind =
+  | "tabCreated"
+  | "tabUpdated"
+  | "tabActivated"
+  | "tabMoved"
+  | "tabAttached"
+  | "tabDetached"
+  | "tabRemoved"
+  | "tabReplaced"
+  | "groupCreated"
+  | "groupUpdated"
+  | "groupMoved"
+  | "groupRemoved";
+
+export type GuardPostcondition =
+  | {
+      kind: "tabPlacement";
+      tabIds: number[];
+      windowId?: number;
+      chromeGroupId?: number;
+      ungrouped?: true;
+    }
+  | {
+      kind: "managedGroupState";
+      managedGroupId: UUID;
+      windowId?: number;
+      title?: string;
+      color?: ChromeGroupColor;
+      collapsed?: boolean;
+    };
+
+export interface OperationGuard {
+  id: UUID;
+  browserSessionId: BrowserSessionId;
+  actionId: ActionId;
+  operation: "assignTabsToManagedGroup" | "ungroupTabs";
+  phase: "executing" | "settling";
+  tabIds: number[];
+  chromeGroupIds: number[];
+  expectedEventKinds: GuardEventKind[];
+  seenEventKinds: GuardEventKind[];
+  postcondition?: GuardPostcondition;
+  startedAt: number;
+  verifiedAt?: number;
+  settleAfter?: number;
+  expiresAt: number;
+}
+
+export type ManualPlacement =
+  | { kind: "managedGroup"; managedGroupId: UUID }
+  | { kind: "ungrouped" }
+  | { kind: "leaveWherePlaced" };
+
+export interface ManualOverride {
+  tabId: number;
+  placement: ManualPlacement;
+  createdAt: number;
+}
+
+export interface TabObservation {
+  tabId: number;
+  firstObservedAt: number;
+  firstObservedOrdinal: number;
+  lastObservedUrl: string;
+}
+
+export interface PendingGroupRemoval {
+  managedGroupId: UUID;
+  removedChromeGroupId: number;
+  oldWindowId: number;
+  memberTabIds: number[];
+  memberUrls: string[];
+  renderedTitle: string;
+  startedAt: number;
+  settleAfter: number;
+}
+
 export interface ChromeAssociation {
   managedGroupId: UUID;
   chromeGroupId: number;
   chromeWindowId: number;
+  observedTitle: string;
+  observedMemberUrls: string[];
   observedAt: number;
 }
+
+export interface RuntimeSession {
+  schemaVersion: 1;
+  browserSessionId: BrowserSessionId;
+  nextObservationOrdinal: number;
+  tabObservations: TabObservation[];
+  manualOverrides: Record<string, ManualOverride>;
+  intentionallyClosedGroupIds: UUID[];
+  operationGuards: OperationGuard[];
+  pendingGroupRemovals: PendingGroupRemoval[];
+  lastFocusedNormalWindowId?: number;
+  associations: ChromeAssociation[];
+}
+
+export type ChromeEventHint =
+  | { kind: "tabCreated"; tabId: number }
+  | {
+      kind: "tabUpdated";
+      tabId: number;
+      urlChanged: boolean;
+      groupChanged: boolean;
+      pinnedChanged: boolean;
+    }
+  | { kind: "tabActivated"; tabId: number; windowId: number }
+  | {
+      kind: "tabMoved";
+      tabId: number;
+      windowId: number;
+      fromIndex: number;
+      toIndex: number;
+    }
+  | {
+      kind: "tabAttached";
+      tabId: number;
+      newWindowId: number;
+      newPosition: number;
+    }
+  | {
+      kind: "tabDetached";
+      tabId: number;
+      oldWindowId: number;
+      oldPosition: number;
+    }
+  | {
+      kind: "tabRemoved";
+      tabId: number;
+      windowId: number;
+      isWindowClosing: boolean;
+    }
+  | { kind: "tabReplaced"; addedTabId: number; removedTabId: number }
+  | {
+      kind: "groupCreated" | "groupUpdated" | "groupMoved" | "groupRemoved";
+      group: ChromeGroupSnapshot;
+    }
+  | {
+      kind: "windowFocusChanged";
+      focus: { kind: "none" } | { kind: "normal"; windowId: number };
+    }
+  | { kind: "windowRemoved"; windowId: number }
+  | { kind: "alarm"; name: string };
 
 export interface RuntimeAssociations {
   associations: ChromeAssociation[];
