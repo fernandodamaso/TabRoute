@@ -48,12 +48,14 @@ export function createFakeChromePort(
   options: FakeChromePortOptions = {}
 ): LiveChromePort & {
   callsFor(method: keyof LiveChromePort): unknown[][];
+  callOrder(): readonly (keyof LiveChromePort)[];
   setError(method: keyof LiveChromePort, error: Error | undefined): void;
   getStorage(): FakeChromeStorage;
   getInventory(): ChromeInventory;
 } {
   const storage = options.storage ?? defaultStorage(initial);
   const calls = new Map<keyof LiveChromePort, unknown[][]>();
+  const callOrder: (keyof LiveChromePort)[] = [];
   const errors = new Map<keyof LiveChromePort, Error>(
     Object.entries(options.errors ?? {}) as [keyof LiveChromePort, Error][]
   );
@@ -62,6 +64,7 @@ export function createFakeChromePort(
     const list = calls.get(method) ?? [];
     list.push(args);
     calls.set(method, list);
+    callOrder.push(method);
   }
 
   function maybeThrow(method: keyof LiveChromePort) {
@@ -169,6 +172,15 @@ export function createFakeChromePort(
       record("removeTabs", [tabIds]);
       maybeThrow("removeTabs");
       const remove = new Set(tabIds);
+      for (const tab of storage.inventory.tabs) {
+        if (!remove.has(tab.id)) continue;
+        storage.recentlyClosed.unshift({
+          sessionId: `closed-${tab.id}-${storage.recentlyClosed.length}`,
+          url: tab.url,
+          title: tab.title,
+          lastAccessed: tab.lastAccessed
+        });
+      }
       storage.inventory.tabs = storage.inventory.tabs.filter(
         (tab) => !remove.has(tab.id)
       );
@@ -217,6 +229,9 @@ export function createFakeChromePort(
     ...port,
     callsFor(method) {
       return [...(calls.get(method) ?? [])];
+    },
+    callOrder() {
+      return [...callOrder];
     },
     setError(method, error) {
       if (error) errors.set(method, error);

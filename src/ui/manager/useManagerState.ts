@@ -3,6 +3,7 @@ import { createDefaultConfiguration } from "../../domain/defaults";
 import type { Configuration } from "../../domain/types";
 import { createChromeManagerTransport } from "./chromeManagerTransport";
 import type {
+  ManagerCommandPayload,
   ManagerMessage,
   ManagerResponse,
   ManagerTransport,
@@ -36,7 +37,7 @@ export function useManagerState(transport: ManagerTransport = browserManagerTran
       const result = await transport.request({ kind: "manager-query" });
       if (result.ok) {
         setConfiguration(result.configuration);
-        setViewFixture(result.viewFixture);
+        if (result.viewFixture) setViewFixture(result.viewFixture);
         setStatus("ready");
       } else {
         setStatus("error");
@@ -48,14 +49,15 @@ export function useManagerState(transport: ManagerTransport = browserManagerTran
     }
   }, [transport]);
 
-  useEffect(() => { void query(); }, [query]);
-
-  const command = useCallback(async (message: ManagerMessage): Promise<ManagerResponse> => {
+  const queryActivity = useCallback(async (): Promise<ManagerResponse> => {
     try {
-      const result = await transport.request(message);
+      const result = await transport.request({
+        kind: "activity-query",
+        limit: 50
+      });
       if (result.ok) {
         setConfiguration(result.configuration);
-        setViewFixture(result.viewFixture);
+        if (result.viewFixture) setViewFixture(result.viewFixture);
       }
       return result;
     } catch (error) {
@@ -63,12 +65,35 @@ export function useManagerState(transport: ManagerTransport = browserManagerTran
     }
   }, [transport]);
 
+  useEffect(() => { void query(); }, [query]);
+
+  const command = useCallback(async (message: ManagerMessage): Promise<ManagerResponse> => {
+    try {
+      const result = await transport.request(message);
+      if (result.ok) {
+        setConfiguration(result.configuration);
+        if (result.viewFixture) setViewFixture(result.viewFixture);
+      }
+      return result;
+    } catch (error) {
+      return thrownTransportFailure(error);
+    }
+  }, [transport]);
+
+  const runCommand = useCallback(
+    async (payload: ManagerCommandPayload): Promise<ManagerResponse> =>
+      command({ kind: "manager-command", command: payload }),
+    [command]
+  );
+
   return {
     configuration,
     setConfiguration,
     viewFixture,
     status,
     query,
-    command
+    queryActivity,
+    command,
+    runCommand
   };
 }

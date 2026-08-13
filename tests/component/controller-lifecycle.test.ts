@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
-import { createTabRouteController } from "../../src/controller/controller";
+import { createTestController } from "../helpers/controllerPersistence";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
 import { GUARD_HARD_MS, GUARD_QUIET_MS } from "../../src/actions/operationGuards";
 import { createFakeChromePort } from "../fakes/fakeChromePort";
@@ -35,7 +35,7 @@ describe("controller lifecycle", () => {
       groups: [],
       capturedAt: 1
     });
-    const controller = createTabRouteController({
+    const controller = createTestController({
       configuration,
       chrome: fake,
       session: createMemorySessionRepository(),
@@ -108,7 +108,7 @@ describe("controller lifecycle", () => {
       ],
       capturedAt: 1
     });
-    const controller = createTabRouteController({
+    const controller = createTestController({
       configuration,
       chrome: fake,
       session,
@@ -177,7 +177,7 @@ describe("controller lifecycle", () => {
       ],
       capturedAt: 1
     });
-    const controller = createTabRouteController({
+    const controller = createTestController({
       configuration,
       chrome: fake,
       session,
@@ -241,13 +241,13 @@ describe("controller lifecycle", () => {
       ],
       capturedAt: 1
     });
-    const first = createTabRouteController({
+    const first = createTestController({
       configuration,
       chrome: fake,
       session,
       now: () => now
     });
-    const second = createTabRouteController({
+    const second = createTestController({
       configuration,
       chrome: fake,
       session,
@@ -270,7 +270,7 @@ describe("controller lifecycle", () => {
       groups: [],
       capturedAt: 1
     });
-    const controller = createTabRouteController({
+    const controller = createTestController({
       configuration,
       chrome: fake,
       session: createMemorySessionRepository(),

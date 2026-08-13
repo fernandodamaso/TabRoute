@@ -39,6 +39,11 @@ export function ManagerApp({
   const initialDeepLinkApplied = useRef(false);
   const lastInitialRoute = useRef(initialRoute);
   const state = useManagerState(transport);
+
+  useEffect(() => {
+    if (route !== "activity" || state.status !== "ready") return;
+    void state.queryActivity();
+  }, [route, state.status, state.queryActivity]);
   const title = `${route[0]!.toUpperCase()}${route.slice(1)}`;
 
   useEffect(() => {
@@ -82,7 +87,9 @@ export function ManagerApp({
           ? <ActivityPage
               activity={state.viewFixture?.activity ?? []}
               availableUndo={state.viewFixture?.availableUndo}
-              command={state.command}
+              command={async (payload) => {
+                await state.runCommand(payload);
+              }}
             />
           : <>
             <h1 data-page-heading="true">{title}</h1>

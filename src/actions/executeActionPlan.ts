@@ -9,6 +9,7 @@ import type {
   TabSnapshot
 } from "../domain/types";
 import type { SessionRepository } from "../state/sessionRepository";
+import type { LocalRepository } from "../state/localRepository";
 import { executeWithRetry } from "./retryPolicy";
 import type {
   ActionPlan,
@@ -270,11 +271,15 @@ async function executePlannedAction(
       if (!survivor.url || !isRoutableUrl(survivor.url)) {
         return { status: "failure", errorCode: "SURVIVOR_INVALID" };
       }
-      await executeWithRetry(
-        () => deps.mutations.removeTabs([duplicateId]),
-        refresh,
-        delay
-      );
+      try {
+        await executeWithRetry(
+          () => deps.mutations.removeTabs([duplicateId]),
+          refresh,
+          delay
+        );
+      } catch {
+        return { status: "failure", errorCode: "CLOSE_FAILED" };
+      }
       return { status: "success" };
     }
     case "assignTabsToUnmanagedGroup":

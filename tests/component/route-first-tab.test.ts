@@ -1,5 +1,5 @@
 import { createDefaultConfiguration } from "../../src/domain/defaults";
-import { createTabRouteController } from "../../src/controller/controller";
+import { createTestController } from "../helpers/controllerPersistence";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
 import { createFakeChromePort } from "../fakes/fakeChromePort";
 import type { ChromeTabSnapshot } from "../../src/chrome/types";
@@ -31,7 +31,7 @@ it("holds a newly created tab until it has a committed supported URL", async () 
     groups: [],
     capturedAt: 1
   });
-  const controller = createTabRouteController({
+  const controller = createTestController({
     configuration,
     chrome: fake,
     session: createMemorySessionRepository()
@@ -52,7 +52,7 @@ it("routes an unmatched routable tab through the Action Engine into lazy Other",
     groups: [],
     capturedAt: 1
   });
-  const controller = createTabRouteController({
+  const controller = createTestController({
     configuration,
     chrome: fake,
     session: createMemorySessionRepository()
@@ -98,7 +98,7 @@ it("reuses each normal window's fallback group after fresh association reconstru
     ],
     capturedAt: 1
   });
-  const controller = createTabRouteController({
+  const controller = createTestController({
     configuration,
     chrome: fake,
     session: createMemorySessionRepository()

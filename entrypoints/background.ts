@@ -2,7 +2,13 @@ import { createLiveChromePort } from "../src/chrome/liveChromePort";
 import { createDefaultConfiguration } from "../src/domain/defaults";
 import { createTabRouteController } from "../src/controller/controller";
 import { createChromeSessionRepository } from "../src/state/sessionRepository";
+import { createChromeLocalRepository } from "../src/state/localRepository";
 import { createConfigurationRepository } from "../src/state/configurationRepository";
+import {
+  createActivityManagerPort,
+  createManagerMessageRouter
+} from "../src/background/managerMessageRouter";
+import { createPreMutationCheckpointService } from "../src/snapshots/checkpointService";
 import {
   CONFIGURATION_SYNC_RETRY_ALARM,
   createConfigurationSyncCoordinator,
@@ -15,7 +21,6 @@ import type {
 } from "../src/domain/types";
 import type { UiMessage } from "../src/ui/messages";
 import { applyChromeGroupPresentation } from "../src/groups/displayTitle";
-import { createManagerMessageRouter } from "../src/background/managerMessageRouter";
 import { GROUP_SETTLEMENT_ALARM } from "../src/groups/groupLifecycle";
 
 function toSnapshot(tab: chrome.tabs.Tab): ChromeTabSnapshot | undefined {
@@ -126,13 +131,33 @@ export default defineBackground(() => {
 
   const ready = (async () => {
     const configuration = await repository.loadOrCreate();
+    const local = createChromeLocalRepository(
+      chrome.storage.local,
+      chrome.storage.sync,
+      chrome.storage.session
+    );
+    const checkpoints = createPreMutationCheckpointService({
+      local,
+      captureContext: async () => ({
+        configuration,
+        ownership: await local.loadWindowOwnership()
+      })
+    });
     controller = createTabRouteController({
       configuration,
       chrome: createLiveChromePort(),
-      session
+      session,
+      local,
+      checkpoints
     });
     await controller.onWorkerWake();
-    managerRouter = createManagerMessageRouter({ repository, controller });
+    const activity = createActivityManagerPort({
+      local,
+      session,
+      actionDeps: () => controller!.actionDeps(),
+      getConfiguration: () => controller!.getConfiguration()
+    });
+    managerRouter = createManagerMessageRouter({ repository, controller, activity });
     const configurationSync = createConfigurationSyncCoordinator({
       repository,
       callbacks: {
@@ -164,7 +189,8 @@ export default defineBackground(() => {
     (message: UiMessage, _sender, sendResponse) => {
       if (
         message.kind !== "manager-query" &&
-        message.kind !== "manager-command"
+        message.kind !== "manager-command" &&
+        message.kind !== "activity-query"
       )
         return undefined;
       void ready

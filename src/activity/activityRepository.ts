@@ -1,4 +1,4 @@
-import type { ActivityEntry, UndoRecord, UUID } from "../domain/types";
+import type { ActivityEntry, BrowserSessionId, UndoRecord, UUID } from "../domain/types";
 import type { LocalRepository } from "../state/localRepository";
 
 export async function appendActivityEntry(
@@ -19,21 +19,17 @@ export async function listActivityEntries(
 export async function getAvailableUndo(
   local: LocalRepository,
   now: number,
-  browserSessionId: string
+  browserSessionId: BrowserSessionId
 ): Promise<UndoRecord | undefined> {
-  const undo = await local.getUndo("" as UUID);
-  void undo;
-  const records: UndoRecord[] = [];
-  return records.find(
-    (record) =>
-      record.browserSessionId === browserSessionId && record.expiresAt > now
-  );
+  const records = await local.listUndo();
+  return records
+    .filter(
+      (record) =>
+        record.browserSessionId === browserSessionId && record.expiresAt > now
+    )
+    .sort((left, right) => right.createdAt - left.createdAt)[0];
 }
 
-export async function clearActivity(
-  local: LocalRepository & { bags?: { activity: ActivityEntry[] } }
-): Promise<void> {
-  if ("bags" in local && local.bags) {
-    local.bags.activity = [];
-  }
+export async function clearActivity(local: LocalRepository): Promise<void> {
+  await local.clearActivity();
 }

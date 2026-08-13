@@ -44,7 +44,7 @@ export interface ManagerCommand {
   command: ManagerCommandPayload;
 }
 
-export type ManagerMessage = ManagerQuery | ManagerCommand;
+export type ManagerMessage = ManagerQuery | ActivityQuery | ManagerCommand;
 
 export type ManagerDeepLink =
   | "none"

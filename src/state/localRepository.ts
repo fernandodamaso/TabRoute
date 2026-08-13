@@ -27,8 +27,10 @@ export interface LocalRepository {
   >;
   appendActivity(entry: ActivityEntry): Promise<void>;
   listActivity(before: number | undefined, limit: number): Promise<ActivityEntry[]>;
+  clearActivity(): Promise<void>;
   putUndo(record: UndoRecord): Promise<void>;
   getUndo(id: UUID): Promise<UndoRecord | null>;
+  listUndo(): Promise<UndoRecord[]>;
   deleteUndo(id: UUID): Promise<void>;
   loadWindowOwnership(): Promise<Record<UUID, WindowOwnershipDescriptor>>;
   saveWindowOwnership(value: Record<UUID, WindowOwnershipDescriptor>): Promise<void>;
@@ -164,11 +166,17 @@ export function createMemoryLocalRepository(
           : bags.activity.filter((entry) => entry.createdAt < before);
       return filtered.slice(0, limit);
     },
+    async clearActivity() {
+      bags.activity = [];
+    },
     async putUndo(record) {
       bags.undo[record.id] = record;
     },
     async getUndo(id) {
       return bags.undo[id] ?? null;
+    },
+    async listUndo() {
+      return Object.values(bags.undo);
     },
     async deleteUndo(id) {
       delete bags.undo[id];
@@ -249,6 +257,9 @@ export function createChromeLocalRepository(
           : activity.filter((entry) => entry.createdAt < before);
       return filtered.slice(0, limit);
     },
+    clearActivity: async () => {
+      await writeBag(STORAGE_KEYS.localActivity, [] as ActivityEntry[]);
+    },
     putUndo: async (record) => {
       const undo = await readBag(STORAGE_KEYS.localUndo, {} as Record<string, UndoRecord>);
       await writeBag(STORAGE_KEYS.localUndo, { ...undo, [record.id]: record });
@@ -256,6 +267,10 @@ export function createChromeLocalRepository(
     getUndo: async (id) => {
       const undo = await readBag(STORAGE_KEYS.localUndo, {} as Record<string, UndoRecord>);
       return undo[id] ?? null;
+    },
+    listUndo: async () => {
+      const undo = await readBag(STORAGE_KEYS.localUndo, {} as Record<string, UndoRecord>);
+      return Object.values(undo);
     },
     deleteUndo: async (id) => {
       const undo = await readBag(STORAGE_KEYS.localUndo, {} as Record<string, UndoRecord>);

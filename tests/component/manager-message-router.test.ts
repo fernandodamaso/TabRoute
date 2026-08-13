@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { createDefaultConfiguration, createManagedGroup } from "../../src/domain/defaults";
 import { createManagerMessageRouter } from "../../src/background/managerMessageRouter";
+import type { ActivityManagerPort } from "../../src/background/managerMessageRouter";
 import type {
   ManagerCommand,
   ManagerResponse,
@@ -9,6 +10,20 @@ import type {
 
 const fallbackId = "00000000-0000-4000-8000-000000000001";
 const groupId = "00000000-0000-4000-8000-000000000002";
+
+function activityPort(): ActivityManagerPort {
+  return {
+    async query() {
+      return { persistentTabsByGroup: {}, activity: [] };
+    },
+    async undo() {
+      return undefined;
+    },
+    async clear() {
+      return undefined;
+    }
+  };
+}
 
 function setup() {
   const initial = createManagedGroup(
@@ -26,6 +41,7 @@ function setup() {
       getConfiguration: () => configuration,
       replaceConfiguration
     },
+    activity: activityPort(),
     randomUuid: () => "00000000-0000-4000-8000-000000000003",
     now: () => 3
   });
@@ -81,6 +97,7 @@ it("returns the last valid configuration after a persistence failure", async () 
   const router = createManagerMessageRouter({
     repository: { save },
     controller: { getConfiguration: () => configuration, replaceConfiguration },
+    activity: activityPort(),
     now: () => 4
   });
 
@@ -107,6 +124,7 @@ it("keeps a durable mutation accepted when post-save reconciliation throws", asy
   const router = createManagerMessageRouter({
     repository: { save },
     controller: { getConfiguration: () => configuration, replaceConfiguration },
+    activity: activityPort(),
     now: () => 5
   });
 
@@ -144,6 +162,7 @@ it("serializes concurrent mutations against the latest persisted configuration",
   const router = createManagerMessageRouter({
     repository: { save },
     controller: { getConfiguration: () => configuration, replaceConfiguration },
+    activity: activityPort(),
     randomUuid: () => "00000000-0000-4000-8000-000000000003",
     now: () => 3
   });
@@ -163,9 +182,9 @@ it("serializes concurrent mutations against the latest persisted configuration",
 it("declares all manager commands as one exhaustive typed union", () => {
   const commands: ManagerCommand["command"]["kind"][] = [
     "updateGroup", "createGroup", "deleteGroup", "saveRule", "duplicateRule",
-    "deleteRule", "setRuleEnabled", "setRulePaused"
+    "deleteRule", "setRuleEnabled", "setRulePaused", "undo", "clearActivity"
   ];
-  expect(commands).toHaveLength(8);
+  expect(commands).toHaveLength(10);
 });
 
 it("keeps typed transport records and failures in the manager contract", () => {

@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
-import { createTabRouteController } from "../../src/controller/controller";
+import { createTestController } from "../helpers/controllerPersistence";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
 import { createFakeChromePort } from "../fakes/fakeChromePort";
 import type { ChromeTabSnapshot } from "../../src/chrome/types";
@@ -81,7 +81,7 @@ it("routes nested positive matches to a managed group and negative matches to fa
     groups: [],
     capturedAt: 1
   });
-  const controller = createTabRouteController({
+  const controller = createTestController({
     configuration,
     chrome: fake,
     session: createMemorySessionRepository()
@@ -138,7 +138,7 @@ it("ungroups when the selected rule uses the ungroup placement action", async ()
     ],
     capturedAt: 1
   });
-  const controller = createTabRouteController({
+  const controller = createTestController({
     configuration,
     chrome: fake,
     session: createMemorySessionRepository()

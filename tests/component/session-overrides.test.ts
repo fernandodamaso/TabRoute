@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
-import { createTabRouteController } from "../../src/controller/controller";
+import { createTestController } from "../helpers/controllerPersistence";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
 import { createFakeChromePort } from "../fakes/fakeChromePort";
 import type { ChromeTabSnapshot } from "../../src/chrome/types";
@@ -86,7 +86,7 @@ describe("session overrides", () => {
       groups: [],
       capturedAt: 1
     });
-    const controller = createTabRouteController({
+    const controller = createTestController({
       configuration,
       chrome: fake,
       session: createMemorySessionRepository()
@@ -128,7 +128,7 @@ describe("session overrides", () => {
       ],
       capturedAt: 1
     });
-    const controller = createTabRouteController({
+    const controller = createTestController({
       configuration,
       chrome: fake,
       session: createMemorySessionRepository()
@@ -176,7 +176,7 @@ describe("session overrides", () => {
       ],
       capturedAt: 1
     });
-    const controller = createTabRouteController({
+    const controller = createTestController({
       configuration,
       chrome: fake,
       session: createMemorySessionRepository()
@@ -203,7 +203,7 @@ describe("session overrides", () => {
       groups: [],
       capturedAt: 1
     });
-    const controller = createTabRouteController({
+    const controller = createTestController({
       configuration,
       chrome: fake,
       session
