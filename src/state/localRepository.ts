@@ -119,18 +119,28 @@ export function createMemoryLocalRepository(
       return bags.snapshots.find((snapshot) => snapshot.id === id) ?? null;
     },
     async saveSnapshot(snapshot) {
-      const namedAndAutomatic = bags.snapshots.filter(
-        (candidate) => candidate.kind !== "checkpoint"
-      );
-      if (
-        snapshot.kind !== "checkpoint" &&
-        namedAndAutomatic.length >= 50 &&
-        !bags.snapshots.some((candidate) => candidate.id === snapshot.id)
-      ) {
-        return { ok: false, code: "SNAPSHOT_LIMIT" };
+      let snapshots = [...bags.snapshots];
+      const isUpdate = snapshots.some((candidate) => candidate.id === snapshot.id);
+      if (snapshot.kind !== "checkpoint" && !isUpdate) {
+        const namedAndAutomatic = snapshots.filter(
+          (candidate) => candidate.kind !== "checkpoint"
+        );
+        if (namedAndAutomatic.length >= 50) {
+          if (snapshot.kind === "automatic") {
+            return { ok: false, code: "SNAPSHOT_LIMIT" };
+          }
+          const automatic = namedAndAutomatic
+            .filter((candidate) => candidate.kind === "automatic")
+            .sort((left, right) => left.createdAt - right.createdAt);
+          if (automatic.length === 0) {
+            return { ok: false, code: "SNAPSHOT_LIMIT" };
+          }
+          const oldest = automatic[0]!;
+          snapshots = snapshots.filter((candidate) => candidate.id !== oldest.id);
+        }
       }
       bags.snapshots = [
-        ...bags.snapshots.filter((candidate) => candidate.id !== snapshot.id),
+        ...snapshots.filter((candidate) => candidate.id !== snapshot.id),
         snapshot
       ];
       return { ok: true };
@@ -234,7 +244,15 @@ export function createChromeLocalRepository(
       (await readBag(STORAGE_KEYS.localSnapshots, [] as Snapshot[])).find(
         (snapshot) => snapshot.id === id
       ) ?? null,
-    saveSnapshot: memory.saveSnapshot.bind(memory),
+    saveSnapshot: async (snapshot) => {
+      const snapshots = await readBag(STORAGE_KEYS.localSnapshots, [] as Snapshot[]);
+      memory.bags.snapshots = snapshots;
+      const result = await memory.saveSnapshot(snapshot);
+      if (result.ok) {
+        await writeBag(STORAGE_KEYS.localSnapshots, memory.bags.snapshots);
+      }
+      return result;
+    },
     deleteSnapshot: async (id) => {
       const snapshots = await readBag(STORAGE_KEYS.localSnapshots, [] as Snapshot[]);
       await writeBag(
@@ -244,7 +262,17 @@ export function createChromeLocalRepository(
     },
     loadShutdownCheckpoint: () =>
       readBag(STORAGE_KEYS.localShutdownCheckpoint, null as ShutdownCheckpoint | null),
-    saveShutdownCheckpoint: memory.saveShutdownCheckpoint.bind(memory),
+    saveShutdownCheckpoint: async (value) => {
+      memory.bags.checkpoint = await readBag(
+        STORAGE_KEYS.localShutdownCheckpoint,
+        null as ShutdownCheckpoint | null
+      );
+      const result = await memory.saveShutdownCheckpoint(value);
+      if (result.ok) {
+        await writeBag(STORAGE_KEYS.localShutdownCheckpoint, memory.bags.checkpoint);
+      }
+      return result;
+    },
     appendActivity: async (entry) => {
       const activity = await readBag(STORAGE_KEYS.localActivity, [] as ActivityEntry[]);
       await writeBag(STORAGE_KEYS.localActivity, [entry, ...activity].slice(0, 500));

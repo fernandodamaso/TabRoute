@@ -225,6 +225,31 @@ it("surfaces a typed offline transport result without bypassing the transport", 
   expect(request).toHaveBeenCalledWith({ kind: "manager-query" });
 });
 
+it("keeps Settings aria-current on snapshots subpanel", async () => {
+  const configuration = createDefaultConfiguration(
+    () => "00000000-0000-4000-8000-000000000001"
+  );
+  const request = vi.fn(async (message: ManagerMessage): Promise<ManagerResponse> => {
+    if (message.kind === "snapshots-query") {
+      return {
+        ok: true,
+        configuration,
+        view,
+        viewFixture: { persistentTabsByGroup: {}, snapshots: [] }
+      };
+    }
+    return { ok: true, configuration, view };
+  });
+
+  render(<ManagerApp transport={{ request }} initialRoute="settings" />);
+  await screen.findByRole("heading", { name: "Settings" });
+  await userEvent.setup().click(screen.getByRole("button", { name: "Snapshots" }));
+  expect(await screen.findByRole("heading", { name: "Snapshots" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Settings" }).getAttribute("aria-current")).toBe("page");
+  await userEvent.setup().click(screen.getByRole("button", { name: "Back to Settings" }));
+  expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
+});
+
 it("uses typed runtime messaging through the Chrome transport", async () => {
   const configuration = createDefaultConfiguration(
     () => "00000000-0000-4000-8000-000000000001"

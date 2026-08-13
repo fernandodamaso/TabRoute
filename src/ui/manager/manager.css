@@ -42,3 +42,15 @@ button:focus-visible { outline: 2px solid #aa6c45; outline-offset: 2px; }
 .dialog-backdrop { position: fixed; inset: 0; display: grid; place-items: center; background: #25242a33; } .confirmation-dialog { width: 290px; padding: 18px; border: 1px solid #dedbd5; border-radius: 10px; background: #fbfaf8; box-shadow: 0 12px 30px #4f403533; } .confirmation-dialog h2 { margin: 0; font-size: 16px; } .confirmation-dialog p { color: #76716b; font-size: 12px; line-height: 1.4; } .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; } .danger-button { background: #a34343 !important; border-color: #a34343 !important; color: white !important; }
 .rule-editor { min-height: 100%; padding: 18px 20px 28px; box-sizing: border-box; } .rule-editor-heading { display: flex; justify-content: space-between; align-items: flex-start; } .rule-editor-heading h1 { margin: 0; font-size: 22px; } .rule-editor-heading > span { color: #8b6b57; font-size: 10px; letter-spacing: .08em; }
 .rule-editor .manager-card h2 { margin-bottom: 10px; font-size: 13px; } .condition-rows { display: grid; gap: 8px; } .condition-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 9px; border: 1px solid #eee9e3; border-radius: 7px; } .condition-row label { display: grid; gap: 4px; color: #76716b; font-size: 10px; } .condition-row input, .condition-row select, .rule-editor input, .rule-editor select { min-height: 29px; box-sizing: border-box; padding: 5px 7px; border: 1px solid #cfc9c1; border-radius: 5px; background: #fff; color: #25242a; font: inherit; font-size: 11px; } .rule-editor > .manager-card > button { margin-top: 8px; border: 0; background: transparent; color: #9b5e3b; font: inherit; font-size: 11px; cursor: pointer; } .editor-actions { display: flex; justify-content: flex-end; gap: 8px; } .editor-actions button { border: 1px solid #cfc9c1; border-radius: 6px; background: #fff; padding: 8px 12px; font: inherit; font-size: 11px; cursor: pointer; } .editor-error { color: #a34343; font-size: 11px; }
+.snapshots-entry { margin-top: 16px; }
+.snapshots-back { border: 0; background: transparent; color: #9b5e3b; font: inherit; font-size: 11px; cursor: pointer; margin-bottom: 8px; }
+.snapshots-toolbar { display: flex; gap: 8px; margin-top: 16px; }
+.snapshots-toolbar input { flex: 1; min-height: 32px; padding: 6px 8px; border: 1px solid #cfc9c1; border-radius: 6px; }
+.snapshots-scroll-body { margin-top: 16px; min-height: 0; overflow-y: auto; }
+.snapshots-list { display: grid; gap: 8px; padding: 0; margin: 0; list-style: none; }
+.snapshot-row { padding: 12px; border: 1px solid #dedbd5; border-radius: 9px; background: #fbfaf8; }
+.snapshot-row-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.snapshot-row-actions button, .snapshots-toolbar button { border: 1px solid #cfc9c1; border-radius: 6px; background: #fff; padding: 6px 8px; font: inherit; font-size: 11px; cursor: pointer; }
+.activity-page { display: flex; flex-direction: column; min-height: 100%; }
+.activity-toolbar { display: flex; gap: 8px; margin-top: 16px; }
+.activity-scroll-body { margin-top: 16px; overflow-y: auto; }

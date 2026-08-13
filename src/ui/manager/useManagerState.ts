@@ -49,6 +49,19 @@ export function useManagerState(transport: ManagerTransport = browserManagerTran
     }
   }, [transport]);
 
+  const querySnapshots = useCallback(async (): Promise<ManagerResponse> => {
+    try {
+      const result = await transport.request({ kind: "snapshots-query" });
+      if (result.ok) {
+        setConfiguration(result.configuration);
+        if (result.viewFixture) setViewFixture(result.viewFixture);
+      }
+      return result;
+    } catch (error) {
+      return thrownTransportFailure(error);
+    }
+  }, [transport]);
+
   const queryActivity = useCallback(async (): Promise<ManagerResponse> => {
     try {
       const result = await transport.request({
@@ -93,6 +106,7 @@ export function useManagerState(transport: ManagerTransport = browserManagerTran
     status,
     query,
     queryActivity,
+    querySnapshots,
     command,
     runCommand
   };

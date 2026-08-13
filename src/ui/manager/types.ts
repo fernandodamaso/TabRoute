@@ -11,10 +11,11 @@ export interface ManagerViewMetadata {
   routes: readonly ManagerRoute[];
 }
 
-import type { ActivityEntry, UndoRecord } from "../../domain/types";
+import type { ActivityEntry, Snapshot, UndoRecord } from "../../domain/types";
 
-export interface ManagerQuery { kind: "manager-query"; }
+export type ManagerQuery = { kind: "manager-query"; };
 export type ActivityQuery = { kind: "activity-query"; before?: number; limit: number };
+export type SnapshotsQuery = { kind: "snapshots-query" };
 
 export type ManagedGroupPatch = Partial<Pick<ManagedGroup,
   "name" | "emoji" | "color" | "enabled" | "isPersistent" |
@@ -43,7 +44,12 @@ export type ManagerCommandPayload =
   | { kind: "reorderPersistentTabs"; managedGroupId: UUID; orderedIds: readonly UUID[] }
   | { kind: "pinGroup"; managedGroupId: UUID }
   | { kind: "makePersistent"; managedGroupId: UUID; url: string }
-  | { kind: "setRestorePersistentGroups"; enabled: boolean };
+  | { kind: "setRestorePersistentGroups"; enabled: boolean }
+  | { kind: "saveSnapshot"; name: string; scope: import("../../domain/types").SnapshotScope }
+  | { kind: "restoreSnapshot"; snapshotId: UUID }
+  | { kind: "updateSnapshot"; snapshotId: UUID }
+  | { kind: "renameSnapshot"; snapshotId: UUID; name: string }
+  | { kind: "deleteSnapshot"; snapshotId: UUID };
 
 export type PersistentTabDraft = Omit<
   import("../../domain/types").PersistentTab,
@@ -55,7 +61,7 @@ export interface ManagerCommand {
   command: ManagerCommandPayload;
 }
 
-export type ManagerMessage = ManagerQuery | ActivityQuery | ManagerCommand;
+export type ManagerMessage = ManagerQuery | ActivityQuery | SnapshotsQuery | ManagerCommand;
 
 export type ManagerDeepLink =
   | "none"
@@ -72,7 +78,10 @@ export interface ManagerViewFixture {
   persistentTabsByGroup: Readonly<Record<UUID, PersistentTabsViewFixture>>;
   activity?: readonly ActivityEntry[];
   availableUndo?: UndoRecord;
+  snapshots?: readonly Snapshot[];
 }
+
+export type SettingsPanel = "root" | "snapshots";
 
 export interface ManagerSuccess {
   ok: true;

@@ -6,6 +6,8 @@ import { useManagerState } from "./useManagerState";
 import { GroupsPage } from "./pages/GroupsPage";
 import { RulesPage } from "./pages/RulesPage";
 import { ActivityPage } from "./pages/ActivityPage";
+import { SnapshotsPage } from "./pages/SnapshotsPage";
+import type { SettingsPanel } from "./types";
 import "./manager.css";
 
 function initialRuleEditor(deepLink: ManagerDeepLink | undefined): UUID | "new" | undefined {
@@ -36,6 +38,7 @@ export function ManagerApp({
   });
   const [editingRuleId, setEditingRuleId] = useState<UUID | "new" | undefined>();
   const [confirmDeleteRuleId, setConfirmDeleteRuleId] = useState<UUID>();
+  const [settingsPanel, setSettingsPanel] = useState<SettingsPanel>("root");
   const initialDeepLinkApplied = useRef(false);
   const lastInitialRoute = useRef(initialRoute);
   const state = useManagerState(transport);
@@ -44,6 +47,11 @@ export function ManagerApp({
     if (route !== "activity" || state.status !== "ready") return;
     void state.queryActivity();
   }, [route, state.status, state.queryActivity]);
+
+  useEffect(() => {
+    if (route !== "settings" || settingsPanel !== "snapshots" || state.status !== "ready") return;
+    void state.querySnapshots();
+  }, [route, settingsPanel, state.status, state.querySnapshots]);
   const title = `${route[0]!.toUpperCase()}${route.slice(1)}`;
 
   useEffect(() => {
@@ -92,25 +100,41 @@ export function ManagerApp({
               }}
             />
           : route === "settings"
-            ? <>
-              <h1 data-page-heading="true">Settings</h1>
-              <section aria-label="Settings content" className="manager-page-content">
-                <label className="toggle-row">
-                  <input
-                    aria-label="Restore persistent groups"
-                    type="checkbox"
-                    checked={state.configuration.restorePersistentGroups ?? true}
-                    onChange={(event) =>
-                      void state.runCommand({
-                        kind: "setRestorePersistentGroups",
-                        enabled: event.target.checked
-                      })
-                    }
-                  />
-                  Restore persistent groups
-                </label>
-              </section>
-            </>
+            ? settingsPanel === "snapshots"
+              ? <SnapshotsPage
+                  snapshots={state.viewFixture?.snapshots ?? []}
+                  command={async (payload) => {
+                    await state.runCommand(payload);
+                    await state.querySnapshots();
+                  }}
+                  onBack={() => setSettingsPanel("root")}
+                />
+              : <>
+                <h1 data-page-heading="true">Settings</h1>
+                <section aria-label="Settings content" className="manager-page-content">
+                  <label className="toggle-row">
+                    <input
+                      aria-label="Restore persistent groups"
+                      type="checkbox"
+                      checked={state.configuration.restorePersistentGroups ?? true}
+                      onChange={(event) =>
+                        void state.runCommand({
+                          kind: "setRestorePersistentGroups",
+                          enabled: event.target.checked
+                        })
+                      }
+                    />
+                    Restore persistent groups
+                  </label>
+                  <button
+                    type="button"
+                    className="primary-button snapshots-entry"
+                    onClick={() => setSettingsPanel("snapshots")}
+                  >
+                    Snapshots
+                  </button>
+                </section>
+              </>
             : <>
               <h1 data-page-heading="true">{title}</h1>
               <section aria-label={`${title} content`} className="manager-page-content">

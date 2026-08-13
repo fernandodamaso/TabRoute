@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { createDefaultConfiguration, createManagedGroup } from "../../src/domain/defaults";
 import { createManagerMessageRouter } from "../../src/background/managerMessageRouter";
-import type { ActivityManagerPort } from "../../src/background/managerMessageRouter";
+import type { ActivityManagerPort, SnapshotManagerPort } from "../../src/background/managerMessageRouter";
 import type { ChromeInventory } from "../../src/domain/types";
 import type {
   ManagerCommand,
@@ -26,6 +26,29 @@ function activityPort(): ActivityManagerPort {
   };
 }
 
+function snapshotsPort(): SnapshotManagerPort {
+  return {
+    async query() {
+      return { persistentTabsByGroup: {}, snapshots: [] };
+    },
+    async save() {
+      return { ok: false, error: { kind: "transport", message: "snapshots unavailable" } };
+    },
+    async restore() {
+      return { ok: false, error: { kind: "transport", message: "snapshots unavailable" } };
+    },
+    async update() {
+      return { ok: false, error: { kind: "transport", message: "snapshots unavailable" } };
+    },
+    async rename() {
+      return { ok: false, error: { kind: "transport", message: "snapshots unavailable" } };
+    },
+    async delete() {
+      return { ok: false, error: { kind: "transport", message: "snapshots unavailable" } };
+    }
+  };
+}
+
 function setup() {
   const initial = createManagedGroup(
     createDefaultConfiguration(() => fallbackId),
@@ -43,6 +66,7 @@ function setup() {
       replaceConfiguration
     },
     activity: activityPort(),
+    snapshots: snapshotsPort(),
     randomUuid: () => "00000000-0000-4000-8000-000000000003",
     now: () => 3
   });
@@ -99,6 +123,7 @@ it("returns the last valid configuration after a persistence failure", async () 
     repository: { save },
     controller: { getConfiguration: () => configuration, replaceConfiguration },
     activity: activityPort(),
+    snapshots: snapshotsPort(),
     now: () => 4
   });
 
@@ -126,6 +151,7 @@ it("keeps a durable mutation accepted when post-save reconciliation throws", asy
     repository: { save },
     controller: { getConfiguration: () => configuration, replaceConfiguration },
     activity: activityPort(),
+    snapshots: snapshotsPort(),
     now: () => 5
   });
 
@@ -164,6 +190,7 @@ it("serializes concurrent mutations against the latest persisted configuration",
     repository: { save },
     controller: { getConfiguration: () => configuration, replaceConfiguration },
     activity: activityPort(),
+    snapshots: snapshotsPort(),
     randomUuid: () => "00000000-0000-4000-8000-000000000003",
     now: () => 3
   });
@@ -224,6 +251,7 @@ it("pins a group from live inventory members instead of stale configuration URLs
       replaceConfiguration
     },
     activity: activityPort(),
+    snapshots: snapshotsPort(),
     inventory: {
       readInventory: async () => inventory,
       loadPreferredWindowId: async () => 1,

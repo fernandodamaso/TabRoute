@@ -29,8 +29,19 @@ import type {
   ManagerResponse,
   ManagerSuccess,
   ManagerViewFixture,
-  RuleDraft
+  RuleDraft,
+  SnapshotsQuery
 } from "../ui/manager/types";
+import {
+  buildSnapshotContext,
+  deleteSnapshotRecord,
+  listUserSnapshots,
+  renameSnapshotRecord,
+  restoreSnapshotFromRecord,
+  saveNamedSnapshot,
+  updateSnapshotFromInventory
+} from "../snapshots/snapshotService";
+import { observeInventory } from "../duplicates/observations";
 
 const view = {
   width: 520,
@@ -119,6 +130,229 @@ export function createFixtureActivityManagerPort(input: {
         activity: [],
         availableUndo: undefined
       });
+    }
+  };
+}
+
+export interface SnapshotManagerPort {
+  query(): Promise<ManagerViewFixture>;
+  save(name: string, scope: import("../domain/types").SnapshotScope): Promise<ManagerResponse>;
+  restore(snapshotId: UUID): Promise<ManagerResponse>;
+  update(snapshotId: UUID): Promise<ManagerResponse>;
+  rename(snapshotId: UUID, name: string): Promise<ManagerResponse>;
+  delete(snapshotId: UUID): Promise<ManagerResponse>;
+}
+
+export function createSnapshotManagerPort(input: {
+  local: LocalRepository;
+  session: SessionRepository;
+  actionDeps: () => ActionEngineDeps;
+  getConfiguration: () => Configuration;
+  readInventory: () => Promise<import("../domain/types").ChromeInventory>;
+  now?: () => number;
+}): SnapshotManagerPort {
+  const now = input.now ?? Date.now;
+  async function viewFixture(): Promise<ManagerViewFixture> {
+    const snapshots = listUserSnapshots(await input.local.listSnapshots());
+    return { persistentTabsByGroup: {}, snapshots };
+  }
+  async function captureContext() {
+    return buildSnapshotContext({
+      configuration: input.getConfiguration(),
+      local: input.local
+    });
+  }
+  return {
+    async query() {
+      return viewFixture();
+    },
+    async save(name, scope) {
+      const raw = await input.readInventory();
+      const session = await input.session.loadSession();
+      const { inventory } = observeInventory(raw, session);
+      const result = await saveNamedSnapshot({
+        local: input.local,
+        name,
+        scope,
+        inventory,
+        context: await captureContext(),
+        now: () => now()
+      });
+      if (!result.ok) {
+        return {
+          ok: false,
+          error: {
+            kind: "persistence",
+            code: result.code,
+            message: result.message ?? result.code
+          }
+        };
+      }
+      return {
+        ok: true,
+        configuration: input.getConfiguration(),
+        view: success(input.getConfiguration()).view,
+        viewFixture: await viewFixture()
+      };
+    },
+    async restore(snapshotId) {
+      const result = await restoreSnapshotFromRecord({
+        local: input.local,
+        session: input.session,
+        snapshotId,
+        actionDeps: input.actionDeps(),
+        now: () => now()
+      });
+      if (!result.ok) {
+        return {
+          ok: false,
+          error: {
+            kind: result.code === "SNAPSHOT_GROUP_MISSING" ? "reference" : "persistence",
+            code: result.code,
+            message: result.message ?? result.code
+          }
+        };
+      }
+      return {
+        ok: true,
+        configuration: input.getConfiguration(),
+        view: success(input.getConfiguration()).view,
+        viewFixture: await viewFixture()
+      };
+    },
+    async update(snapshotId) {
+      const raw = await input.readInventory();
+      const session = await input.session.loadSession();
+      const { inventory } = observeInventory(raw, session);
+      const result = await updateSnapshotFromInventory({
+        local: input.local,
+        snapshotId,
+        inventory,
+        context: await captureContext(),
+        now: () => now()
+      });
+      if (!result.ok) {
+        return {
+          ok: false,
+          error: {
+            kind: "persistence",
+            code: result.code,
+            message: result.message ?? result.code
+          }
+        };
+      }
+      return {
+        ok: true,
+        configuration: input.getConfiguration(),
+        view: success(input.getConfiguration()).view,
+        viewFixture: await viewFixture()
+      };
+    },
+    async rename(snapshotId, name) {
+      const result = await renameSnapshotRecord({
+        local: input.local,
+        snapshotId,
+        name,
+        now: () => now()
+      });
+      if (!result.ok) {
+        return {
+          ok: false,
+          error: {
+            kind: "validation",
+            code: result.code,
+            message: result.message ?? result.code
+          }
+        };
+      }
+      return {
+        ok: true,
+        configuration: input.getConfiguration(),
+        view: success(input.getConfiguration()).view,
+        viewFixture: await viewFixture()
+      };
+    },
+    async delete(snapshotId) {
+      const result = await deleteSnapshotRecord({
+        local: input.local,
+        snapshotId
+      });
+      if (!result.ok) {
+        return {
+          ok: false,
+          error: {
+            kind: "reference",
+            code: result.code,
+            message: result.message ?? result.code
+          }
+        };
+      }
+      return {
+        ok: true,
+        configuration: input.getConfiguration(),
+        view: success(input.getConfiguration()).view,
+        viewFixture: await viewFixture()
+      };
+    }
+  };
+}
+
+export function createFixtureSnapshotManagerPort(input: {
+  getViewFixture: () => ManagerViewFixture;
+  setViewFixture: (next: ManagerViewFixture) => void;
+  getConfiguration: () => Configuration;
+}): SnapshotManagerPort {
+  const successResponse = async (): Promise<ManagerResponse> => ({
+    ok: true,
+    configuration: input.getConfiguration(),
+    view,
+    viewFixture: input.getViewFixture()
+  });
+  return {
+    async query() {
+      return input.getViewFixture();
+    },
+    async save(name, scope) {
+      const current = input.getViewFixture();
+      const snapshots = [...(current.snapshots ?? [])];
+      const snapshot = {
+        schemaVersion: 1 as const,
+        id: crypto.randomUUID() as UUID,
+        name,
+        kind: "named" as const,
+        scope,
+        groups: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      input.setViewFixture({ ...current, snapshots: [snapshot, ...snapshots] });
+      return successResponse();
+    },
+    async restore(_snapshotId) {
+      return successResponse();
+    },
+    async update(_snapshotId) {
+      return successResponse();
+    },
+    async rename(snapshotId, name) {
+      const current = input.getViewFixture();
+      input.setViewFixture({
+        ...current,
+        snapshots: (current.snapshots ?? []).map((snapshot) =>
+          snapshot.id === snapshotId ? { ...snapshot, name } : snapshot
+        )
+      });
+      return successResponse();
+    },
+    async delete(snapshotId) {
+      const current = input.getViewFixture();
+      input.setViewFixture({
+        ...current,
+        snapshots: (current.snapshots ?? []).filter(
+          (snapshot) => snapshot.id !== snapshotId
+        )
+      });
+      return successResponse();
     }
   };
 }
@@ -251,6 +485,11 @@ function applyCommand(
       return makePersistentDefinition(current, command.managedGroupId, command.url, now, randomUuid);
     case "setRestorePersistentGroups":
       return setRestorePersistentGroups(current, command.enabled, now);
+    case "saveSnapshot":
+    case "restoreSnapshot":
+    case "updateSnapshot":
+    case "renameSnapshot":
+    case "deleteSnapshot":
     case "undo":
     case "clearActivity":
       return current;
@@ -261,6 +500,7 @@ export function createManagerMessageRouter(input: {
   repository: ManagerRepository;
   controller: ManagerController;
   activity: ActivityManagerPort;
+  snapshots: SnapshotManagerPort;
   inventory?: ManagerInventoryPort;
   randomUuid?: () => string;
   now?: () => number;
@@ -269,7 +509,7 @@ export function createManagerMessageRouter(input: {
   const now = input.now ?? Date.now;
   let mutationTail: Promise<void> = Promise.resolve();
   return {
-    handle(message: ManagerMessage | ActivityQuery): Promise<ManagerResponse> {
+    handle(message: ManagerMessage | ActivityQuery | SnapshotsQuery): Promise<ManagerResponse> {
       const run = async (): Promise<ManagerResponse> => {
         let current: Configuration;
         try {
@@ -277,6 +517,10 @@ export function createManagerMessageRouter(input: {
           if (message.kind === "manager-query") return success(current);
           if (message.kind === "activity-query") {
             const viewFixture = await input.activity.query(message.before, message.limit);
+            return success(current, viewFixture);
+          }
+          if (message.kind === "snapshots-query") {
+            const viewFixture = await input.snapshots.query();
             return success(current, viewFixture);
           }
         } catch (error) {
@@ -294,6 +538,25 @@ export function createManagerMessageRouter(input: {
             await input.activity.clear();
             const viewFixture = await input.activity.query(undefined, 50);
             return success(current, viewFixture);
+          }
+          if (message.command.kind === "saveSnapshot") {
+            return input.snapshots.save(message.command.name, message.command.scope);
+          }
+          if (message.command.kind === "restoreSnapshot") {
+            if (!isUuid(message.command.snapshotId)) throw new Error("snapshot id must be a UUID");
+            return input.snapshots.restore(message.command.snapshotId);
+          }
+          if (message.command.kind === "updateSnapshot") {
+            if (!isUuid(message.command.snapshotId)) throw new Error("snapshot id must be a UUID");
+            return input.snapshots.update(message.command.snapshotId);
+          }
+          if (message.command.kind === "renameSnapshot") {
+            if (!isUuid(message.command.snapshotId)) throw new Error("snapshot id must be a UUID");
+            return input.snapshots.rename(message.command.snapshotId, message.command.name);
+          }
+          if (message.command.kind === "deleteSnapshot") {
+            if (!isUuid(message.command.snapshotId)) throw new Error("snapshot id must be a UUID");
+            return input.snapshots.delete(message.command.snapshotId);
           }
         }
 
@@ -343,7 +606,12 @@ export function createManagerMessageRouter(input: {
         return success(next);
       };
 
-      if (message.kind === "manager-query" || message.kind === "activity-query") return run();
+      if (
+        message.kind === "manager-query" ||
+        message.kind === "activity-query" ||
+        message.kind === "snapshots-query"
+      )
+        return run();
       const queued = mutationTail.then(run, run);
       mutationTail = queued.then(() => undefined, () => undefined);
       return queued;

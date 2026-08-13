@@ -6,7 +6,8 @@ import { createChromeLocalRepository } from "../src/state/localRepository";
 import { createConfigurationRepository } from "../src/state/configurationRepository";
 import {
   createActivityManagerPort,
-  createManagerMessageRouter
+  createManagerMessageRouter,
+  createSnapshotManagerPort
 } from "../src/background/managerMessageRouter";
 import { createPreMutationCheckpointService } from "../src/snapshots/checkpointService";
 import {
@@ -23,6 +24,12 @@ import type { UiMessage } from "../src/ui/messages";
 import { applyChromeGroupPresentation } from "../src/groups/displayTitle";
 import { GROUP_SETTLEMENT_ALARM } from "../src/groups/groupLifecycle";
 import { reconstructAssociations } from "../src/chrome/reconstructAssociations";
+import {
+  ensureSnapshotAlarms,
+  handleSnapshotAlarm,
+  noteSnapshotRelevantEvent,
+  SNAPSHOT_ALARMS
+} from "../src/snapshots/snapshotScheduler";
 import {
   STARTUP_RECOVERY_ALARM,
   WINDOW_SETTLEMENT_ALARM
@@ -125,7 +132,31 @@ export default defineBackground(() => {
     );
     await scheduleGroupSettlementFromSession();
     await scheduleWindowSettlementFromSession();
+    if (localRef.current && sessionRef.current) {
+      await noteSnapshotRelevantEvent(event, {
+        configuration: () => controller!.getConfiguration(),
+        local: localRef.current,
+        session: sessionRef.current,
+        reads: controller!.actionDeps().reads,
+        alarms: chromeAlarmScheduler
+      }).catch((error: unknown) =>
+        console.error("TabRoute snapshot checkpoint note failed", error)
+      );
+    }
   }
+
+  const localRef: { current?: ReturnType<typeof createChromeLocalRepository> } = {};
+  const sessionRef = { current: session };
+  const chromeAlarmScheduler = {
+    schedulePeriodic: async (name: string, periodInMinutes: number) => {
+      if (!chrome.alarms?.create) return;
+      await chrome.alarms.create(name, { periodInMinutes });
+    },
+    scheduleOneShot: async (name: string, when: number) => {
+      if (!chrome.alarms?.create) return;
+      await chrome.alarms.create(name, { when });
+    }
+  };
 
   async function scheduleWindowSettlementFromSession() {
     if (!chrome.alarms?.create) return;
@@ -155,6 +186,7 @@ export default defineBackground(() => {
       chrome.storage.sync,
       chrome.storage.session
     );
+    localRef.current = local;
     const checkpoints = createPreMutationCheckpointService({
       local,
       captureContext: async () => ({
@@ -177,16 +209,25 @@ export default defineBackground(() => {
         : undefined
     });
     await controller.onWorkerWake();
+    await ensureSnapshotAlarms(controller.getConfiguration(), chromeAlarmScheduler);
     const activity = createActivityManagerPort({
       local,
       session,
       actionDeps: () => controller!.actionDeps(),
       getConfiguration: () => controller!.getConfiguration()
     });
+    const snapshots = createSnapshotManagerPort({
+      local,
+      session,
+      actionDeps: () => controller!.actionDeps(),
+      getConfiguration: () => controller!.getConfiguration(),
+      readInventory: () => controller!.actionDeps().reads.readInventory()
+    });
     managerRouter = createManagerMessageRouter({
       repository,
       controller,
       activity,
+      snapshots,
       inventory: {
         readInventory: () => controller!.actionDeps().reads.readInventory(),
         loadPreferredWindowId: async () => {
@@ -202,7 +243,12 @@ export default defineBackground(() => {
       callbacks: {
         replaceConfiguration: (next) => controller!.replaceConfiguration(next),
         refreshMenus: async () => undefined,
-        refreshAlarms: async () => undefined,
+        refreshAlarms: async () => {
+          await ensureSnapshotAlarms(
+            controller!.getConfiguration(),
+            chromeAlarmScheduler
+          );
+        },
         refreshViews: async () => undefined,
         scheduleRetry: async () => {
           if (!chrome.alarms?.create) return;
@@ -230,7 +276,8 @@ export default defineBackground(() => {
       if (
         message.kind !== "manager-query" &&
         message.kind !== "manager-command" &&
-        message.kind !== "activity-query"
+        message.kind !== "activity-query" &&
+        message.kind !== "snapshots-query"
       )
         return undefined;
       void ready
@@ -402,8 +449,30 @@ export default defineBackground(() => {
     if (
       alarm.name === GROUP_SETTLEMENT_ALARM ||
       alarm.name === WINDOW_SETTLEMENT_ALARM ||
-      alarm.name === STARTUP_RECOVERY_ALARM
+      alarm.name === STARTUP_RECOVERY_ALARM ||
+      alarm.name === SNAPSHOT_ALARMS.interval ||
+      alarm.name === SNAPSHOT_ALARMS.checkpoint
     ) {
+      if (
+        alarm.name === SNAPSHOT_ALARMS.interval ||
+        alarm.name === SNAPSHOT_ALARMS.checkpoint
+      ) {
+        void ready
+          .then(async () => {
+            if (!controller || !localRef.current) return;
+            await handleSnapshotAlarm(alarm.name, {
+              configuration: () => controller!.getConfiguration(),
+              local: localRef.current!,
+              session,
+              reads: controller!.actionDeps().reads,
+              alarms: chromeAlarmScheduler
+            });
+          })
+          .catch((error: unknown) =>
+            console.error("TabRoute snapshot alarm failed", error)
+          );
+        return;
+      }
       enqueueLifecycleEvent({ kind: "alarm", name: alarm.name });
     }
   });
