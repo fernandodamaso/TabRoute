@@ -253,6 +253,40 @@ it("keeps an incomplete remote head pending on a new device without publishing d
   });
 });
 
+it("records lastSyncInvalid for checksum-invalid remote generations", async () => {
+  const base = createDefaultConfiguration(
+    () => "00000000-0000-4000-8000-000000000071"
+  );
+  const remote = createDefaultConfiguration(
+    () => "00000000-0000-4000-8000-000000000072"
+  );
+  const encoded = await encodeConfigurationRevision(
+    remote,
+    "00000000-0000-4000-8000-000000000073"
+  );
+  const sync = chromeStorage({
+    "config:v1:head": {
+      ...encoded.head,
+      checksum: "0".repeat(64)
+    },
+    ...encoded.shards
+  });
+  const session = chromeStorage();
+  const repository = createConfigurationRepository({
+    storage: { sync, local: chromeStorage(), session },
+    createDefault: () => base
+  });
+
+  await repository.loadOrCreate();
+  const result = await repository.applySyncChange(["config:v1:head"]);
+
+  expect(result.kind).toBe("invalid");
+  expect(session.values["runtime:v1"]).toMatchObject({ lastSyncInvalid: true });
+  expect(session.values["runtime:v1"]).not.toMatchObject({
+    pendingSyncRevision: encoded.head.revisionId
+  });
+});
+
 it("preserves revision markers and associations through one serialized Session record", async () => {
   const storage = chromeStorage();
   const session = createChromeSessionRepository(storage);

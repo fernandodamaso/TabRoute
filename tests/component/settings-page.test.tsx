@@ -5,6 +5,7 @@ import { expect, it, vi } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import type { Configuration } from "../../src/domain/types";
 import { SettingsPage } from "../../src/ui/manager/pages/SettingsPage";
+import type { ManagerCommandPayload, ManagerResponse } from "../../src/ui/manager/types";
 import "../../src/ui/manager/manager.css";
 
 const configuration = createDefaultConfiguration(
@@ -12,7 +13,22 @@ const configuration = createDefaultConfiguration(
 );
 
 function renderPage(overrides: Partial<Parameters<typeof SettingsPage>[0]> = {}) {
-  const command = vi.fn(async () => undefined);
+  const command =
+    overrides.command ??
+    vi.fn(
+      async (_payload: ManagerCommandPayload): Promise<ManagerResponse> => ({
+        ok: true,
+        configuration,
+        view: {
+          width: 520,
+          height: 600,
+          headerHeight: 52,
+          navigationHeight: 42,
+          defaultRoute: "groups",
+          routes: ["groups", "rules", "activity", "settings"]
+        }
+      })
+    );
   render(
     <SettingsPage
       configuration={configuration}
@@ -102,4 +118,25 @@ it("imports configuration from a selected file", async () => {
     kind: "importConfiguration",
     json: JSON.stringify(payload)
   });
+});
+
+it("surfaces import failures inline without notifications", async () => {
+  const user = userEvent.setup();
+  renderPage({
+    command: vi.fn(async () => ({
+      ok: false as const,
+      error: {
+        kind: "validation" as const,
+        code: "IMPORT_RUNTIME_IDS",
+        message: "Import must not contain runtime Chrome identifiers"
+      }
+    }))
+  });
+  const file = new File([JSON.stringify({ tabId: 1 })], "bad.json", {
+    type: "application/json"
+  });
+  const input = document.querySelector('input[type="file"][aria-label="Import configuration"]') as HTMLInputElement;
+  await user.upload(input, file);
+  const alert = screen.getByRole("alert");
+  expect(alert.textContent).toContain("Import must not contain runtime Chrome identifiers");
 });

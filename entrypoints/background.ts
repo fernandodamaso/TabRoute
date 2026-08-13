@@ -238,7 +238,8 @@ export default defineBackground(() => {
       reconcileAll: async () => {
         const current = controller!.getConfiguration();
         await controller!.replaceConfiguration(current);
-      }
+      },
+      offline: () => typeof navigator !== "undefined" && navigator.onLine === false
     });
     managerRouter = createManagerMessageRouter({
       repository,

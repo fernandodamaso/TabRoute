@@ -1,11 +1,11 @@
 import { useRef, useState } from "react";
 import type { Configuration } from "../../../domain/types";
 import { exportPortableConfiguration } from "../../../settings/portableConfiguration";
-import type { ManagerCommandPayload } from "../types";
+import type { ManagerCommandPayload, ManagerResponse } from "../types";
 
 export interface SettingsPageProps {
   configuration: Configuration;
-  command: (payload: ManagerCommandPayload) => Promise<void>;
+  command: (payload: ManagerCommandPayload) => Promise<ManagerResponse>;
   onOpenSnapshots: () => void;
   onOpenDiagnostics: () => void;
 }
@@ -20,6 +20,7 @@ export function SettingsPage({
   const [intervalDraft, setIntervalDraft] = useState(
     String(configuration.snapshotIntervalMinutes)
   );
+  const [importError, setImportError] = useState<string>();
 
   async function exportConfigurationFile() {
     await command({ kind: "exportConfiguration" });
@@ -120,6 +121,11 @@ export function SettingsPage({
 
         <section className="manager-card" aria-label="Data actions">
           <h2>Data</h2>
+          {importError ? (
+            <p role="alert" className="settings-import-error">
+              {importError}
+            </p>
+          ) : null}
           <div className="settings-actions">
             <button type="button" className="primary-button" onClick={() => void exportConfigurationFile()}>
               Export configuration
@@ -140,7 +146,14 @@ export function SettingsPage({
                 const file = event.target.files?.[0];
                 event.target.value = "";
                 if (!file) return;
-                void file.text().then((json) => command({ kind: "importConfiguration", json }));
+                void file.text().then(async (json) => {
+                  const result = await command({ kind: "importConfiguration", json });
+                  if (!result.ok) {
+                    setImportError(result.error.message);
+                    return;
+                  }
+                  setImportError(undefined);
+                });
               }}
             />
             <button type="button" className="primary-button snapshots-entry" onClick={onOpenSnapshots}>

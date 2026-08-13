@@ -52,6 +52,7 @@ button:focus-visible { outline: 2px solid #aa6c45; outline-offset: 2px; }
 .settings-actions,
 .diagnostics-actions { display: grid; gap: 8px; margin-top: 12px; }
 .diagnostics-warning { margin-bottom: 8px; padding: 10px 12px; border: 1px solid #dedbd5; border-radius: 8px; background: #fff8f0; color: #625d58; font-size: 11px; line-height: 1.4; }
+.settings-import-error { margin: 0 0 8px; padding: 10px 12px; border: 1px solid #dedbd5; border-radius: 8px; background: #fff5f5; color: #a34343; font-size: 11px; line-height: 1.4; }
 .snapshots-page { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 22px 20px 28px; box-sizing: border-box; }
 .snapshots-entry { margin-top: 16px; }
 .snapshots-back { border: 0; background: transparent; color: #9b5e3b; font: inherit; font-size: 11px; cursor: pointer; margin-bottom: 8px; }

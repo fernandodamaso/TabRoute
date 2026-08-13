@@ -185,6 +185,27 @@ export function createConfigurationRepository(input: {
     if (sessionRepository) await sessionRepository.updateRuntime(patch);
   }
 
+  function isIncompleteSyncReason(reason: string): boolean {
+    return reason.toLowerCase().includes("incomplete");
+  }
+
+  async function recordInvalidSyncRuntime(input: {
+    head?: ConfigurationSyncHead;
+    reason: string;
+  }): Promise<void> {
+    if (isIncompleteSyncReason(input.reason)) {
+      await updateRuntime({
+        ...(input.head ? { pendingSyncRevision: input.head.revisionId } : {}),
+        lastSyncInvalid: false
+      });
+      return;
+    }
+    await updateRuntime({
+      lastSyncInvalid: true,
+      pendingSyncRevision: undefined
+    });
+  }
+
   async function readCandidate(): Promise<
     | { kind: "missing" }
     | { kind: "valid"; head: ConfigurationSyncHead; configuration: Configuration; migrated: boolean }
@@ -285,7 +306,8 @@ export function createConfigurationRepository(input: {
     try {
       await updateRuntime({
         lastLocallyAuthoredSyncRevisionId: revisionId,
-        pendingSyncRevision: undefined
+        pendingSyncRevision: undefined,
+        lastSyncInvalid: false
       });
       await sync.set(Object.fromEntries(shardEntries));
       const stagedShards = await sync.get(encoded.head.shardKeys);
@@ -300,7 +322,8 @@ export function createConfigurationRepository(input: {
       await writeShadow(shadowFor(verified.configuration, revisionId, encoded.head.checksum, now()));
       await updateRuntime({
         lastAppliedSyncRevisionId: revisionId,
-        pendingSyncRevision: undefined
+        pendingSyncRevision: undefined,
+        lastSyncInvalid: false
       });
       configuration = verified.configuration;
       activeRevisionId = revisionId;
@@ -384,7 +407,11 @@ export function createConfigurationRepository(input: {
       }
       if (currentRuntime.lastLocallyAuthoredSyncRevisionId === candidate.head.revisionId) {
         await writeShadow(shadowFor(candidate.configuration, candidate.head.revisionId, candidate.head.checksum, now()));
-        await updateRuntime({ lastAppliedSyncRevisionId: candidate.head.revisionId, pendingSyncRevision: undefined });
+        await updateRuntime({
+          lastAppliedSyncRevisionId: candidate.head.revisionId,
+          pendingSyncRevision: undefined,
+          lastSyncInvalid: false
+        });
         configuration = candidate.configuration;
         activeRevisionId = candidate.head.revisionId;
         return configuration;
@@ -394,14 +421,20 @@ export function createConfigurationRepository(input: {
         return configuration;
       }
       await writeShadow(shadowFor(candidate.configuration, candidate.head.revisionId, candidate.head.checksum, now()));
-      await updateRuntime({ lastAppliedSyncRevisionId: candidate.head.revisionId, pendingSyncRevision: undefined });
+      await updateRuntime({
+        lastAppliedSyncRevisionId: candidate.head.revisionId,
+        pendingSyncRevision: undefined,
+        lastSyncInvalid: false
+      });
       configuration = candidate.configuration;
       activeRevisionId = candidate.head.revisionId;
       return configuration;
     }
     if (candidate.kind === "invalid") {
-      if (candidate.head)
-        await updateRuntime({ pendingSyncRevision: candidate.head.revisionId });
+      await recordInvalidSyncRuntime({
+        head: candidate.head,
+        reason: candidate.reason
+      });
       if (shadow) {
         configuration = shadow.configuration;
         activeRevisionId = shadow.revisionId;
@@ -428,8 +461,11 @@ export function createConfigurationRepository(input: {
     const candidate = await readCandidate();
     if (candidate.kind === "missing") return { kind: "ignored", configuration };
     if (candidate.kind === "invalid") {
-      if (candidate.head) await updateRuntime({ pendingSyncRevision: candidate.head.revisionId });
-      if (candidate.reason.toLowerCase().includes("incomplete"))
+      await recordInvalidSyncRuntime({
+        head: candidate.head,
+        reason: candidate.reason
+      });
+      if (isIncompleteSyncReason(candidate.reason))
         return { kind: "pending", configuration, revisionId: candidate.head?.revisionId };
       return { kind: "invalid", configuration, reason: candidate.reason };
     }
@@ -443,7 +479,11 @@ export function createConfigurationRepository(input: {
       return { kind: "applied", configuration, revisionId: candidate.head.revisionId };
     }
     await writeShadow(shadowFor(candidate.configuration, candidate.head.revisionId, candidate.head.checksum, now()));
-    await updateRuntime({ lastAppliedSyncRevisionId: candidate.head.revisionId, pendingSyncRevision: undefined });
+    await updateRuntime({
+      lastAppliedSyncRevisionId: candidate.head.revisionId,
+      pendingSyncRevision: undefined,
+      lastSyncInvalid: false
+    });
     configuration = candidate.configuration;
     activeRevisionId = candidate.head.revisionId;
     return { kind: "applied", configuration, revisionId: candidate.head.revisionId };
@@ -471,7 +511,8 @@ export function createConfigurationRepository(input: {
       const operation = saveQueue.then(async () => {
         await updateRuntime({
           controllerAppliedSyncRevisionId: revisionId,
-          pendingSyncRevision: undefined
+          pendingSyncRevision: undefined,
+          lastSyncInvalid: false
         });
       });
       saveQueue = operation.then(() => undefined, () => undefined);
