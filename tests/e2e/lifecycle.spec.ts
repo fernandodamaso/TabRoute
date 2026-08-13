@@ -132,7 +132,8 @@ test("native group rename does not duplicate fallback groups", async () => {
         .map((tab) => tab.id)
         .filter((id): id is number => id !== undefined);
       if (tabIds.length < 2) throw new Error("expected two example tabs");
-      const groupId = await chromeApi.tabs.group({ tabIds });
+      const [firstId, secondId] = tabIds as [number, number];
+      const groupId = await chromeApi.tabs.group({ tabIds: [firstId, secondId] });
       await chromeApi.tabGroups.update(groupId, { title: "Native Test" });
     });
 

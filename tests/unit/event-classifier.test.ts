@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { classifyChromeEvent } from "../../src/controller/eventClassifier";
 import { createEmptyRuntimeSession } from "../../src/state/runtimeSession";
+import { createDefaultConfiguration } from "../../src/domain/defaults";
 import type {
   BrowserSessionId,
   ChromeInventory,
@@ -302,6 +303,94 @@ describe("classifyChromeEvent", () => {
       100
     );
     expect(result.session.tabObservations).toHaveLength(0);
+  });
+
+  it("starts pending group removal after groupRemoved even when group is gone from inventory", () => {
+    const managedGroupId =
+      "00000000-0000-4000-8000-000000000002" as import("../../src/domain/types").UUID;
+    const result = classifyChromeEvent(
+      {
+        kind: "groupRemoved",
+        group: {
+          id: 11,
+          windowId: 1,
+          title: "Docs",
+          color: "blue",
+          collapsed: false,
+          shared: false
+        }
+      },
+      inventory({ groups: [], tabs: [] }),
+      session({
+        associations: [
+          {
+            managedGroupId,
+            chromeGroupId: 11,
+            chromeWindowId: 1,
+            observedTitle: "Docs",
+            observedMemberUrls: ["https://docs.example.com/"],
+            observedAt: 1
+          }
+        ]
+      }),
+      100,
+      createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000001")
+    );
+    expect(result.session.pendingGroupRemovals).toHaveLength(1);
+    expect(result.session.pendingGroupRemovals[0]?.memberUrls).toEqual([
+      "https://docs.example.com/"
+    ]);
+  });
+
+  it("reconciles all tabs after windowRemoved", () => {
+    const result = classifyChromeEvent(
+      { kind: "windowRemoved", windowId: 99 },
+      inventory(),
+      session(),
+      100
+    );
+    expect(result.requests).toEqual([
+      { scope: { kind: "all" }, reason: "window-removed" }
+    ]);
+  });
+
+  it("settles pending group removals on alarm", () => {
+    const managedGroupId =
+      "00000000-0000-4000-8000-000000000002" as import("../../src/domain/types").UUID;
+    const config = createDefaultConfiguration(
+      () => "00000000-0000-4000-8000-000000000001"
+    );
+    const result = classifyChromeEvent(
+      { kind: "alarm", name: "tabroute:group-settlement" },
+      inventory({ groups: [], tabs: [] }),
+      session({
+        pendingGroupRemovals: [
+          {
+            managedGroupId,
+            removedChromeGroupId: 11,
+            oldWindowId: 1,
+            memberTabIds: [],
+            memberUrls: [],
+            renderedTitle: "Docs",
+            startedAt: 1,
+            settleAfter: 100
+          }
+        ],
+        associations: [
+          {
+            managedGroupId,
+            chromeGroupId: 11,
+            chromeWindowId: 1,
+            observedTitle: "Docs",
+            observedMemberUrls: [],
+            observedAt: 1
+          }
+        ]
+      }),
+      200,
+      config
+    );
+    expect(result.session.pendingGroupRemovals).toHaveLength(0);
   });
 
   it("does not route shared-group members", () => {

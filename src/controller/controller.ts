@@ -55,6 +55,15 @@ export function createTabRouteController(input: {
       override?.placement.kind === "ungrouped"
     )
       return { kind: "held", reason: "manual-override" };
+    const guarded = runtime.operationGuards.some(
+      (guard) =>
+        guard.tabIds.includes(tab.id) &&
+        (guard.phase === "executing" || guard.phase === "settling")
+    );
+    if (guarded) {
+      pendingTabs.add(tab.id);
+      return { kind: "held", reason: "not-routable" };
+    }
     const inventory = await input.chrome.readInventory();
     const freshTab =
       inventory.tabs.find((candidate) => candidate.id === tab.id) ?? tab;

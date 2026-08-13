@@ -56,10 +56,13 @@ export function startPendingGroupRemoval(input: {
   const memberTabIds = input.inventoryBeforeRemoval.tabs
     .filter((tab) => tab.chromeGroupId === input.removed.id)
     .map((tab) => tab.id);
-  const memberUrls = input.inventoryBeforeRemoval.tabs
-    .filter((tab) => tab.chromeGroupId === input.removed.id)
-    .map((tab) => tab.url ?? "")
-    .filter((url) => url.length > 0);
+  const memberUrls =
+    memberTabIds.length > 0
+      ? input.inventoryBeforeRemoval.tabs
+          .filter((tab) => tab.chromeGroupId === input.removed.id)
+          .map((tab) => tab.url ?? "")
+          .filter((url) => url.length > 0)
+      : association.observedMemberUrls;
   const pending: PendingGroupRemoval = {
     managedGroupId: association.managedGroupId,
     removedChromeGroupId: input.removed.id,

@@ -79,8 +79,7 @@ function isIncognitoSubject(
     }
     case "groupCreated":
     case "groupUpdated":
-    case "groupMoved":
-    case "groupRemoved": {
+    case "groupMoved": {
       const group = inventory.groups.find(
         (candidate) => candidate.id === event.group.id
       );
@@ -90,13 +89,18 @@ function isIncognitoSubject(
       );
       return !window || window.incognito || window.type !== "normal";
     }
+    case "groupRemoved": {
+      if (event.group.shared) return true;
+      const window = inventory.windows.find(
+        (candidate) => candidate.id === event.group.windowId
+      );
+      if (!window) return false;
+      return window.incognito || window.type !== "normal";
+    }
     case "windowFocusChanged":
       return false;
-    case "windowRemoved": {
-      return !inventory.windows.some(
-        (window) => window.id === event.windowId && window.type === "normal"
-      );
-    }
+    case "windowRemoved":
+      return false;
     case "alarm":
       return false;
     default:
@@ -419,6 +423,14 @@ export function classifyChromeEvent(
         session: current
       };
     case "alarm":
+      if (configuration) {
+        current = settlePendingGroupRemovals({
+          session: current,
+          inventory,
+          configuration,
+          now
+        });
+      }
       return {
         guarded: false,
         deferred: false,
