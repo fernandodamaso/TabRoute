@@ -45,6 +45,7 @@ test("settings restore persistent groups toggle keeps manager healthy", async ()
     const checkbox = page.getByLabel("Restore persistent groups");
     await expect(checkbox).toBeChecked();
     await checkbox.click();
+    await expect(checkbox).not.toBeChecked();
     const { response } = await settleManagerQuery({
       timeoutMs: MANAGER_SETTLE_TIMEOUT_MS,
       request: () => sendManagerQueryFromPage(page)
@@ -53,7 +54,6 @@ test("settings restore persistent groups toggle keeps manager healthy", async ()
       ok: true,
       configuration: { restorePersistentGroups: false }
     });
-    await expect(checkbox).not.toBeChecked();
   } finally {
     await page.close();
     await session.close();

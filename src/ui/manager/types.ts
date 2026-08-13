@@ -99,6 +99,7 @@ export interface ManagerViewFixture {
   snapshots?: readonly Snapshot[];
   diagnostics?: DiagnosticsViewState;
   activityLogExport?: string;
+  pendingRuleDraft?: { host: string; url: string };
 }
 
 export type SettingsPanel = "root" | "snapshots" | "diagnostics";

@@ -70,6 +70,7 @@ export function parseCliDispatch(args: readonly string[]): CliDispatch {
 export const PRODUCTION_GATE_SPECS = [
   "tests/e2e/extension.spec.ts",
   "tests/e2e/lifecycle.spec.ts",
+  "tests/e2e/menus-commands.spec.ts",
   "tests/e2e/startup.spec.ts"
 ] as const;
 

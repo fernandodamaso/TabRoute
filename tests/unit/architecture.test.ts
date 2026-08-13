@@ -11,6 +11,11 @@ const SCAN_PATHS = [
   "background"
 ];
 
+const REGISTER_FILES = [
+  "background/registerMenus.ts",
+  "background/registerCommands.ts"
+];
+
 function collectSourceFiles(root: string, relativePath: string): string[] {
   const absolute = join(root, relativePath);
   let stats;
@@ -57,4 +62,20 @@ it("keeps duplicates pure without Chrome or executeActionPlan imports", () => {
     expect(source).not.toMatch(/executeActionPlan|liveChromePort|from "\.\.\/chrome\//);
     expect(source).not.toMatch(/\bchrome\./);
   }
+});
+
+it("keeps menu and command handlers free of Chrome mutations and notifications", () => {
+  const root = join(process.cwd(), "src");
+  const forbidden =
+    /chrome\.(tabs|tabGroups)\.(create|group|move|ungroup|remove|update)\s*\(|chrome\.sessions\.restore|chrome\.notifications/;
+  for (const relative of REGISTER_FILES) {
+    const source = readFileSync(join(root, relative), "utf8");
+    expect(source).not.toMatch(forbidden);
+  }
+  const background = readFileSync(
+    join(process.cwd(), "entrypoints/background.ts"),
+    "utf8"
+  );
+  expect(background).not.toMatch(/chrome\.notifications/);
+  expect(background).not.toMatch(/chrome\.tabs\.create\s*\(/);
 });

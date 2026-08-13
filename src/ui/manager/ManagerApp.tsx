@@ -191,6 +191,14 @@ export function ManagerApp({
   }, [initialDeepLink, route, state.status]);
 
   useEffect(() => {
+    if (state.status !== "ready") return;
+    const draft = state.viewFixture?.pendingRuleDraft;
+    if (!draft) return;
+    setRoute("rules");
+    setEditingRuleId("new");
+  }, [state.status, state.viewFixture?.pendingRuleDraft]);
+
+  useEffect(() => {
     if (initialRoute === undefined || initialRoute === lastInitialRoute.current)
       return;
 
@@ -256,6 +264,8 @@ export function ManagerApp({
           onCancel={() => setEditingRuleId(undefined)}
 
           onSaved={() => setEditingRuleId(undefined)}
+
+          prefill={state.viewFixture?.pendingRuleDraft}
         />
       ) : route === "activity" ? (
         <ActivityPage

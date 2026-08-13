@@ -22,9 +22,29 @@ const EXPECTED_PERMISSIONS = [
   "tabs",
   "tabGroups",
   "storage",
+  "contextMenus",
   "sessions",
   "alarms"
 ] as const;
+
+const APPROVED_COMMAND_NAMES = [
+  "open-manager",
+  "create-rule-from-tab",
+  "toggle-automation",
+  "save-snapshot",
+  "make-persistent",
+  "remove-persistent",
+  "pin-group",
+  "move-to-other",
+  "undo"
+] as const;
+
+const APPROVED_SUGGESTED_KEYS: Record<string, string> = {
+  "open-manager": "Alt+Shift+M",
+  "create-rule-from-tab": "Alt+Shift+R",
+  "toggle-automation": "Alt+Shift+A",
+  "save-snapshot": "Alt+Shift+S"
+};
 const MARKERS = [
   "TABROUTE_DEV_WORKBENCH_V1",
   "data-workbench-control",
@@ -95,7 +115,57 @@ export async function scanProductionBuild(
     errors.push("manifest_version must be 3");
   if (manifest.incognito !== "not_allowed")
     errors.push('incognito must be "not_allowed"');
-  if ("commands" in manifest) errors.push("manifest commands are not allowed");
+  const commands = manifest.commands;
+  if (
+    commands === undefined ||
+    typeof commands !== "object" ||
+    commands === null ||
+    Array.isArray(commands)
+  ) {
+    errors.push("manifest commands do not match the approved set");
+  } else {
+    const entries = Object.entries(commands as Record<string, unknown>);
+    const names = entries.map(([name]) => name).sort();
+    const expected = [...APPROVED_COMMAND_NAMES].sort();
+    if (
+      names.length !== expected.length ||
+      names.some((name, index) => name !== expected[index])
+    ) {
+      errors.push("manifest commands do not match the approved set");
+    }
+    let suggestedCount = 0;
+    for (const [name, value] of entries) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        errors.push(`manifest command ${name} is invalid`);
+        continue;
+      }
+      const command = value as Record<string, unknown>;
+      if ("suggested_key" in command) {
+        suggestedCount += 1;
+        const suggested = command.suggested_key;
+        const expectedKey = APPROVED_SUGGESTED_KEYS[name];
+        if (!expectedKey) {
+          errors.push("manifest commands contain an unexpected suggested_key");
+          continue;
+        }
+        if (
+          !suggested ||
+          typeof suggested !== "object" ||
+          Array.isArray(suggested) ||
+          (suggested as { default?: unknown }).default !== expectedKey
+        ) {
+          errors.push(
+            `manifest command ${name} has an invalid suggested_key`
+          );
+        }
+      } else if (name in APPROVED_SUGGESTED_KEYS) {
+        errors.push(`manifest command ${name} is missing suggested_key`);
+      }
+    }
+    if (suggestedCount !== 4) {
+      errors.push("manifest commands must declare exactly four suggested_key values");
+    }
+  }
   const permissions = manifest.permissions;
   if (
     !Array.isArray(permissions) ||
@@ -111,6 +181,8 @@ export async function scanProductionBuild(
       values.some((value, index) => value !== EXPECTED_PERMISSIONS[index])
     )
       errors.push("manifest permissions do not match the approved set");
+    if (values.includes("commands"))
+      errors.push('manifest permissions must not include "commands"');
   }
   const inspectManifest = (value: unknown, keyPath: string): void => {
     if (value && typeof value === "object")

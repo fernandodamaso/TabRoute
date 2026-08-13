@@ -12,7 +12,8 @@ export function RulesPage({
   onEdit,
   onCreate,
   onCancel,
-  onSaved
+  onSaved,
+  prefill
 }: {
   configuration: Configuration;
   command: (message: ManagerCommand) => Promise<ManagerResponse>;
@@ -23,6 +24,7 @@ export function RulesPage({
   onCreate?: () => void;
   onCancel: () => void;
   onSaved?: (configuration: Configuration) => void;
+  prefill?: { host: string; url: string };
 }) {
   const rule = editingRuleId && editingRuleId !== "new"
     ? configuration.rules.find((candidate) => candidate.id === editingRuleId)
@@ -35,6 +37,7 @@ export function RulesPage({
         command={command}
         onCancel={onCancel}
         onSaved={onSaved}
+        prefill={editingRuleId === "new" ? prefill : undefined}
       />
     </div>;
   return <div className="rules-page">

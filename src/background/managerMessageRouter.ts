@@ -655,6 +655,9 @@ export function createManagerMessageRouter(input: {
   snapshots: SnapshotManagerPort;
   diagnostics: DiagnosticsManagerPort;
   inventory?: ManagerInventoryPort;
+  consumePendingRuleDraft?: () => Promise<
+    { host: string; url: string } | undefined
+  >;
   randomUuid?: () => string;
   now?: () => number;
 }) {
@@ -667,7 +670,15 @@ export function createManagerMessageRouter(input: {
         let current: Configuration;
         try {
           current = validateConfiguration(input.controller.getConfiguration());
-          if (message.kind === "manager-query") return success(current);
+          if (message.kind === "manager-query") {
+            const pendingRuleDraft = await input.consumePendingRuleDraft?.();
+            return success(
+              current,
+              pendingRuleDraft
+                ? { persistentTabsByGroup: {}, pendingRuleDraft }
+                : undefined
+            );
+          }
           if (message.kind === "activity-query") {
             const viewFixture = await input.activity.query(message.before, message.limit);
             return success(current, viewFixture);

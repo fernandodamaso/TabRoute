@@ -6,8 +6,21 @@ import { ConditionRow } from "../rules/ConditionRow";
 import { defaultLeaf, fromRule, toRule, type FlatRuleDraft } from "../rules/flatRuleDraft";
 import { validateRuleActions } from "../../../rules/ruleEngine";
 
-function newDraft(configuration: Configuration): FlatRuleDraft {
-  return { targetGroupId: configuration.groups[0]!.id, priority: 0, required: [defaultLeaf()], exceptions: [], actions: [{ kind: "group" }], enabled: true };
+function newDraft(
+  configuration: Configuration,
+  prefill?: { host: string; url: string }
+): FlatRuleDraft {
+  const leaf = prefill
+    ? ({ kind: "host", operator: "exact", value: prefill.host } as const)
+    : defaultLeaf();
+  return {
+    targetGroupId: configuration.groups[0]!.id,
+    priority: 0,
+    required: [leaf],
+    exceptions: [],
+    actions: [{ kind: "group" }],
+    enabled: true
+  };
 }
 
 function placement(actions: readonly RuleAction[]) {
@@ -31,14 +44,15 @@ function collapseAction(actions: readonly RuleAction[]) {
   return actions.find((action): action is { kind: "setCollapsed"; collapsed: boolean } => action.kind === "setCollapsed");
 }
 
-export function RuleEditorPage({ configuration, rule, command, onCancel, onSaved }: {
+export function RuleEditorPage({ configuration, rule, command, onCancel, onSaved, prefill }: {
   configuration: Configuration;
   rule?: Rule;
   command: (message: ManagerCommand) => Promise<ManagerResponse>;
   onCancel: () => void;
   onSaved?: (configuration: Configuration) => void;
+  prefill?: { host: string; url: string };
 }) {
-  const loaded = rule ? fromRule(rule) : { kind: "representable" as const, draft: newDraft(configuration) };
+  const loaded = rule ? fromRule(rule) : { kind: "representable" as const, draft: newDraft(configuration, prefill) };
   const [draft, setDraft] = useState<FlatRuleDraft>(loaded.kind === "representable" ? loaded.draft : newDraft(configuration));
   const [error, setError] = useState<string>();
   const firstValueRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
