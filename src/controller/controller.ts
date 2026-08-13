@@ -230,7 +230,10 @@ export function createTabRouteController(input: {
   return {
     handleChromeEvent(event: ChromeEventHint): Promise<EventClassification> {
       const result = eventChain.then(() => handleChromeEventInner(event));
-      eventChain = result.catch(() => undefined);
+      eventChain = result.then(
+        () => undefined,
+        () => undefined
+      );
       return result;
     },
     async handleTabUpdated(tab: ChromeTabSnapshot): Promise<ActionResult> {
