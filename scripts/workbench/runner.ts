@@ -14,7 +14,11 @@ import {
   type ExtensionSession,
   type RunnerEvent
 } from "./browser";
-import { MANAGER_QUERY_TIMEOUT_MS, settleManagerQuery, WorkbenchCodedError } from "./readiness";
+import {
+  MANAGER_QUERY_TIMEOUT_MS,
+  settleManagerQuery,
+  WorkbenchCodedError
+} from "./readiness";
 import { LeaseManager } from "./leases";
 import { assertOwnedProfilePath } from "./paths";
 import {
@@ -29,6 +33,12 @@ import {
   successResult,
   workerTimeoutFailure
 } from "./results";
+import {
+  type ProductionGateResult,
+  scanProductionBuild,
+  scanWorkbenchBuild,
+  writeProductionGateResult
+} from "./production-scan";
 
 const CLEANUP_BACKOFF_MS = [250, 500, 1000] as const;
 
@@ -42,11 +52,25 @@ export interface RunCleanupInput {
   sleep?: (milliseconds: number) => Promise<void>;
 }
 
-export async function runCleanup(input: RunCleanupInput): Promise<{ profileRemoved: true } | { profileRemoved: false; retainedPath: string; error: string }> {
-  const sleep = input.sleep ?? ((milliseconds) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
-  const remove = input.remove ?? ((target) => rm(target, { recursive: true, force: true }));
+export async function runCleanup(
+  input: RunCleanupInput
+): Promise<
+  | { profileRemoved: true }
+  | { profileRemoved: false; retainedPath: string; error: string }
+> {
+  const sleep =
+    input.sleep ??
+    ((milliseconds) =>
+      new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+  const remove =
+    input.remove ?? ((target) => rm(target, { recursive: true, force: true }));
   await input.close();
-  const ownedProfile = assertOwnedProfilePath(input.profilePath, input.profileRoot, input.runId, input.worktreePath);
+  const ownedProfile = assertOwnedProfilePath(
+    input.profilePath,
+    input.profileRoot,
+    input.runId,
+    input.worktreePath
+  );
   let lastError: unknown;
   for (let attempt = 0; attempt <= CLEANUP_BACKOFF_MS.length; attempt += 1) {
     try {
@@ -61,7 +85,8 @@ export async function runCleanup(input: RunCleanupInput): Promise<{ profileRemov
   return {
     profileRemoved: false,
     retainedPath: ownedProfile,
-    error: lastError instanceof Error ? lastError.message : "profile cleanup failed"
+    error:
+      lastError instanceof Error ? lastError.message : "profile cleanup failed"
   };
 }
 
@@ -74,12 +99,21 @@ export interface RunWorkbenchInput {
   headless?: boolean;
 }
 
-function isCapacityFailure(value: LeaseRecord | CapacityFailure): value is CapacityFailure {
+function isCapacityFailure(
+  value: LeaseRecord | CapacityFailure
+): value is CapacityFailure {
   return "ok" in value && value.ok === false;
 }
 
-async function writeLease(artifactPath: string, lease: LeaseRecord, status: LeaseRecord["status"]): Promise<void> {
-  await writeAtomic(path.join(artifactPath, "lease.json"), new TextEncoder().encode(JSON.stringify({ ...lease, status })));
+async function writeLease(
+  artifactPath: string,
+  lease: LeaseRecord,
+  status: LeaseRecord["status"]
+): Promise<void> {
+  await writeAtomic(
+    path.join(artifactPath, "lease.json"),
+    new TextEncoder().encode(JSON.stringify({ ...lease, status }))
+  );
 }
 
 function startedBase(input: {
@@ -113,10 +147,18 @@ function generationRecords(
   }));
 }
 
-function eventRecord(mode: "fixture" | "real", event: RunnerEvent): ManagerTransportRecord {
+function eventRecord(
+  mode: "fixture" | "real",
+  event: RunnerEvent
+): ManagerTransportRecord {
   const details: Record<string, string | number | boolean> = {};
   for (const [key, value] of Object.entries(event.details ?? {})) {
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") details[key] = value;
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    )
+      details[key] = value;
   }
   return {
     recordType: "event",
@@ -134,23 +176,41 @@ function classifyFailure(
   extensionId?: string
 ): RunResult {
   if (error instanceof WorkbenchCodedError) {
-    if (error.code === "WORKBENCH_ARGUMENT") return argumentFailure(base.runId, base.worktreePath, error.message);
+    if (error.code === "WORKBENCH_ARGUMENT")
+      return argumentFailure(base.runId, base.worktreePath, error.message);
     if (error.code === "WORKBENCH_MANAGER_TIMEOUT") {
-      return managerTimeoutFailure({ ...base, extensionId: extensionId!, readiness: base.readiness }, error.message);
+      return managerTimeoutFailure(
+        { ...base, extensionId: extensionId!, readiness: base.readiness },
+        error.message
+      );
     }
-    if (error.phase === "restart-termination" || error.phase === "restart-wake") {
-      return restartFailure({ ...base, extensionId: extensionId!, readiness: base.readiness }, error.phase);
+    if (
+      error.phase === "restart-termination" ||
+      error.phase === "restart-wake"
+    ) {
+      return restartFailure(
+        { ...base, extensionId: extensionId!, readiness: base.readiness },
+        error.phase
+      );
     }
-    if (error.code === "WORKBENCH_WORKER_TIMEOUT") return workerTimeoutFailure(base, error.message);
+    if (error.code === "WORKBENCH_WORKER_TIMEOUT")
+      return workerTimeoutFailure(base, error.message);
   }
   const message = error instanceof Error ? error.message : String(error);
-  if (message.startsWith("WORKBENCH_ARGUMENT") || message.includes("WORKBENCH_ARGUMENT")) {
+  if (
+    message.startsWith("WORKBENCH_ARGUMENT") ||
+    message.includes("WORKBENCH_ARGUMENT")
+  ) {
     return argumentFailure(base.runId, base.worktreePath, message);
   }
   if (message.includes("WORKBENCH_ARTIFACT_LIMIT")) {
     return argumentFailure(base.runId, base.worktreePath, message);
   }
-  if (extensionId) return managerTimeoutFailure({ ...base, extensionId, readiness: base.readiness }, message);
+  if (extensionId)
+    return managerTimeoutFailure(
+      { ...base, extensionId, readiness: base.readiness },
+      message
+    );
   return workerTimeoutFailure(base, message);
 }
 
@@ -161,7 +221,10 @@ async function waitForPageQuerySettlement(page: Page): Promise<void> {
   );
 }
 
-async function settleFirstManagerQuery(page: Page, mode: "fixture" | "real"): Promise<void> {
+async function settleFirstManagerQuery(
+  page: Page,
+  mode: "fixture" | "real"
+): Promise<void> {
   if (mode === "real") {
     await settleManagerQuery({
       request: () => sendManagerQueryFromPage(page)
@@ -170,17 +233,33 @@ async function settleFirstManagerQuery(page: Page, mode: "fixture" | "real"): Pr
   await waitForPageQuerySettlement(page);
 }
 
-export async function runWorkbench(input: RunWorkbenchInput): Promise<RunResult> {
+export async function runWorkbench(
+  input: RunWorkbenchInput
+): Promise<RunResult> {
   const worktreePath = path.resolve(input.worktreePath);
   const cwd = path.resolve(process.cwd());
-  if (worktreePath !== cwd) throw new WorkbenchCodedError("WORKBENCH_ARGUMENT", "worktree must match process.cwd()", "argument");
+  if (worktreePath !== cwd)
+    throw new WorkbenchCodedError(
+      "WORKBENCH_ARGUMENT",
+      "worktree must match process.cwd()",
+      "argument"
+    );
 
   const runId = crypto.randomUUID();
   const profileRoot = path.join(os.tmpdir(), "tabroute-workbench");
   const profilePath = path.join(profileRoot, runId);
-  const artifactPath = path.join(worktreePath, ".workbench", "artifacts", runId);
+  const artifactPath = path.join(
+    worktreePath,
+    ".workbench",
+    "artifacts",
+    runId
+  );
   const buildOutput = resolveBuildOutput(worktreePath, runId, "workbench");
-  const pendingUrl = canonicalExtensionUrl("pending", input.entryPoint, input.mode).replace("pending", "{id}");
+  const pendingUrl = canonicalExtensionUrl(
+    "pending",
+    input.entryPoint,
+    input.mode
+  ).replace("pending", "{id}");
   const writer = createResultWriter(artifactPath, runId);
   const commandRecords: ManagerTransportRecord[] = [];
   let session: ExtensionSession | undefined;
@@ -197,7 +276,10 @@ export async function runWorkbench(input: RunWorkbenchInput): Promise<RunResult>
     await writeLease(artifactPath, lease, status);
   };
 
-  const publish = async (result: RunResult, status: "completed" | "failed" | "abandoned"): Promise<RunResult> => {
+  const publish = async (
+    result: RunResult,
+    status: "completed" | "failed" | "abandoned"
+  ): Promise<RunResult> => {
     const resultPath = await writer.write(result);
     await writer.finalize(status);
     printRetainedResultPath(resultPath);
@@ -214,21 +296,59 @@ export async function runWorkbench(input: RunWorkbenchInput): Promise<RunResult>
       worktreePath
     }).catch(async () => {
       await session?.close().catch(() => undefined);
-      return { profileRemoved: false as const, retainedPath: profilePath, error: "cleanup failed" };
+      return {
+        profileRemoved: false as const,
+        retainedPath: profilePath,
+        error: "cleanup failed"
+      };
     });
-    const leaseStatus: LeaseRecord["status"] = cleanup.profileRemoved ? "completed" : "active";
+    const leaseStatus: LeaseRecord["status"] = cleanup.profileRemoved
+      ? "completed"
+      : "active";
     await persistLease(leaseStatus);
-    if (!result.ok && (result.phase === "argument" || result.phase === "capacity")) {
+    if (
+      !result.ok &&
+      (result.phase === "argument" || result.phase === "capacity")
+    ) {
       return publish(result, "failed");
     }
     if (!result.ok && result.phase === "artifact") {
-      return publish({ ...result, cleanup: cleanup.profileRemoved ? { profileRemoved: true as const } : { profileRemoved: false as const, retainedPath: cleanup.retainedPath } }, "failed");
+      return publish(
+        {
+          ...result,
+          cleanup: cleanup.profileRemoved
+            ? { profileRemoved: true as const }
+            : {
+                profileRemoved: false as const,
+                retainedPath: cleanup.retainedPath
+              }
+        },
+        "failed"
+      );
     }
     if (cleanup.profileRemoved) {
       const nextLease = { ...lease!, status: "completed" as const };
-      return publish({ ...result, lease: nextLease, cleanup: { profileRemoved: true as const } } as RunResult, result.ok ? "completed" : "failed");
+      return publish(
+        {
+          ...result,
+          lease: nextLease,
+          cleanup: { profileRemoved: true as const }
+        } as RunResult,
+        result.ok ? "completed" : "failed"
+      );
     }
-    return publish(cleanupFailure({ ...result, lease: { ...lease!, status: "active" }, cleanup: { profileRemoved: false } }, cleanup.error, cleanup.retainedPath), "failed");
+    return publish(
+      cleanupFailure(
+        {
+          ...result,
+          lease: { ...lease!, status: "active" },
+          cleanup: { profileRemoved: false }
+        },
+        cleanup.error,
+        cleanup.retainedPath
+      ),
+      "failed"
+    );
   };
 
   try {
@@ -246,7 +366,9 @@ export async function runWorkbench(input: RunWorkbenchInput): Promise<RunResult>
       profilePath
     });
     if (isCapacityFailure(leaseResult)) {
-      await rm(profilePath, { recursive: true, force: true }).catch(() => undefined);
+      await rm(profilePath, { recursive: true, force: true }).catch(
+        () => undefined
+      );
       return publish(leaseResult, "failed");
     }
     lease = leaseResult;
@@ -257,7 +379,9 @@ export async function runWorkbench(input: RunWorkbenchInput): Promise<RunResult>
       await buildExtension({ worktreePath, runId, graph: "workbench" });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return await finishWithCleanup(argumentFailure(runId, worktreePath, message));
+      return await finishWithCleanup(
+        argumentFailure(runId, worktreePath, message)
+      );
     }
 
     session = await launchExtensionSession({
@@ -268,8 +392,14 @@ export async function runWorkbench(input: RunWorkbenchInput): Promise<RunResult>
     });
     const workerDiscoveredAt = new Date().toISOString();
     const extensionId = session.extensionId;
-    const canonicalUrl = canonicalExtensionUrl(extensionId, input.entryPoint, input.mode);
-    commandRecords.push(...generationRecords(input.mode, session.workerGenerations));
+    const canonicalUrl = canonicalExtensionUrl(
+      extensionId,
+      input.entryPoint,
+      input.mode
+    );
+    commandRecords.push(
+      ...generationRecords(input.mode, session.workerGenerations)
+    );
     const base = {
       ...startedBase({
         runId,
@@ -292,12 +422,17 @@ export async function runWorkbench(input: RunWorkbenchInput): Promise<RunResult>
       await settleFirstManagerQuery(page, input.mode);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return await finishWithCleanup(managerTimeoutFailure({ ...base, extensionId }, message));
+      return await finishWithCleanup(
+        managerTimeoutFailure({ ...base, extensionId }, message)
+      );
     }
 
     const managerQuerySettledAt = new Date().toISOString();
     const preview = page.locator(".workbench-preview");
-    await preview.waitFor({ state: "visible", timeout: MANAGER_QUERY_TIMEOUT_MS });
+    await preview.waitFor({
+      state: "visible",
+      timeout: MANAGER_QUERY_TIMEOUT_MS
+    });
     const box = await preview.evaluate((element) => {
       const computed = window.getComputedStyle(element);
       return {
@@ -309,18 +444,27 @@ export async function runWorkbench(input: RunWorkbenchInput): Promise<RunResult>
     const screenshotRelative = "screenshots/workbench-preview.png";
     const screenshotBytes = await preview.screenshot({ type: "png" });
     try {
-      await writer.writeArtifact(screenshotRelative, screenshotBytes, "screenshot");
+      await writer.writeArtifact(
+        screenshotRelative,
+        screenshotBytes,
+        "screenshot"
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return await finishWithCleanup(createArtifactLimitFailure({
-        runId,
-        worktreePath,
-        buildPath: buildOutput.buildPath,
-        profilePath,
-        lease: { ...lease, status: "active" },
-        cleanup: { profileRemoved: false, retainedPath: profilePath },
-        extensionId
-      }, { message }));
+      return await finishWithCleanup(
+        createArtifactLimitFailure(
+          {
+            runId,
+            worktreePath,
+            buildPath: buildOutput.buildPath,
+            profilePath,
+            lease: { ...lease, status: "active" },
+            cleanup: { profileRemoved: false, retainedPath: profilePath },
+            extensionId
+          },
+          { message }
+        )
+      );
     }
 
     const success = successResult({
@@ -328,7 +472,9 @@ export async function runWorkbench(input: RunWorkbenchInput): Promise<RunResult>
       extensionId,
       readiness: { workerDiscoveredAt, managerQuerySettledAt },
       screenshotPaths: [screenshotRelative],
-      assertions: [previewAssertion(dimensionsOk, { width: box.width, height: box.height })],
+      assertions: [
+        previewAssertion(dimensionsOk, { width: box.width, height: box.height })
+      ],
       cleanup: { profileRemoved: false }
     });
 
@@ -345,7 +491,14 @@ export async function runWorkbench(input: RunWorkbenchInput): Promise<RunResult>
     return await finishWithCleanup(success);
   } catch (error) {
     if (!lease) {
-      return publish(argumentFailure(runId, worktreePath, error instanceof Error ? error.message : String(error)), "failed");
+      return publish(
+        argumentFailure(
+          runId,
+          worktreePath,
+          error instanceof Error ? error.message : String(error)
+        ),
+        "failed"
+      );
     }
     const base = {
       ...startedBase({
@@ -354,13 +507,79 @@ export async function runWorkbench(input: RunWorkbenchInput): Promise<RunResult>
         buildPath: buildOutput.buildPath,
         profilePath,
         mode: input.mode,
-        url: session ? canonicalExtensionUrl(session.extensionId, input.entryPoint, input.mode) : pendingUrl,
+        url: session
+          ? canonicalExtensionUrl(
+              session.extensionId,
+              input.entryPoint,
+              input.mode
+            )
+          : pendingUrl,
         scenario: input.scenario,
         lease
       }),
       commandRecords,
       readiness: session ? { workerDiscoveredAt: new Date().toISOString() } : {}
     };
-    return await finishWithCleanup(classifyFailure(base, error, session?.extensionId));
+    return await finishWithCleanup(
+      classifyFailure(base, error, session?.extensionId)
+    );
   }
+}
+
+export async function runProductionGate(
+  worktreePath: string
+): Promise<ProductionGateResult> {
+  const resolved = path.resolve(worktreePath);
+  const cwd = path.resolve(process.cwd());
+  if (resolved !== cwd)
+    throw new WorkbenchCodedError(
+      "WORKBENCH_ARGUMENT",
+      "worktree must match process.cwd()",
+      "argument"
+    );
+
+  const runId = crypto.randomUUID();
+  const workbenchBuild = await buildExtension({
+    worktreePath: resolved,
+    runId,
+    graph: "workbench"
+  });
+  const workbenchScan = await scanWorkbenchBuild(workbenchBuild.buildPath);
+  if (!workbenchScan.ok) {
+    throw new WorkbenchCodedError(
+      "WORKBENCH_ARGUMENT",
+      workbenchScan.errors.join("; "),
+      "argument"
+    );
+  }
+
+  const productionBuild = await buildExtension({
+    worktreePath: resolved,
+    runId,
+    graph: "production"
+  });
+  const productionScan = await scanProductionBuild(productionBuild.buildPath);
+  if (!productionScan.ok) {
+    throw new WorkbenchCodedError(
+      "WORKBENCH_ARGUMENT",
+      productionScan.errors.join("; "),
+      "argument"
+    );
+  }
+
+  const resultPath = await writeProductionGateResult(resolved, runId, {
+    graph: "production",
+    workbenchBuildPath: workbenchBuild.buildPath,
+    productionBuildPath: productionBuild.buildPath,
+    productionScan: { ok: true }
+  });
+  const result: ProductionGateResult = {
+    graph: "production",
+    resultPath,
+    workbenchBuildPath: workbenchBuild.buildPath,
+    productionBuildPath: productionBuild.buildPath,
+    productionScan: { ok: true }
+  };
+  printRetainedResultPath(resultPath);
+  return result;
 }

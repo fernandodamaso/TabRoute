@@ -20,7 +20,7 @@ describe("workbench CLI dispatch", () => {
     [["workbench", "--mode", "fixture"], { command: "workbench", action: "run", graph: "workbench", mode: "fixture", entryPoint: "options.html", scenario: "wb:default" }],
     [["workbench", "--mode", "real"], { command: "workbench", action: "run", graph: "workbench", mode: "real", entryPoint: "options.html", scenario: "wb:default" }],
     [["test-workbench"], { command: "test-workbench", action: "playwright", spec: "tests/e2e/workbench.spec.ts" }],
-    [["test-extension"], { command: "test-extension", action: "playwright", spec: "tests/e2e/extension.spec.ts" }],
+    [["test-extension"], { command: "test-extension", action: "production-gate" }],
     [["smoke-popup"], { command: "smoke-popup", action: "playwright", spec: "tests/e2e/popup-smoke.spec.ts" }]
   ])("dispatches %s without starting a browser", async (args, expected) => {
     await expect(contract(...args)).resolves.toMatchObject(expected);
