@@ -22,6 +22,7 @@ import type {
 import type { UiMessage } from "../src/ui/messages";
 import { applyChromeGroupPresentation } from "../src/groups/displayTitle";
 import { GROUP_SETTLEMENT_ALARM } from "../src/groups/groupLifecycle";
+import { reconstructAssociations } from "../src/chrome/reconstructAssociations";
 import {
   STARTUP_RECOVERY_ALARM,
   WINDOW_SETTLEMENT_ALARM
@@ -182,7 +183,20 @@ export default defineBackground(() => {
       actionDeps: () => controller!.actionDeps(),
       getConfiguration: () => controller!.getConfiguration()
     });
-    managerRouter = createManagerMessageRouter({ repository, controller, activity });
+    managerRouter = createManagerMessageRouter({
+      repository,
+      controller,
+      activity,
+      inventory: {
+        readInventory: () => controller!.actionDeps().reads.readInventory(),
+        loadPreferredWindowId: async () => {
+          const runtime = await session.loadSession();
+          return runtime.lastFocusedNormalWindowId;
+        },
+        loadAssociations: async (configuration, inventory) =>
+          reconstructAssociations(inventory, configuration)
+      }
+    });
     const configurationSync = createConfigurationSyncCoordinator({
       repository,
       callbacks: {

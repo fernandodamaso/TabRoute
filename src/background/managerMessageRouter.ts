@@ -5,6 +5,7 @@ import {
 } from "../activity/activityRepository";
 import { executeUndo } from "../activity/executeUndo";
 import type { ActionEngineDeps } from "../actions/executeActionPlan";
+import { reconstructAssociations } from "../chrome/reconstructAssociations";
 import { createManagedGroup, removeManagedGroup, updateManagedGroup } from "../domain/defaults";
 import { validateConfiguration } from "../domain/schemas";
 import type { Configuration, PersistentTab, UUID } from "../domain/types";
@@ -17,6 +18,7 @@ import {
   setRestorePersistentGroups,
   type PersistentTabDraft
 } from "../persistence/persistentCommands";
+import { collectLiveMemberUrls } from "../persistence/requirements";
 import type { LocalRepository } from "../state/localRepository";
 import type { SessionRepository } from "../state/sessionRepository";
 import { validateRuleActions } from "../rules/ruleEngine";
@@ -43,6 +45,15 @@ interface ManagerRepository { save(configuration: Configuration): Promise<void>;
 interface ManagerController {
   getConfiguration(): Configuration;
   replaceConfiguration(configuration: Configuration): Promise<void>;
+}
+
+interface ManagerInventoryPort {
+  readInventory(): Promise<import("../domain/types").ChromeInventory>;
+  loadPreferredWindowId(): Promise<number | undefined>;
+  loadAssociations(
+    configuration: Configuration,
+    inventory: import("../domain/types").ChromeInventory
+  ): Promise<readonly import("../domain/types").ChromeAssociation[]>;
 }
 
 export interface ActivityManagerPort {
@@ -160,7 +171,17 @@ function updateRule(configuration: Configuration, ruleId: UUID, patch: Partial<C
   };
 }
 
-function applyCommand(current: Configuration, command: ManagerCommandPayload, randomUuid: () => string, now: () => number): Configuration {
+function applyCommand(
+  current: Configuration,
+  command: ManagerCommandPayload,
+  randomUuid: () => string,
+  now: () => number,
+  inventory?: {
+    inventory: import("../domain/types").ChromeInventory;
+    associations: readonly import("../domain/types").ChromeAssociation[];
+    preferredWindowId?: number;
+  }
+): Configuration {
   switch (command.kind) {
     case "updateGroup":
       if (!isUuid(command.groupId)) throw new Error("group id must be a UUID");
@@ -207,9 +228,24 @@ function applyCommand(current: Configuration, command: ManagerCommandPayload, ra
       if (!isUuid(command.managedGroupId)) throw new Error("managed group id must be a UUID");
       if (!command.orderedIds.every((id) => isUuid(id))) throw new Error("ordered ids must be UUIDs");
       return reorderPersistentTabs(current, command.managedGroupId, command.orderedIds, now);
-    case "pinGroup":
+    case "pinGroup": {
       if (!isUuid(command.managedGroupId)) throw new Error("managed group id must be a UUID");
-      return pinGroupDefinitions(current, command.managedGroupId, command.memberUrls, now, randomUuid);
+      if (!inventory) throw new Error("inventory unavailable");
+      const memberUrls = collectLiveMemberUrls(
+        command.managedGroupId,
+        current,
+        inventory.inventory,
+        inventory.associations,
+        inventory.preferredWindowId
+      );
+      return pinGroupDefinitions(
+        current,
+        command.managedGroupId,
+        memberUrls,
+        now,
+        randomUuid
+      );
+    }
     case "makePersistent":
       if (!isUuid(command.managedGroupId)) throw new Error("managed group id must be a UUID");
       return makePersistentDefinition(current, command.managedGroupId, command.url, now, randomUuid);
@@ -225,6 +261,7 @@ export function createManagerMessageRouter(input: {
   repository: ManagerRepository;
   controller: ManagerController;
   activity: ActivityManagerPort;
+  inventory?: ManagerInventoryPort;
   randomUuid?: () => string;
   now?: () => number;
 }) {
@@ -262,7 +299,30 @@ export function createManagerMessageRouter(input: {
 
         let next: Configuration;
         try {
-          next = validateConfiguration(applyCommand(current, (message as Extract<ManagerMessage, { kind: "manager-command" }>).command, randomUuid, now));
+          let inventoryContext:
+            | {
+                inventory: import("../domain/types").ChromeInventory;
+                associations: readonly import("../domain/types").ChromeAssociation[];
+                preferredWindowId?: number;
+              }
+            | undefined;
+          const commandPayload = (message as Extract<ManagerMessage, { kind: "manager-command" }>).command;
+          if (commandPayload.kind === "pinGroup") {
+            if (!input.inventory) throw new Error("inventory unavailable");
+            const chromeInventory = await input.inventory.readInventory();
+            const associations = await input.inventory.loadAssociations(
+              current,
+              chromeInventory
+            );
+            inventoryContext = {
+              inventory: chromeInventory,
+              associations,
+              preferredWindowId: await input.inventory.loadPreferredWindowId()
+            };
+          }
+          next = validateConfiguration(
+            applyCommand(current, commandPayload, randomUuid, now, inventoryContext)
+          );
         } catch (error) {
           return domainFailure(error);
         }

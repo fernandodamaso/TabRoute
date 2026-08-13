@@ -30,7 +30,8 @@ describe("workbench CLI dispatch", () => {
   it("passes production gate specs as separate Playwright filters", () => {
     expect(PRODUCTION_GATE_SPECS).toEqual([
       "tests/e2e/extension.spec.ts",
-      "tests/e2e/lifecycle.spec.ts"
+      "tests/e2e/lifecycle.spec.ts",
+      "tests/e2e/startup.spec.ts"
     ]);
   });
 

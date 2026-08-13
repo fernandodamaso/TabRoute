@@ -1,4 +1,5 @@
 import { createUuid } from "../domain/ids";
+import { isRoutableUrl } from "../chrome/types";
 import { renderGroupTitle } from "../groups/displayTitle";
 import { buildActionPlan } from "../actions/buildActionPlan";
 import type {
@@ -61,6 +62,25 @@ function managedGroupFor(
   managedGroupId: UUID
 ): ManagedGroup | undefined {
   return configuration.groups.find((group) => group.id === managedGroupId);
+}
+
+function findTabInManagedGroup(
+  definition: PersistentTab,
+  inventory: ChromeInventory,
+  associations: readonly ChromeAssociation[]
+): ChromeTabSnapshot | undefined {
+  const association = associations.find(
+    (candidate) => candidate.managedGroupId === definition.managedGroupId
+  );
+  if (!association) return undefined;
+  return inventory.tabs.find(
+    (tab) =>
+      tab.windowId === association.chromeWindowId &&
+      tab.chromeGroupId === association.chromeGroupId &&
+      !tab.incognito &&
+      isRoutableUrl(tab.url) &&
+      !isTabInSharedGroup(tab, inventory)
+  );
 }
 
 function findMatchingNonSharedTab(
@@ -159,11 +179,9 @@ export function calculatePersistentRepairs(
 
   if (matchingTab) {
     const url = matchingTab.url ?? "";
-    const canonicalMatch = matchesAcceptedUrl(
-      url,
-      definition.canonicalUrl,
-      definition.acceptedPatterns
-    );
+    const canonicalMatch =
+      url === definition.canonicalUrl ||
+      matchesAcceptedUrl(url, definition.canonicalUrl, definition.acceptedPatterns);
     const inCorrectGroup = isInTargetManagedGroup(
       matchingTab,
       definition,
@@ -171,7 +189,7 @@ export function calculatePersistentRepairs(
       context.associations
     );
 
-    if (!canonicalMatch && url !== definition.canonicalUrl) {
+    if (!canonicalMatch) {
       return [
         {
           definitionId: definition.id,
@@ -194,6 +212,22 @@ export function calculatePersistentRepairs(
     }
 
     return [];
+  }
+
+  const inGroupTab = findTabInManagedGroup(
+    definition,
+    inventory,
+    context.associations
+  );
+  if (inGroupTab) {
+    return [
+      {
+        definitionId: definition.id,
+        action: "reclassifyAndRecreate",
+        targetManagedGroupId: definition.managedGroupId,
+        actions: buildRecreateActions(definition, managedGroup, homeWindow)
+      }
+    ];
   }
 
   return [
@@ -241,6 +275,56 @@ export function planRepairForTab(
   return repairs;
 }
 
+export function planPersistentTabOrdering(
+  group: ManagedGroup,
+  configuration: Configuration,
+  inventory: ChromeInventory,
+  associations: readonly ChromeAssociation[],
+  windowId: number
+): PlannedAction[] {
+  const association = associations.find(
+    (candidate) =>
+      candidate.managedGroupId === group.id &&
+      candidate.chromeWindowId === windowId
+  );
+  if (!association) return [];
+
+  const definitions = persistentTabsForGroup(configuration, group.id);
+  if (definitions.length === 0) return [];
+
+  const groupTabs = inventory.tabs
+    .filter(
+      (tab) =>
+        tab.windowId === windowId &&
+        tab.chromeGroupId === association.chromeGroupId
+    )
+    .sort((left, right) => left.index - right.index);
+
+  const actions: PlannedAction[] = [];
+  let targetIndex = 0;
+
+  for (const definition of definitions) {
+    const tab = groupTabs.find((candidate) => {
+      if (isTabInSharedGroup(candidate, inventory)) return false;
+      return matchesPersistentDefinition(tabSnapshotFromChrome(candidate), definition);
+    });
+    if (!tab) continue;
+    if (tab.index !== targetIndex) {
+      actions.push({
+        id: actionId(),
+        dependsOn: [],
+        kind: "reorderTabs",
+        tabs: [tabRef(tab.id)],
+        windowId,
+        index: targetIndex
+      });
+    }
+    targetIndex += 1;
+  }
+
+  return actions;
+}
+
 export function planPersistentRestore(
   configuration: Configuration,
   inventory: ChromeInventory,
@@ -274,6 +358,16 @@ export function planPersistentRestore(
         actions.push(...repair.actions);
       }
     }
+
+    actions.push(
+      ...planPersistentTabOrdering(
+        group,
+        configuration,
+        inventory,
+        context.associations,
+        homeWindow
+      )
+    );
 
     const association = context.associations.find(
       (candidate) => candidate.managedGroupId === group.id

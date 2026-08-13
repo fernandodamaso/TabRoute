@@ -95,6 +95,7 @@ export async function advanceStartupSettlement(input: {
     return { kind: "waiting", session };
   }
 
+  const quietElapsed = now - session.startupRestore!.lastRelevantEventAt;
   if (quietElapsed < timing.quietMs) {
     return { kind: "waiting", session };
   }

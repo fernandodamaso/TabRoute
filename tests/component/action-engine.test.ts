@@ -258,4 +258,62 @@ describe("action engine", () => {
     expect(result.errorCode).toBe("SURVIVOR_INVALID");
     expect(fake.callsFor("removeTabs")).toEqual([]);
   });
+
+  it("reorderTabs moves tabs through the mutation port", async () => {
+    const fake = createFakeChromePort({
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+      tabs: [
+        {
+          id: 3,
+          windowId: 1,
+          index: 2,
+          chromeGroupId: 10,
+          url: "https://docs.example.com/guide",
+          title: "Guide",
+          pinned: false,
+          active: false,
+          incognito: false,
+          lastAccessed: 1
+        }
+      ],
+      groups: [
+        {
+          id: 10,
+          windowId: 1,
+          title: "Docs",
+          color: "blue",
+          collapsed: false,
+          shared: false
+        }
+      ],
+      capturedAt: 1
+    });
+    const configuration = createDefaultConfiguration(() => createUuid());
+    const local = createMemoryLocalRepository();
+    const plan = buildActionPlan("reconcile", [
+      {
+        id: createUuid() as unknown as ActionId,
+        dependsOn: [],
+        kind: "reorderTabs",
+        tabs: [{ kind: "live", tabId: 3 }],
+        windowId: 1,
+        index: 0
+      }
+    ]);
+    const result = await executeActionPlan(plan, {
+      reads: fake,
+      mutations: fake,
+      checkpoints: createPreMutationCheckpointService({
+        local,
+        captureContext: async () => ({ configuration, ownership: {} })
+      }),
+      local,
+      session: createMemorySessionRepository(),
+      configuration,
+      now: () => 1,
+      delay: async () => undefined
+    });
+    expect(result.status).toBe("success");
+    expect(fake.callsFor("moveTabs")).toEqual([[[3], 1, 0]]);
+  });
 });

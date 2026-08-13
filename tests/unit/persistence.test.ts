@@ -4,15 +4,21 @@ import { validateConfiguration } from "../../src/domain/schemas";
 import type { Configuration, PersistentTab, UUID } from "../../src/domain/types";
 import { deriveCanonicalUrl, isValidCanonicalUrl, matchesAcceptedUrl } from "../../src/persistence/acceptedUrl";
 import {
+  calculatePersistentRepairs,
+  planPersistentRestore,
+  planPersistentTabOrdering,
+  type RestoreContext
+} from "../../src/persistence/startupRestore";
+import {
+  collectLiveMemberUrls,
   isGroupEligibleForRepair,
   matchesPersistentDefinition,
   persistentTabsForGroup
 } from "../../src/persistence/requirements";
 import {
-  calculatePersistentRepairs,
-  planPersistentRestore,
-  type RestoreContext
-} from "../../src/persistence/startupRestore";
+  makePersistentDefinition,
+  pinGroupDefinitions
+} from "../../src/persistence/persistentCommands";
 import {
   advanceStartupSettlement,
   beginStartupRestore,
@@ -234,6 +240,295 @@ describe("startup restore planning", () => {
       1
     );
     expect(repairs).toEqual([]);
+  });
+
+  it("recreates a missing canonical tab when the group has no member tabs", () => {
+    const config = configuration();
+    const context = restoreContext(config);
+    const inventory = {
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      tabs: [],
+      groups: [
+        {
+          id: 11,
+          windowId: 1,
+          title: "Docs",
+          color: "blue" as const,
+          collapsed: false,
+          shared: false
+        }
+      ],
+      capturedAt: 1
+    };
+    const repairs = calculatePersistentRepairs(
+      config.persistentTabs[0]!,
+      inventory,
+      context,
+      1
+    );
+    expect(repairs[0]?.action).toBe("recreate");
+  });
+
+  it("reclassifies a navigated required tab and recreates the canonical URL in background", () => {
+    const config = configuration();
+    const context = restoreContext(config);
+    const inventory = {
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      tabs: [
+        {
+          id: 8,
+          windowId: 1,
+          index: 0,
+          chromeGroupId: 11,
+          url: "https://github.com/",
+          title: "GitHub",
+          pinned: false,
+          active: true,
+          incognito: false as const,
+          lastAccessed: 1
+        }
+      ],
+      groups: [
+        {
+          id: 11,
+          windowId: 1,
+          title: "Docs",
+          color: "blue" as const,
+          collapsed: false,
+          shared: false
+        }
+      ],
+      capturedAt: 1
+    };
+    const repairs = calculatePersistentRepairs(
+      config.persistentTabs[0]!,
+      inventory,
+      context,
+      1
+    );
+    expect(repairs[0]).toEqual(
+      expect.objectContaining({
+        action: "reclassifyAndRecreate",
+        targetManagedGroupId: groupId
+      })
+    );
+  });
+
+  it("creates a managed canonical copy when only a shared-group tab matches", () => {
+    const config = configuration();
+    const context = restoreContext(config);
+    const inventory = {
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      tabs: [
+        {
+          id: 9,
+          windowId: 1,
+          index: 0,
+          chromeGroupId: 99,
+          url: "https://docs.example.com/guide",
+          title: "Shared copy",
+          pinned: false,
+          active: false,
+          incognito: false as const,
+          lastAccessed: 1
+        }
+      ],
+      groups: [
+        {
+          id: 11,
+          windowId: 1,
+          title: "Docs",
+          color: "blue" as const,
+          collapsed: false,
+          shared: false
+        },
+        {
+          id: 99,
+          windowId: 1,
+          title: "Shared",
+          color: "grey" as const,
+          collapsed: false,
+          shared: true
+        }
+      ],
+      capturedAt: 1
+    };
+    const repairs = calculatePersistentRepairs(
+      config.persistentTabs[0]!,
+      inventory,
+      context,
+      1
+    );
+    expect(repairs[0]?.action).toBe("recreate");
+    expect(
+      repairs.flatMap((repair) => repair.actions).some((action) => action.kind === "createTab")
+    ).toBe(true);
+  });
+
+  it("orders persistent tabs before temporary members in restore plans", () => {
+    const config = configuration();
+    const context = restoreContext(config);
+    const inventory = {
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      tabs: [
+        {
+          id: 10,
+          windowId: 1,
+          index: 0,
+          chromeGroupId: 11,
+          url: "https://temp.example.com/",
+          title: "Temp",
+          pinned: false,
+          active: false,
+          incognito: false as const,
+          lastAccessed: 1
+        },
+        {
+          id: 11,
+          windowId: 1,
+          index: 1,
+          chromeGroupId: 11,
+          url: "https://docs.example.com/guide",
+          title: "Guide",
+          pinned: false,
+          active: false,
+          incognito: false as const,
+          lastAccessed: 2
+        }
+      ],
+      groups: [
+        {
+          id: 11,
+          windowId: 1,
+          title: "Docs",
+          color: "blue" as const,
+          collapsed: false,
+          shared: false
+        }
+      ],
+      capturedAt: 1
+    };
+    const group = config.groups.find((candidate) => candidate.id === groupId)!;
+    const ordering = planPersistentTabOrdering(
+      group,
+      config,
+      inventory,
+      context.associations,
+      1
+    );
+    expect(ordering).toEqual([
+      expect.objectContaining({
+        kind: "reorderTabs",
+        tabs: [{ kind: "live", tabId: 11 }],
+        windowId: 1,
+        index: 0
+      })
+    ]);
+  });
+});
+
+describe("pin group commands", () => {
+  it("collects live routable member URLs from the associated chrome group", () => {
+    const config = configuration({
+      duplicateSettings: {
+        ...configuration().duplicateSettings,
+        trackingParameters: ["utm_source"]
+      }
+    });
+    const urls = collectLiveMemberUrls(
+      groupId,
+      config,
+      {
+        windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+        tabs: [
+          {
+            id: 1,
+            windowId: 1,
+            index: 0,
+            chromeGroupId: 11,
+            url: "https://docs.example.com/guide?utm_source=x",
+            title: "Guide",
+            pinned: false,
+            active: false,
+            incognito: false,
+            lastAccessed: 1
+          },
+          {
+            id: 2,
+            windowId: 1,
+            index: 1,
+            chromeGroupId: 11,
+            url: "https://temp.example.com/",
+            title: "Temp",
+            pinned: false,
+            active: false,
+            incognito: false,
+            lastAccessed: 2
+          }
+        ],
+        groups: [
+          {
+            id: 11,
+            windowId: 1,
+            title: "Docs",
+            color: "blue",
+            collapsed: false,
+            shared: false
+          }
+        ],
+        capturedAt: 1
+      },
+      restoreContext(config).associations,
+      1
+    );
+    expect(urls).toEqual([
+      "https://docs.example.com/guide",
+      "https://temp.example.com/"
+    ]);
+  });
+
+  it("pins only current members and drops stale persistent definitions", () => {
+    const config = configuration({
+      persistentTabs: [
+        ...configuration().persistentTabs,
+        {
+          schemaVersion: 1,
+          id: "00000000-0000-4000-8000-000000000020" as UUID,
+          managedGroupId: groupId,
+          canonicalUrl: "https://stale.example.com/",
+          acceptedPatterns: ["https://stale.example.com/"],
+          order: 1,
+          createdAt: 1,
+          updatedAt: 1
+        }
+      ]
+    });
+    const pinned = pinGroupDefinitions(
+      config,
+      groupId,
+      ["https://docs.example.com/guide"],
+      () => 2
+    );
+    expect(pinned.groups.find((group) => group.id === groupId)?.isPersistent).toBe(true);
+    expect(pinned.persistentTabs.filter((tab) => tab.managedGroupId === groupId)).toHaveLength(1);
+    expect(pinned.persistentTabs[0]?.canonicalUrl).toBe("https://docs.example.com/guide");
+  });
+
+  it("makePersistent is idempotent for the same canonical URL", () => {
+    const config = configuration();
+    const first = makePersistentDefinition(
+      config,
+      groupId,
+      "https://docs.example.com/guide",
+      () => 2
+    );
+    const second = makePersistentDefinition(
+      first,
+      groupId,
+      "https://docs.example.com/guide",
+      () => 3
+    );
+    expect(second.persistentTabs.filter((tab) => tab.managedGroupId === groupId)).toHaveLength(1);
   });
 });
 

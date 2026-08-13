@@ -331,8 +331,23 @@ async function executePlannedAction(
       );
       return { status: "success" };
     }
-    case "reorderTabs":
+    case "reorderTabs": {
+      const tabIds = action.tabs
+        .map((ref) => resolveTabRef(ref, outputs, inventory))
+        .filter((id): id is number => id !== undefined);
+      if (tabIds.length === 0) return { status: "failure", errorCode: "TAB_MISSING" };
+      await executeWithRetry(
+        () =>
+          deps.mutations.moveTabs(
+            tabIds as [number, ...number[]],
+            action.windowId,
+            action.index
+          ),
+        refresh,
+        delay
+      );
       return { status: "success" };
+    }
     default:
       return { status: "failure", errorCode: "UNSUPPORTED" };
   }

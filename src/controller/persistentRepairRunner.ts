@@ -17,6 +17,7 @@ import {
 } from "../persistence/windowOwnership";
 import {
   planPersistentRestore,
+  planPersistentTabOrdering,
   planRepairForTab,
   repairsForClosedTab,
   type RestoreContext
@@ -50,10 +51,32 @@ export async function buildRestoreContext(input: {
 export async function executePersistentRepairs(input: {
   repairs: import("../persistence/startupRestore").PersistentRepair[];
   actionDeps: ActionEngineDeps;
+  associations: readonly import("../domain/types").ChromeAssociation[];
 }): Promise<boolean> {
-  const actions = input.repairs.flatMap((repair) => repair.actions);
-  if (actions.length === 0) return false;
-  const plan = buildActionPlan("reconcile", actions);
+  const repairActions = input.repairs.flatMap((repair) => repair.actions);
+  if (repairActions.length === 0) return false;
+
+  const groupIds = [...new Set(input.repairs.map((repair) => repair.targetManagedGroupId))];
+  let inventory = await input.actionDeps.reads.readInventory();
+  const ordering = groupIds.flatMap((managedGroupId) => {
+    const group = input.actionDeps.configuration.groups.find(
+      (candidate) => candidate.id === managedGroupId
+    );
+    if (!group) return [];
+    const association = input.associations.find(
+      (candidate) => candidate.managedGroupId === managedGroupId
+    );
+    if (!association) return [];
+    return planPersistentTabOrdering(
+      group,
+      input.actionDeps.configuration,
+      inventory,
+      input.associations,
+      association.chromeWindowId
+    );
+  });
+
+  const plan = buildActionPlan("reconcile", [...repairActions, ...ordering]);
   const result = await executeActionPlan(plan, input.actionDeps);
   return result.status === "success";
 }
@@ -194,7 +217,11 @@ export async function repairTabIfNeeded(input: {
   });
   const repairs = planRepairForTab(input.tab, input.inventory, context);
   if (repairs.length === 0) return false;
-  return executePersistentRepairs({ repairs, actionDeps: input.actionDeps });
+  return executePersistentRepairs({
+    repairs,
+    actionDeps: input.actionDeps,
+    associations: input.associations
+  });
 }
 
 export async function repairClosedTabIfNeeded(input: {
@@ -219,7 +246,11 @@ export async function repairClosedTabIfNeeded(input: {
     context
   );
   if (repairs.length === 0) return false;
-  return executePersistentRepairs({ repairs, actionDeps: input.actionDeps });
+  return executePersistentRepairs({
+    repairs,
+    actionDeps: input.actionDeps,
+    associations: input.associations
+  });
 }
 
 export async function updateOwnershipFromInventory(input: {

@@ -76,8 +76,7 @@ export function PersistentTabsSection({
               kind: "manager-command",
               command: {
                 kind: "pinGroup",
-                managedGroupId,
-                memberUrls: sorted.map((tab) => tab.canonicalUrl)
+                managedGroupId
               }
             })
           }

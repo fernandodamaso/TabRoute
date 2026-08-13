@@ -6,7 +6,7 @@ import type {
   TabSnapshot,
   UUID
 } from "../domain/types";
-import { matchesAcceptedUrl } from "./acceptedUrl";
+import { deriveCanonicalUrl, matchesAcceptedUrl } from "./acceptedUrl";
 
 export function persistentTabsForGroup(
   configuration: Configuration,
@@ -68,4 +68,43 @@ export function isTabInSharedGroup(
 ): boolean {
   const group = inventory.groups.find((candidate) => candidate.id === tab.chromeGroupId);
   return group?.shared === true;
+}
+
+export function collectLiveMemberUrls(
+  managedGroupId: UUID,
+  configuration: Configuration,
+  inventory: ChromeInventory,
+  associations: readonly { managedGroupId: UUID; chromeGroupId: number; chromeWindowId: number }[],
+  preferredWindowId?: number
+): string[] {
+  const groupAssociations = associations.filter(
+    (candidate) => candidate.managedGroupId === managedGroupId
+  );
+  if (groupAssociations.length === 0) return [];
+
+  let association =
+    preferredWindowId !== undefined
+      ? groupAssociations.find(
+          (candidate) => candidate.chromeWindowId === preferredWindowId
+        )
+      : undefined;
+  association ??= groupAssociations[0]!;
+
+  const chromeGroup = inventory.groups.find(
+    (group) =>
+      group.id === association.chromeGroupId &&
+      group.windowId === association.chromeWindowId
+  );
+  if (!chromeGroup || chromeGroup.shared) return [];
+
+  return inventory.tabs
+    .filter(
+      (tab) =>
+        tab.windowId === association.chromeWindowId &&
+        tab.chromeGroupId === association.chromeGroupId &&
+        !tab.incognito &&
+        isRoutableUrl(tab.url)
+    )
+    .sort((left, right) => left.index - right.index)
+    .map((tab) => deriveCanonicalUrl(tab.url!, configuration.duplicateSettings));
 }

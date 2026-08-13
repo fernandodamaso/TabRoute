@@ -122,12 +122,20 @@ export function pinGroupDefinitions(
   now: () => number,
   randomUuid: () => string = () => crypto.randomUUID()
 ): Configuration {
-  let next = {
+  const canonicalMembers = memberUrls.map((url) =>
+    deriveCanonicalUrl(url, configuration.duplicateSettings)
+  );
+  const memberSet = new Set(canonicalMembers);
+  let next: Configuration = {
     ...configuration,
     groups: configuration.groups.map((group) =>
       group.id === managedGroupId
         ? { ...group, isPersistent: true, updatedAt: now() }
         : group
+    ),
+    persistentTabs: configuration.persistentTabs.filter(
+      (tab) =>
+        tab.managedGroupId !== managedGroupId || memberSet.has(tab.canonicalUrl)
     ),
     updatedAt: now()
   };

@@ -2,6 +2,7 @@ import { expect, it, vi } from "vitest";
 import { createDefaultConfiguration, createManagedGroup } from "../../src/domain/defaults";
 import { createManagerMessageRouter } from "../../src/background/managerMessageRouter";
 import type { ActivityManagerPort } from "../../src/background/managerMessageRouter";
+import type { ChromeInventory } from "../../src/domain/types";
 import type {
   ManagerCommand,
   ManagerResponse,
@@ -179,12 +180,93 @@ it("serializes concurrent mutations against the latest persisted configuration",
   expect(save).toHaveBeenCalledTimes(2);
 });
 
+it("pins a group from live inventory members instead of stale configuration URLs", async () => {
+  const initial = setup().initial;
+  let configuration = initial;
+  const inventory: ChromeInventory = {
+    windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+    tabs: [
+      {
+        id: 10,
+        windowId: 1,
+        index: 0,
+        chromeGroupId: 42,
+        url: "https://live.example.com/page",
+        title: "Live",
+        pinned: false,
+        active: false,
+        incognito: false,
+        lastAccessed: 1
+      }
+    ],
+    groups: [
+      {
+        id: 42,
+        windowId: 1,
+        title: "Work",
+        color: "blue",
+        collapsed: false,
+        shared: false
+      }
+    ],
+    capturedAt: 1
+  };
+  const save = vi.fn(async (next) => {
+    configuration = next;
+  });
+  const replaceConfiguration = vi.fn(async (next) => {
+    configuration = next;
+  });
+  const router = createManagerMessageRouter({
+    repository: { save },
+    controller: {
+      getConfiguration: () => configuration,
+      replaceConfiguration
+    },
+    activity: activityPort(),
+    inventory: {
+      readInventory: async () => inventory,
+      loadPreferredWindowId: async () => 1,
+      loadAssociations: async () => [
+        {
+          managedGroupId: groupId as never,
+          chromeGroupId: 42,
+          chromeWindowId: 1,
+          observedTitle: "Work",
+          observedMemberUrls: ["https://live.example.com/page"],
+          observedAt: 1
+        }
+      ]
+    },
+    randomUuid: () => "00000000-0000-4000-8000-000000000010",
+    now: () => 5
+  });
+
+  const response = await router.handle({
+    kind: "manager-command",
+    command: { kind: "pinGroup", managedGroupId: groupId as never }
+  });
+
+  expect(response.ok).toBe(true);
+  const group = configuration.groups.find((item) => item.id === groupId);
+  expect(group?.isPersistent).toBe(true);
+  expect(configuration.persistentTabs).toEqual([
+    expect.objectContaining({
+      managedGroupId: groupId,
+      canonicalUrl: "https://live.example.com/page",
+      order: 0
+    })
+  ]);
+});
+
 it("declares all manager commands as one exhaustive typed union", () => {
   const commands: ManagerCommand["command"]["kind"][] = [
     "updateGroup", "createGroup", "deleteGroup", "saveRule", "duplicateRule",
-    "deleteRule", "setRuleEnabled", "setRulePaused", "undo", "clearActivity"
+    "deleteRule", "setRuleEnabled", "setRulePaused", "undo", "clearActivity",
+    "savePersistentTab", "removePersistent", "reorderPersistentTabs", "pinGroup",
+    "makePersistent", "setRestorePersistentGroups"
   ];
-  expect(commands).toHaveLength(10);
+  expect(commands).toHaveLength(16);
 });
 
 it("keeps typed transport records and failures in the manager contract", () => {

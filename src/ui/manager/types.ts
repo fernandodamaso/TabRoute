@@ -41,7 +41,7 @@ export type ManagerCommandPayload =
   | { kind: "savePersistentTab"; draft: PersistentTabDraft }
   | { kind: "removePersistent"; persistentTabId: UUID }
   | { kind: "reorderPersistentTabs"; managedGroupId: UUID; orderedIds: readonly UUID[] }
-  | { kind: "pinGroup"; managedGroupId: UUID; memberUrls: readonly string[] }
+  | { kind: "pinGroup"; managedGroupId: UUID }
   | { kind: "makePersistent"; managedGroupId: UUID; url: string }
   | { kind: "setRestorePersistentGroups"; enabled: boolean };
 
