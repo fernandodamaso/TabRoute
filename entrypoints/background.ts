@@ -295,7 +295,8 @@ export default defineBackground(() => {
         message.kind !== "manager-query" &&
         message.kind !== "manager-command" &&
         message.kind !== "activity-query" &&
-        message.kind !== "snapshots-query"
+        message.kind !== "snapshots-query" &&
+        message.kind !== "diagnostics-query"
       )
         return undefined;
       void ready
