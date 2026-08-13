@@ -37,7 +37,9 @@ test("default scenario", async () => {
     expect(result.extensionId).toMatch(/^[a-p]{32}$/);
     expect(result.url).toContain(`chrome-extension://${result.extensionId}/options.html`);
     expect(result.screenshotPaths.length).toBeGreaterThan(0);
-    const screenshot = path.join(process.cwd(), ".workbench", "artifacts", result.runId, result.screenshotPaths[0]);
+    const screenshotName = result.screenshotPaths[0];
+    if (!screenshotName) throw new Error("missing screenshot path");
+    const screenshot = path.join(process.cwd(), ".workbench", "artifacts", result.runId, screenshotName);
     await access(screenshot);
     const previewAssertion = result.assertions.find((assertion) => assertion.name === "workbench-preview-dimensions");
     expect(previewAssertion?.passed).toBe(true);

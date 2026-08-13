@@ -1,5 +1,6 @@
 import path from "node:path";
 import type {
+  ArtifactKind,
   ArtifactLimitSource,
   CapacityFailure,
   CleanupFailure,
@@ -12,7 +13,7 @@ import type {
   WorkerTimeoutFailure
 } from "./contracts";
 import { boundedError } from "./contracts";
-import { createArtifactStore } from "./artifacts";
+import { createArtifactStore, encodeUtf8 } from "./artifacts";
 
 export function formatRetainedResultPath(resultPath: string): string {
   return `Workbench result: ${path.resolve(resultPath)}`;
@@ -24,16 +25,27 @@ export function printRetainedResultPath(resultPath: string): void {
 
 export interface ResultWriter {
   write(result: RunResult): Promise<string>;
+  writeArtifact(relativePath: string, bytes: Uint8Array, kind: ArtifactKind): Promise<void>;
+  appendLog(event: { source: string; name: string; details?: Record<string, string | number | boolean> }): Promise<void>;
   finalize(status: "completed" | "failed" | "abandoned"): Promise<void>;
 }
 
 export function createResultWriter(artifactPath: string, runId: string): ResultWriter {
   const store = createArtifactStore({ root: artifactPath, runId });
   const resultPath = path.join(artifactPath, "results.json");
+  const logLines: string[] = [];
   return {
     async write(result) {
       await store.writeRequiredResult(result as ArtifactLimitSource & RunResult);
       return resultPath;
+    },
+    async writeArtifact(relativePath, bytes, kind) {
+      await store.write(relativePath, bytes, kind);
+    },
+    async appendLog(event) {
+      const details = event.details ? JSON.stringify(event.details) : "";
+      logLines.push(`${new Date().toISOString()} ${event.source} ${event.name} ${details}`.trimEnd());
+      await store.write("runner.log", encodeUtf8(`${logLines.join("\n")}\n`), "log");
     },
     async finalize(status) {
       await store.finalize(status);
@@ -42,7 +54,8 @@ export function createResultWriter(artifactPath: string, runId: string): ResultW
 }
 
 export function workerTimeoutFailure(
-  metadata: Omit<WorkerTimeoutFailure, "ok" | "status" | "code" | "phase" | "error">
+  metadata: Omit<WorkerTimeoutFailure, "ok" | "status" | "code" | "phase" | "error">,
+  message = "extension service worker was not discovered before the deadline"
 ): WorkerTimeoutFailure {
   return {
     ...metadata,
@@ -50,12 +63,13 @@ export function workerTimeoutFailure(
     status: "failed",
     code: "WORKBENCH_WORKER_TIMEOUT",
     phase: "worker",
-    error: boundedError({ message: "extension service worker was not discovered before the deadline" })
+    error: boundedError({ message })
   };
 }
 
 export function managerTimeoutFailure(
-  metadata: Omit<ManagerTimeoutFailure, "ok" | "status" | "code" | "phase" | "error">
+  metadata: Omit<ManagerTimeoutFailure, "ok" | "status" | "code" | "phase" | "error">,
+  message = "first manager query did not settle before the deadline"
 ): ManagerTimeoutFailure {
   return {
     ...metadata,
@@ -63,12 +77,12 @@ export function managerTimeoutFailure(
     status: "failed",
     code: "WORKBENCH_MANAGER_TIMEOUT",
     phase: "manager-query",
-    error: boundedError({ message: "first manager query did not settle before the deadline" })
+    error: boundedError({ message })
   };
 }
 
 export function restartFailure(
-  metadata: Omit<RestartFailure, "ok" | "status" | "code" | "error">,
+  metadata: Omit<RestartFailure, "ok" | "status" | "code" | "error" | "phase">,
   phase: "restart-termination" | "restart-wake"
 ): RestartFailure {
   return {

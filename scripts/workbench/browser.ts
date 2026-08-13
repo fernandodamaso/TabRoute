@@ -4,7 +4,8 @@ import { serializeWorkbenchUrl } from "../../src/workbench/url";
 import {
   MANAGER_QUERY_TIMEOUT_MS,
   settleManagerQuery,
-  WORKER_DISCOVERY_TIMEOUT_MS
+  WORKER_DISCOVERY_TIMEOUT_MS,
+  WorkbenchCodedError
 } from "./readiness";
 
 const EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
@@ -69,14 +70,47 @@ export function recordWorkerGeneration(
   generations.push({ id: targetId, discoveredAt });
 }
 
+export async function sendManagerQueryFromPage(page: Page): Promise<unknown> {
+  return page.evaluate(async () => {
+    const chromeApi = (globalThis as {
+      chrome?: {
+        runtime?: {
+          lastError?: { message?: string };
+          sendMessage: (message: unknown, callback?: (response: unknown) => void) => void;
+        };
+      };
+    }).chrome;
+    if (!chromeApi?.runtime?.sendMessage) throw new Error("chrome.runtime.sendMessage unavailable");
+    const runtime = chromeApi.runtime;
+    return await new Promise((resolve, reject) => {
+      runtime.sendMessage({ kind: "manager-query" }, (response) => {
+        const lastError = runtime.lastError?.message;
+        if (lastError) {
+          reject(new Error(lastError));
+          return;
+        }
+        resolve(response);
+      });
+    });
+  });
+}
+
+function extensionPages(context: BrowserContext, extensionId: string): Page[] {
+  return context.pages().filter((page) => page.url().startsWith(`chrome-extension://${extensionId}/`));
+}
+
 async function discoverExtensionId(context: BrowserContext, timeoutMs = WORKER_DISCOVERY_TIMEOUT_MS): Promise<string> {
   const existing = context.serviceWorkers();
-  if (existing.length > 0) return parseExtensionWorkerUrl(existing[0].url());
+  if (existing.length > 0) return parseExtensionWorkerUrl(existing[0]!.url());
   try {
     const worker = await context.waitForEvent("serviceworker", { timeout: timeoutMs });
     return parseExtensionWorkerUrl(worker.url());
   } catch {
-    throw new Error("WORKBENCH_WORKER_TIMEOUT: extension service worker was not discovered before the deadline");
+    throw new WorkbenchCodedError(
+      "WORKBENCH_WORKER_TIMEOUT",
+      "extension service worker was not discovered before the deadline",
+      "worker"
+    );
   }
 }
 
@@ -116,18 +150,23 @@ export async function launchExtensionSession(input: {
   try {
     context = await chromium.launchPersistentContext(input.profilePath, launchOptions);
     const browser = context.browser();
-    if (!browser) throw new Error("WORKBENCH_ARGUMENT: persistent Chromium session has no browser handle");
+    if (!browser) throw new WorkbenchCodedError("WORKBENCH_ARGUMENT", "persistent Chromium session has no browser handle", "argument");
 
     const emit = async (event: RunnerEvent) => {
       if (input.onEvent) await input.onEvent(event);
     };
 
     context.on("console", (message) => {
-      void emit({ source: "page", name: "console", details: { text: message.text() } });
+      const url = message.location().url;
+      const source = url.includes("background") || url.includes("service_worker") ? "worker" as const : "page" as const;
+      void emit({ source, name: "console", details: { text: message.text() } });
     });
     context.on("page", (page) => {
       page.on("pageerror", (error) => {
         void emit({ source: "page", name: "pageerror", details: { message: error.message } });
+      });
+      page.on("crash", () => {
+        void emit({ source: "page", name: "crash", details: { url: page.url() } });
       });
     });
 
@@ -154,38 +193,58 @@ export async function launchExtensionSession(input: {
         try {
           const targets = await listExtensionServiceWorkerTargets(browser);
           const current = targets.find((target) => parseExtensionWorkerUrl(target.url) === extensionId);
-          if (!current) throw new Error("WORKBENCH_WORKER_TIMEOUT: no extension service worker target found");
+          if (!current) {
+            throw new WorkbenchCodedError(
+              "WORKBENCH_WORKER_TIMEOUT",
+              "no extension service worker target found",
+              "restart-termination"
+            );
+          }
           const terminatedTargetId = current.targetId;
           await cdp.send("Target.closeTarget", { targetId: terminatedTargetId });
           const terminated = await waitUntil(async () => {
             const nextTargets = await listExtensionServiceWorkerTargets(browser);
             return !nextTargets.some((target) => target.targetId === terminatedTargetId);
           }, MANAGER_QUERY_TIMEOUT_MS);
-          if (!terminated) throw new Error("WORKBENCH_WORKER_TIMEOUT: restart-termination deadline exceeded");
-
-          const page = await context!.newPage();
-          try {
-            await settleManagerQuery({
-              timeoutMs: MANAGER_QUERY_TIMEOUT_MS,
-              request: () => page.evaluate(async () => {
-                const chromeApi = (globalThis as { chrome?: { runtime?: { sendMessage: (message: unknown) => Promise<unknown> } } }).chrome;
-                if (!chromeApi?.runtime?.sendMessage) throw new Error("chrome.runtime.sendMessage unavailable");
-                return chromeApi.runtime.sendMessage({ kind: "manager-query" });
-              })
-            });
-          } finally {
-            await page.close();
+          if (!terminated) {
+            throw new WorkbenchCodedError(
+              "WORKBENCH_WORKER_TIMEOUT",
+              "extension service worker did not terminate before the deadline",
+              "restart-termination"
+            );
           }
+
+          const page = extensionPages(context!, extensionId)[0] ?? await (async () => {
+            const opened = await context!.newPage();
+            await opened.goto(`chrome-extension://${extensionId}/options.html`);
+            return opened;
+          })();
+          await settleManagerQuery({
+            timeoutMs: MANAGER_QUERY_TIMEOUT_MS,
+            request: () => sendManagerQueryFromPage(page)
+          });
 
           const awakened = await waitUntil(async () => {
             const nextTargets = await listExtensionServiceWorkerTargets(browser);
             return nextTargets.some((target) => target.targetId !== terminatedTargetId && parseExtensionWorkerUrl(target.url) === extensionId);
           }, MANAGER_QUERY_TIMEOUT_MS);
-          if (!awakened) throw new Error("WORKBENCH_WORKER_TIMEOUT: restart-wake deadline exceeded");
+          if (!awakened) {
+            throw new WorkbenchCodedError(
+              "WORKBENCH_WORKER_TIMEOUT",
+              "extension service worker did not wake before the deadline",
+              "restart-wake"
+            );
+          }
 
           const awakenedTarget = (await listExtensionServiceWorkerTargets(browser))
             .find((target) => target.targetId !== terminatedTargetId && parseExtensionWorkerUrl(target.url) === extensionId);
-          if (!awakenedTarget) throw new Error("WORKBENCH_WORKER_TIMEOUT: awakened service worker target missing");
+          if (!awakenedTarget) {
+            throw new WorkbenchCodedError(
+              "WORKBENCH_WORKER_TIMEOUT",
+              "awakened service worker target missing",
+              "restart-wake"
+            );
+          }
           recordWorkerGeneration(workerGenerations, awakenedTarget.targetId, new Date().toISOString());
           return { terminatedTargetId, awakenedTargetId: awakenedTarget.targetId };
         } finally {

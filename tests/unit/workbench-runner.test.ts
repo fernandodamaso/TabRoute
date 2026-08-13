@@ -84,6 +84,17 @@ describe("Chromium extension lifecycle contracts", () => {
     expect(isReceivingEndStartupRace(new Error("connection closed"))).toBe(false);
   });
 
+  it("does not extend the manager-query deadline when the receiving-end race persists", async () => {
+    let now = 0;
+    const request = vi.fn().mockRejectedValue(new Error("Receiving end does not exist"));
+    await expect(settleManagerQuery({
+      request,
+      now: () => now,
+      sleep: async (milliseconds) => { now += milliseconds; }
+    })).rejects.toThrow("first manager query did not settle before the deadline");
+    expect(now).toBe(MANAGER_QUERY_TIMEOUT_MS);
+  });
+
   it("does not retry any other manager error", async () => {
     const request = vi.fn().mockRejectedValue(new Error("connection closed"));
     await expect(settleManagerQuery({ request })).rejects.toThrow("connection closed");
