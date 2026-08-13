@@ -7,7 +7,7 @@ description: Required operating guide for changes to the TabRoute extension.
 
 ## When this skill applies
 
-Read this entire file before changing any Chrome extension code, tab/group behavior, persistence, startup restoration, rules, duplicate handling, snapshots, context menus, shortcuts, permissions, or related tests.
+Read this entire file before changing any Chrome extension code, tab/group behavior, persistence, startup restoration, rules, duplicate handling, snapshots, context menus, shortcuts, permissions, manager UI, or related tests.
 
 This project is Chrome-only and Manifest V3 in v1. Do not add incognito behavior, notifications, a side panel, a command palette, memory/tab-discard features, browser portability, or feature code not authorized by the approved design.
 
@@ -18,6 +18,8 @@ Always read:
 1. `docs/superpowers/specs/2026-08-08-chrome-tab-manager-design.md`
 2. `docs/chrome-reference/notes/persistence-invariants.md`
 3. `docs/chrome-reference/notes/tab-event-model.md`
+
+For manager UI, fixture scenarios, isolated Chromium e2e, popup smoke, or live inspection, also read `docs/agent-development-workbench.md`. Use `npm run workbench`, `npm run workbench:real`, `npm run test:workbench`, `npm run test:extension`, and `npm run smoke:popup`. Never attach to the user's Chrome.
 
 Then read the relevant note and its official local snapshot in `docs/chrome-reference/vendor/`. If the snapshot is stale or missing, refresh the allowlisted source pack before relying on an API detail. Do not use non-official documentation as the authority for Chrome API semantics.
 
@@ -43,10 +45,11 @@ Then read the relevant note and its official local snapshot in `docs/chrome-refe
 1. State the affected invariant and event path in the change description.
 2. Add or update pure logic tests first for every rule, duplicate, or ordering change.
 3. Add component tests using a fake Chrome port for queue, retry, guard, and storage behavior.
-4. Add a real-Chrome integration test when changing Chrome lifecycle, grouping, window, startup, context-menu, command, or service-worker behavior.
-5. Exercise the restart scenario for any persistence or startup change: pre-existing matching tab, missing persistent tab, intentionally closed group, and fallback window.
-6. Verify no new direct Chrome mutation call exists outside the Tab Action Engine.
-7. Update the relevant concise note and source manifest/snapshot metadata if a Chrome API fact changed.
+4. For manager UI, follow the Future UI issue checklist in `docs/agent-development-workbench.md`: Vitest against `ManagerTransport` mocks, fixture updates in `src/workbench/scenarios.ts`, then `npm run test:workbench`. Use `npm run test:extension` when the production graph or MV3 messaging changes, and `npm run smoke:popup` when popup layout or production markers change.
+5. Add a real-Chrome integration test when changing Chrome lifecycle, grouping, window, startup, context-menu, command, or service-worker behavior. Use the workbench runner's isolated Chromium profile, not the user's Chrome.
+6. Exercise the restart scenario for any persistence or startup change: pre-existing matching tab, missing persistent tab, intentionally closed group, and fallback window.
+7. Verify no new direct Chrome mutation call exists outside the Tab Action Engine.
+8. Update the relevant concise note and source manifest/snapshot metadata if a Chrome API fact changed.
 
 ## Phase 0 gate
 
@@ -65,3 +68,4 @@ Run `npm run docs:chrome:validate` for the offline gate. Use `npm run docs:chrom
 - Does every operation guard survive its complete multi-event footprint while allowing a contradictory user drag to win?
 - Are Undo and activity records bounded, local, and non-notifying?
 - Are permission and host-access implications documented and tested?
+- Did manager UI changes ship workbench fixture coverage (`npm run test:workbench`) and, when the production graph or MV3 messaging changed, `npm run test:extension`?

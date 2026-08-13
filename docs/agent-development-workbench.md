@@ -2,6 +2,8 @@
 
 The workbench is TabRoute's Chrome-only, Manifest V3 harness for exercising `ManagerApp` through public browser contracts without touching the user's Chrome profile.
 
+Project instructions in `AGENTS.md` and `skills/chrome-tab-manager/SKILL.md` point here. Read this file before manager UI, fixture, e2e, or live Chromium work.
+
 ## Commands
 
 | npm script        | Purpose                                                                    |

@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 
 const execute = promisify(execFile);
 const adoptionDocPath = path.join("docs", "agent-development-workbench.md");
+const agentsDocPath = path.join("AGENTS.md");
+const skillDocPath = path.join("skills", "chrome-tab-manager", "SKILL.md");
 const expected = {
   "build:workbench": "tsx scripts/workbench/cli.ts build-workbench",
   workbench: "tsx scripts/workbench/cli.ts workbench --mode fixture",
@@ -37,7 +39,8 @@ const adoptionRequirements = [
   "Feature-storage ownership",
   "Never attach to the user's Chrome",
   "Branded Chrome release",
-  "FDM-619"
+  "FDM-619",
+  "AGENTS.md"
 ] as const;
 
 describe("package workbench command contracts", () => {
@@ -48,6 +51,30 @@ describe("package workbench command contracts", () => {
       expect(doc, `missing adoption doc requirement: ${requirement}`).toContain(
         requirement
       );
+  });
+
+  it("points agents to the workbench from AGENTS.md and the chrome-tab-manager skill", async () => {
+    const agentsDoc = await readFile(agentsDocPath, "utf8");
+    const skillDoc = await readFile(skillDocPath, "utf8");
+    const requiredPointers = [
+      "docs/agent-development-workbench.md",
+      "npm run workbench",
+      "npm run workbench:real",
+      "npm run test:workbench",
+      "npm run test:extension",
+      "npm run smoke:popup",
+      "Never attach to the user's Chrome"
+    ] as const;
+    for (const pointer of requiredPointers) {
+      expect(
+        agentsDoc,
+        `AGENTS.md missing workbench pointer: ${pointer}`
+      ).toContain(pointer);
+      expect(
+        skillDoc,
+        `chrome-tab-manager skill missing workbench pointer: ${pointer}`
+      ).toContain(pointer);
+    }
   });
 
   it("publishes the six approved package scripts exactly", async () => {

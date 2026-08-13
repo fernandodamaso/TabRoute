@@ -371,13 +371,7 @@ test("confirmation overlay traps focus and Escape restores it", async () => {
     const confirm = dialog.getByRole("button", { name: "Delete rule" });
     await expect(cancel).toBeFocused();
     await page.keyboard.press("Tab");
-    await expect
-      .poll(async () =>
-        preview
-          .locator(".confirmation-dialog")
-          .evaluate((element) => element.contains(document.activeElement))
-      )
-      .toBe(true);
+    await expect(confirm).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
     await expect(preview.getByRole("heading", { name: "Rules" })).toBeVisible();
