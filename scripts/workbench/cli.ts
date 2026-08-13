@@ -4,7 +4,8 @@ import { pathToFileURL } from "node:url";
 export type CliDispatch =
   | { command: "build-workbench"; action: "build"; graph: "workbench" }
   | { command: "workbench"; action: "run"; graph: "workbench"; mode: "fixture" | "real"; entryPoint: "options.html"; scenario: "wb:default"; once: boolean }
-  | { command: "test-workbench" | "test-extension" | "smoke-popup"; action: "playwright"; spec: string };
+  | { command: "test-workbench" | "smoke-popup"; action: "playwright"; spec: string }
+  | { command: "test-extension"; action: "production-gate" };
 
 function option(args: readonly string[], name: string): string | undefined {
   const index = args.indexOf(name);
@@ -35,20 +36,21 @@ export function parseCliDispatch(args: readonly string[]): CliDispatch {
   if (command === "test-workbench")
     return { command, action: "playwright", spec: "tests/e2e/workbench.spec.ts" };
   if (command === "test-extension")
-    return { command, action: "playwright", spec: "tests/e2e/extension.spec.ts" };
+    return { command, action: "production-gate" };
   if (command === "smoke-popup")
     return { command, action: "playwright", spec: "tests/e2e/popup-smoke.spec.ts" };
   throw new Error(`WORKBENCH_ARGUMENT: unsupported command ${command ?? "<missing>"}`);
 }
 
-async function runPlaywright(spec: string): Promise<void> {
-  const executable = process.platform === "win32" ? "npm.cmd" : "npm";
+async function runPlaywright(spec: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const executable = process.platform === "win32" ? "npx.cmd" : "npx";
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(executable, ["exec", "playwright", "test", spec], {
+    const child = spawn(executable, ["playwright", "test", spec], {
       cwd: process.cwd(),
-      env: process.env,
+      env,
       stdio: "inherit",
-      windowsHide: true
+      windowsHide: true,
+      shell: process.platform === "win32"
     });
     child.once("error", reject);
     child.once("exit", (code, signal) => {
@@ -77,6 +79,29 @@ export async function executeCliDispatch(dispatch: CliDispatch): Promise<void> {
       headless: dispatch.once
     });
     if (!result.ok) process.exitCode = 1;
+    return;
+  }
+  if (dispatch.action === "production-gate") {
+    const { runProductionGate } = await import("./runner");
+    const gate = await runProductionGate(process.cwd());
+    await runPlaywright("tests/e2e/extension.spec.ts", {
+      ...process.env,
+      TABROUTE_PRODUCTION_BUILD_PATH: gate.productionBuildPath,
+      TABROUTE_PRODUCTION_GATE_RESULT_PATH: gate.resultPath
+    });
+    return;
+  }
+  if (dispatch.command === "smoke-popup") {
+    const { buildExtension } = await import("./build");
+    const { scanProductionBuild } = await import("./production-scan");
+    const runId = `popup-smoke-${crypto.randomUUID()}`;
+    const build = await buildExtension({ worktreePath: process.cwd(), runId, graph: "production" });
+    const scan = await scanProductionBuild(build.buildPath);
+    if (!scan.ok) throw new Error(scan.errors.join("; "));
+    await runPlaywright(dispatch.spec, {
+      ...process.env,
+      TABROUTE_PRODUCTION_BUILD_PATH: build.buildPath
+    });
     return;
   }
   await runPlaywright(dispatch.spec);

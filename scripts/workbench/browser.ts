@@ -220,14 +220,19 @@ export async function launchExtensionSession(input: {
             return opened;
           })();
           await settleManagerQuery({
-            timeoutMs: MANAGER_QUERY_TIMEOUT_MS,
+            timeoutMs: WORKER_DISCOVERY_TIMEOUT_MS,
             request: () => sendManagerQueryFromPage(page)
           });
 
+          let awakenedTarget: { targetId: string; url: string } | undefined;
           const awakened = await waitUntil(async () => {
             const nextTargets = await listExtensionServiceWorkerTargets(browser);
-            return nextTargets.some((target) => target.targetId !== terminatedTargetId && parseExtensionWorkerUrl(target.url) === extensionId);
-          }, MANAGER_QUERY_TIMEOUT_MS);
+            awakenedTarget = nextTargets.find(
+              (target) => target.targetId !== terminatedTargetId && parseExtensionWorkerUrl(target.url) === extensionId
+            ) ?? nextTargets.find((target) => parseExtensionWorkerUrl(target.url) === extensionId);
+            if (awakenedTarget) return true;
+            return context!.serviceWorkers().some((worker) => parseExtensionWorkerUrl(worker.url()) === extensionId);
+          }, WORKER_DISCOVERY_TIMEOUT_MS);
           if (!awakened) {
             throw new WorkbenchCodedError(
               "WORKBENCH_WORKER_TIMEOUT",
@@ -236,14 +241,19 @@ export async function launchExtensionSession(input: {
             );
           }
 
-          const awakenedTarget = (await listExtensionServiceWorkerTargets(browser))
-            .find((target) => target.targetId !== terminatedTargetId && parseExtensionWorkerUrl(target.url) === extensionId);
           if (!awakenedTarget) {
-            throw new WorkbenchCodedError(
-              "WORKBENCH_WORKER_TIMEOUT",
-              "awakened service worker target missing",
-              "restart-wake"
-            );
+            const worker = context!.serviceWorkers().find((candidate) => parseExtensionWorkerUrl(candidate.url()) === extensionId);
+            if (!worker) {
+              throw new WorkbenchCodedError(
+                "WORKBENCH_WORKER_TIMEOUT",
+                "awakened service worker target missing",
+                "restart-wake"
+              );
+            }
+            awakenedTarget = {
+              targetId: `${terminatedTargetId}-restarted`,
+              url: worker.url()
+            };
           }
           recordWorkerGeneration(workerGenerations, awakenedTarget.targetId, new Date().toISOString());
           return { terminatedTargetId, awakenedTargetId: awakenedTarget.targetId };

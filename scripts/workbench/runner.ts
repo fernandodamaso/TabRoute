@@ -29,6 +29,12 @@ import {
   successResult,
   workerTimeoutFailure
 } from "./results";
+import {
+  type ProductionGateResult,
+  scanProductionBuild,
+  scanWorkbenchBuild,
+  writeProductionGateResult
+} from "./production-scan";
 
 const CLEANUP_BACKOFF_MS = [250, 500, 1000] as const;
 
@@ -363,4 +369,39 @@ export async function runWorkbench(input: RunWorkbenchInput): Promise<RunResult>
     };
     return await finishWithCleanup(classifyFailure(base, error, session?.extensionId));
   }
+}
+
+export async function runProductionGate(worktreePath: string): Promise<ProductionGateResult> {
+  const resolved = path.resolve(worktreePath);
+  const cwd = path.resolve(process.cwd());
+  if (resolved !== cwd) throw new WorkbenchCodedError("WORKBENCH_ARGUMENT", "worktree must match process.cwd()", "argument");
+
+  const runId = crypto.randomUUID();
+  const workbenchBuild = await buildExtension({ worktreePath: resolved, runId, graph: "workbench" });
+  const workbenchScan = await scanWorkbenchBuild(workbenchBuild.buildPath);
+  if (!workbenchScan.ok) {
+    throw new WorkbenchCodedError("WORKBENCH_ARGUMENT", workbenchScan.errors.join("; "), "argument");
+  }
+
+  const productionBuild = await buildExtension({ worktreePath: resolved, runId, graph: "production" });
+  const productionScan = await scanProductionBuild(productionBuild.buildPath);
+  if (!productionScan.ok) {
+    throw new WorkbenchCodedError("WORKBENCH_ARGUMENT", productionScan.errors.join("; "), "argument");
+  }
+
+  const resultPath = await writeProductionGateResult(resolved, runId, {
+    graph: "production",
+    workbenchBuildPath: workbenchBuild.buildPath,
+    productionBuildPath: productionBuild.buildPath,
+    productionScan: { ok: true }
+  });
+  const result: ProductionGateResult = {
+    graph: "production",
+    resultPath,
+    workbenchBuildPath: workbenchBuild.buildPath,
+    productionBuildPath: productionBuild.buildPath,
+    productionScan: { ok: true }
+  };
+  printRetainedResultPath(resultPath);
+  return result;
 }
