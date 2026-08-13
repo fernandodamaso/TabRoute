@@ -143,6 +143,20 @@ export function scrubRuntimeState(
   const tabIds = new Set(inventory.tabs.map((tab) => tab.id));
   const groupIds = new Set(inventory.groups.map((group) => group.id));
   const windowIds = new Set(inventory.windows.map((window) => window.id));
+  const referencedTabIds = new Set<number>();
+  for (const guard of session.operationGuards) {
+    for (const tabId of guard.tabIds) referencedTabIds.add(tabId);
+  }
+  for (const pending of session.pendingGroupRemovals) {
+    for (const tabId of pending.memberTabIds) referencedTabIds.add(tabId);
+  }
+  const manualOverrides = { ...session.manualOverrides };
+  for (const key of Object.keys(manualOverrides)) {
+    const tabId = Number(key);
+    if (!tabIds.has(tabId) && !referencedTabIds.has(tabId)) {
+      delete manualOverrides[key];
+    }
+  }
   return {
     ...session,
     lastFocusedNormalWindowId:
@@ -150,6 +164,12 @@ export function scrubRuntimeState(
       windowIds.has(session.lastFocusedNormalWindowId)
         ? session.lastFocusedNormalWindowId
         : undefined,
+    tabObservations: session.tabObservations.filter(
+      (observation) =>
+        tabIds.has(observation.tabId) ||
+        referencedTabIds.has(observation.tabId)
+    ),
+    manualOverrides,
     operationGuards: session.operationGuards.map((guard) => ({
       ...guard,
       tabIds: guard.tabIds.filter((tabId) => tabIds.has(tabId)),
@@ -210,9 +230,7 @@ function scrubPostcondition(
       ...(windowId !== undefined && windowIds.has(windowId)
         ? { windowId }
         : {}),
-      ...(chromeGroupId !== undefined && groupIds.has(chromeGroupId)
-        ? { chromeGroupId }
-        : {})
+      ...(chromeGroupId !== undefined ? { chromeGroupId } : {})
     };
   }
   const { windowId, ...rest } = postcondition;

@@ -14,14 +14,20 @@ function urlsOverlap(left: readonly string[], right: readonly string[]): boolean
   return left.some((url) => rightSet.has(url));
 }
 
-function memberTabOverlap(
+function memberEvidenceInGroup(
   pending: PendingGroupRemoval,
+  groupId: number,
   inventory: ChromeInventory
 ): boolean {
-  return inventory.tabs.some(
-    (tab) =>
-      pending.memberTabIds.includes(tab.id) ||
-      pending.memberUrls.includes(tab.url ?? "")
+  const memberUrls = inventory.tabs
+    .filter((tab) => tab.chromeGroupId === groupId)
+    .map((tab) => tab.url ?? "");
+  const memberIds = inventory.tabs
+    .filter((tab) => tab.chromeGroupId === groupId)
+    .map((tab) => tab.id);
+  return (
+    urlsOverlap(pending.memberUrls, memberUrls) ||
+    pending.memberTabIds.some((id) => memberIds.includes(id))
   );
 }
 
@@ -33,13 +39,7 @@ function reconstructionCandidates(
     if (group.shared) return false;
     if (group.windowId === pending.oldWindowId) return false;
     if (group.title !== pending.renderedTitle) return false;
-    const memberUrls = inventory.tabs
-      .filter((tab) => tab.chromeGroupId === group.id)
-      .map((tab) => tab.url ?? "");
-    return (
-      urlsOverlap(pending.memberUrls, memberUrls) ||
-      memberTabOverlap(pending, inventory)
-    );
+    return memberEvidenceInGroup(pending, group.id, inventory);
   });
 }
 
@@ -110,6 +110,18 @@ export function settlePendingGroupRemovals(input: {
     }
     if (candidates.length > 1) continue;
     if (input.now < pending.settleAfter) continue;
+    const hasNormalWindows = input.inventory.windows.some(
+      (window) => window.type === "normal"
+    );
+    if (!hasNormalWindows) {
+      session = {
+        ...session,
+        pendingGroupRemovals: session.pendingGroupRemovals.filter(
+          (record) => record !== pending
+        )
+      };
+      continue;
+    }
     const managed = input.configuration.groups.find(
       (group) => group.id === pending.managedGroupId
     );

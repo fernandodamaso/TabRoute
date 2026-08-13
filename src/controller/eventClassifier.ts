@@ -199,10 +199,27 @@ function writeManualOverride(
 
 function isPlacementChangeEvent(event: ChromeEventHint): boolean {
   return (
-    event.kind === "tabMoved" ||
     event.kind === "tabAttached" ||
     (event.kind === "tabUpdated" && event.groupChanged)
   );
+}
+
+function isPendingGroupMoveAttach(
+  session: RuntimeSession,
+  tabId: number,
+  inventory: ChromeInventory
+): boolean {
+  if (session.pendingGroupRemovals.length === 0) return false;
+  const tab = tabFromInventory(inventory, tabId);
+  if (!tab) return false;
+  return session.pendingGroupRemovals.some((pending) => {
+    if (pending.memberTabIds.includes(tabId)) return true;
+    if (tab.chromeGroupId < 0) return false;
+    return pending.memberTabIds.some((memberId) => {
+      const member = tabFromInventory(inventory, memberId);
+      return member !== undefined && member.chromeGroupId === tab.chromeGroupId;
+    });
+  });
 }
 
 export function classifyChromeEvent(
@@ -288,7 +305,25 @@ export function classifyChromeEvent(
 
   if (isPlacementChangeEvent(event)) {
     const tabId = tabIdFromEvent(event);
-    if (tabId !== undefined && !isSharedGroupMember(inventory, tabId)) {
+    if (tabId !== undefined) {
+      if (isPendingGroupMoveAttach(current, tabId, inventory)) {
+        return { guarded: false, deferred: false, requests: [], session: current };
+      }
+      if (isSharedGroupMember(inventory, tabId)) {
+        current = writeManualOverride(
+          current,
+          tabId,
+          { kind: "leaveWherePlaced" },
+          now
+        );
+        return {
+          guarded: false,
+          deferred: false,
+          manualOverride: current.manualOverrides[String(tabId)],
+          requests: [],
+          session: current
+        };
+      }
       const placement = deriveManualPlacement(
         inventory,
         tabId,

@@ -480,6 +480,150 @@ describe("group lifecycle settlement", () => {
     expect(next.intentionallyClosedGroupIds).toEqual([]);
     expect(next.pendingGroupRemovals).toHaveLength(0);
   });
+
+  it("does not write intentionallyClosedGroupIds when no normal windows remain", () => {
+    const pending = startPendingGroupRemoval({
+      session: session({
+        associations: [
+          {
+            managedGroupId,
+            chromeGroupId: 11,
+            chromeWindowId: 1,
+            observedTitle: "Docs",
+            observedMemberUrls: [],
+            observedAt: 1
+          }
+        ]
+      }),
+      inventoryBeforeRemoval: {
+        windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+        tabs: [],
+        groups: [
+          {
+            id: 11,
+            windowId: 1,
+            title: "Docs",
+            color: "blue",
+            collapsed: false,
+            shared: false
+          }
+        ],
+        capturedAt: 1
+      },
+      removed: {
+        id: 11,
+        windowId: 1,
+        title: "Docs",
+        color: "blue",
+        collapsed: false,
+        shared: false
+      },
+      now: 100
+    });
+    const next = settlePendingGroupRemovals({
+      session: pending,
+      inventory: {
+        windows: [],
+        tabs: [],
+        groups: [],
+        capturedAt: 2
+      },
+      configuration: configuration(true),
+      now: 900
+    });
+    expect(next.intentionallyClosedGroupIds).toEqual([]);
+    expect(next.pendingGroupRemovals).toHaveLength(0);
+  });
+
+  it("requires member evidence inside the candidate group", () => {
+    const pending = startPendingGroupRemoval({
+      session: session({
+        associations: [
+          {
+            managedGroupId,
+            chromeGroupId: 11,
+            chromeWindowId: 1,
+            observedTitle: "Docs",
+            observedMemberUrls: ["https://docs.example.com/"],
+            observedAt: 1
+          }
+        ]
+      }),
+      inventoryBeforeRemoval: {
+        windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+        tabs: [
+          {
+            id: 7,
+            windowId: 1,
+            index: 0,
+            chromeGroupId: 11,
+            url: "https://docs.example.com/",
+            title: "Docs",
+            pinned: false,
+            active: true,
+            incognito: false,
+            lastAccessed: 1
+          }
+        ],
+        groups: [
+          {
+            id: 11,
+            windowId: 1,
+            title: "Docs",
+            color: "blue",
+            collapsed: false,
+            shared: false
+          }
+        ],
+        capturedAt: 1
+      },
+      removed: {
+        id: 11,
+        windowId: 1,
+        title: "Docs",
+        color: "blue",
+        collapsed: false,
+        shared: false
+      },
+      now: 100
+    });
+    const next = settlePendingGroupRemovals({
+      session: pending,
+      inventory: {
+        windows: [{ id: 2, focused: true, incognito: false, type: "normal" }],
+        tabs: [
+          {
+            id: 8,
+            windowId: 2,
+            index: 0,
+            chromeGroupId: -1,
+            url: "https://docs.example.com/",
+            title: "Loose",
+            pinned: false,
+            active: true,
+            incognito: false,
+            lastAccessed: 2
+          }
+        ],
+        groups: [
+          {
+            id: 22,
+            windowId: 2,
+            title: "Docs",
+            color: "blue",
+            collapsed: false,
+            shared: false
+          }
+        ],
+        capturedAt: 2
+      },
+      configuration: configuration(false),
+      now: 900
+    });
+    expect(next.pendingGroupRemovals).toHaveLength(0);
+    expect(next.associations[0]?.chromeGroupId).toBe(11);
+    expect(next.intentionallyClosedGroupIds).toEqual([]);
+  });
 });
 
 describe("GROUP_SETTLEMENT_ALARM", () => {

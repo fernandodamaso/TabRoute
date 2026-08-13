@@ -5,6 +5,7 @@ import { createUuid } from "../domain/ids";
 import type {
   ActionId,
   BrowserSessionId,
+  ChromeInventory,
   OperationGuard,
   UUID
 } from "../domain/types";
@@ -81,8 +82,7 @@ async function saveExecutingGuard(
 async function moveGuardToSettling(
   deps: ActionEngineDeps,
   guardId: UUID,
-  startedAt: number,
-  now: number,
+  verifiedAt: number,
   chromeGroupIds: number[]
 ) {
   const session = await deps.session.loadSession();
@@ -93,8 +93,8 @@ async function moveGuardToSettling(
         ? {
             ...guard,
             phase: "settling" as const,
-            verifiedAt: now,
-            settleAfter: now + GUARD_QUIET_MS,
+            verifiedAt,
+            settleAfter: verifiedAt + GUARD_QUIET_MS,
             chromeGroupIds:
               chromeGroupIds.length > 0 ? chromeGroupIds : guard.chromeGroupIds,
             postcondition:
@@ -144,6 +144,40 @@ export async function executeActionPlan(
     createId
   );
 
+  let verifyTabId = plan.tab.id;
+
+  async function refreshInventory() {
+    const inventory = await chrome.readInventory();
+    const session = await deps.session.loadSession();
+    const currentGuard = session.operationGuards.find(
+      (guard) => guard.id === executingGuard.id
+    );
+    verifyTabId = currentGuard?.tabIds[0] ?? plan.tab.id;
+    return inventory;
+  }
+
+  function shouldAbortRetry(refreshed: unknown): "gone" | "contradiction" | undefined {
+    const inventory = refreshed as ChromeInventory;
+    const subject = findTab(inventory, verifyTabId);
+    if (!subject) return "gone";
+    if (plan.kind === "ungroup") {
+      if (subject.chromeGroupId < 0) return "contradiction";
+      return undefined;
+    }
+    const footprint = buildExpectedFootprint(plan);
+    if (footprint.postcondition?.kind === "tabPlacement") {
+      const postcondition = footprint.postcondition;
+      if (
+        postcondition.chromeGroupId !== undefined &&
+        subject.chromeGroupId >= 0 &&
+        subject.chromeGroupId !== postcondition.chromeGroupId
+      ) {
+        return "contradiction";
+      }
+    }
+    return undefined;
+  }
+
   try {
     if (plan.kind === "ungroup") {
       if (tab.chromeGroupId < 0) {
@@ -152,21 +186,24 @@ export async function executeActionPlan(
       }
       await executeWithRetry(
         () => chrome.ungroupTabs([tab.id]),
-        () => chrome.readInventory(),
-        delay
+        refreshInventory,
+        delay,
+        shouldAbortRetry
       );
-      const verified = await chrome.readInventory();
-      const verifiedTab = findTab(verified, tab.id);
+      const verified = await refreshInventory();
+      const verifiedTab = findTab(verified, verifyTabId);
       if (!verifiedTab || verifiedTab.chromeGroupId >= 0)
         throw new Error("Action Engine ungroup postcondition failed");
-      await moveGuardToSettling(deps, executingGuard.id, now, now, []);
+      const verifiedAt = deps.now?.() ?? Date.now();
+      await moveGuardToSettling(deps, executingGuard.id, verifiedAt, []);
       return { kind: "executed", chromeGroupId: -1, inventory: verified };
     }
 
     const chromeGroupId = await executeWithRetry(
       () => chrome.groupTabs(plan.groupInput),
-      () => chrome.readInventory(),
-      delay
+      refreshInventory,
+      delay,
+      shouldAbortRetry
     );
     await executeWithRetry(
       () =>
@@ -175,20 +212,18 @@ export async function executeActionPlan(
           color: plan.color,
           ...(plan.collapsed === undefined ? {} : { collapsed: plan.collapsed })
         }),
-      () => chrome.readInventory(),
-      delay
+      refreshInventory,
+      delay,
+      shouldAbortRetry
     );
-    const verified = await chrome.readInventory();
-    const verifiedTab = findTab(verified, tab.id);
+    const verified = await refreshInventory();
+    const verifiedTab = findTab(verified, verifyTabId);
     if (!verifiedTab || verifiedTab.chromeGroupId !== chromeGroupId)
       throw new Error("Action Engine postcondition failed");
-    await moveGuardToSettling(
-      deps,
-      executingGuard.id,
-      now,
-      now,
-      [chromeGroupId]
-    );
+    const verifiedAt = deps.now?.() ?? Date.now();
+    await moveGuardToSettling(deps, executingGuard.id, verifiedAt, [
+      chromeGroupId
+    ]);
     return { kind: "executed", chromeGroupId, inventory: verified };
   } catch (error) {
     await removeGuard(deps, executingGuard.id);

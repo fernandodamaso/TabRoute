@@ -71,6 +71,7 @@ export function planRuleRoute(input: {
   tab: ChromeTabSnapshot;
   configuration: Configuration;
   associations: readonly ChromeAssociation[];
+  intentionallyClosedGroupIds?: readonly UUID[];
 }):
   | ActionPlan
   | {
@@ -80,6 +81,11 @@ export function planRuleRoute(input: {
   | { kind: "noop"; reason: "already-in-target" | "already-ungrouped" } {
   const selected = selectRule(input);
   if (!selected) return planFallbackRoute(input);
+  if (
+    input.intentionallyClosedGroupIds?.includes(selected.rule.targetGroupId)
+  ) {
+    return planFallbackRoute(input);
+  }
   const placement = placementAction(selected.rule.actions);
   if (placement === "ungroup") {
     if (input.tab.chromeGroupId < 0)

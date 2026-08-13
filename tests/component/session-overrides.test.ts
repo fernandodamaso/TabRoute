@@ -153,11 +153,10 @@ describe("session overrides", () => {
     });
 
     await controller.handleChromeEvent({
-      kind: "tabMoved",
+      kind: "tabAttached",
       tabId: current.id,
-      windowId: 1,
-      fromIndex: 0,
-      toIndex: 2
+      newWindowId: 1,
+      newPosition: 2
     });
 
     const edited = {
@@ -271,11 +270,10 @@ describe("session overrides", () => {
     });
 
     await controller.handleChromeEvent({
-      kind: "tabMoved",
+      kind: "tabAttached",
       tabId: current.id,
-      windowId: 1,
-      fromIndex: 0,
-      toIndex: 2
+      newWindowId: 1,
+      newPosition: 2
     });
     await controller.handleChromeEvent({
       kind: "tabActivated",

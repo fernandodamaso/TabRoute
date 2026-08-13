@@ -67,13 +67,19 @@ export function parseCliDispatch(args: readonly string[]): CliDispatch {
   );
 }
 
+export const PRODUCTION_GATE_SPECS = [
+  "tests/e2e/extension.spec.ts",
+  "tests/e2e/lifecycle.spec.ts"
+] as const;
+
 async function runPlaywright(
-  spec: string,
+  specs: string | string[],
   env: NodeJS.ProcessEnv = process.env
 ): Promise<void> {
+  const specArgs = Array.isArray(specs) ? specs : [specs];
   const executable = process.platform === "win32" ? "npx.cmd" : "npx";
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(executable, ["playwright", "test", spec], {
+    const child = spawn(executable, ["playwright", "test", ...specArgs], {
       cwd: process.cwd(),
       env,
       stdio: "inherit",
@@ -121,9 +127,7 @@ export async function executeCliDispatch(dispatch: CliDispatch): Promise<void> {
   if (dispatch.action === "production-gate") {
     const { runProductionGate } = await import("./runner");
     const gate = await runProductionGate(process.cwd());
-    await runPlaywright(
-      "tests/e2e/extension.spec.ts tests/e2e/lifecycle.spec.ts",
-      {
+    await runPlaywright([...PRODUCTION_GATE_SPECS], {
       ...process.env,
       TABROUTE_PRODUCTION_BUILD_PATH: gate.productionBuildPath,
       TABROUTE_PRODUCTION_GATE_RESULT_PATH: gate.resultPath

@@ -22,8 +22,14 @@ export function buildExpectedFootprint(
     return {
       operation: "ungroupTabs",
       tabIds: [plan.tab.id],
-      chromeGroupIds: [],
-      expectedEventKinds: ["tabUpdated", "tabMoved", "tabAttached"],
+      chromeGroupIds:
+        plan.tab.chromeGroupId >= 0 ? [plan.tab.chromeGroupId] : [],
+      expectedEventKinds: [
+        "tabUpdated",
+        "tabMoved",
+        "tabAttached",
+        "groupRemoved"
+      ],
       postcondition: {
         kind: "tabPlacement",
         tabIds: [plan.tab.id],
@@ -186,7 +192,10 @@ export function settleOperationGuards(
   now: number
 ): RuntimeSession {
   const operationGuards = session.operationGuards.filter((guard) => {
-    if (guard.phase === "executing") return true;
+    if (guard.phase === "executing") {
+      if (now < guard.expiresAt) return true;
+      return false;
+    }
     const quiet = guard.settleAfter !== undefined && now >= guard.settleAfter;
     const hard = now >= guard.expiresAt;
     if (!quiet && !hard) return true;

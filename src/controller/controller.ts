@@ -34,12 +34,34 @@ export function createTabRouteController(input: {
   const queue: QueueItem[] = [];
   let drainPromise: Promise<void> | undefined;
   let executing = false;
+  let eventChain: Promise<void> = Promise.resolve();
 
   async function currentAssociations(inventory: ChromeInventory) {
-    const stored = await input.session.loadAssociations();
+    const stored = await input.session.loadSession();
+    const groupIds = new Set(inventory.groups.map((group) => group.id));
+    const windowIds = new Set(inventory.windows.map((window) => window.id));
+    const preserved = stored.associations.filter(
+      (association) =>
+        !groupIds.has(association.chromeGroupId) ||
+        !windowIds.has(association.chromeWindowId)
+    );
     const rebuilt = reconstructAssociations(inventory, configuration);
-    const associations = rebuilt.length > 0 ? rebuilt : stored;
-    if (rebuilt.length > 0) await input.session.saveAssociations(associations);
+    const merged = new Map(
+      preserved.map((association) => [
+        `${association.managedGroupId}:${association.chromeWindowId}`,
+        association
+      ])
+    );
+    for (const association of rebuilt) {
+      merged.set(
+        `${association.managedGroupId}:${association.chromeWindowId}`,
+        association
+      );
+    }
+    const associations = [...merged.values()];
+    if (associations.length > 0) {
+      await input.session.saveSession({ ...stored, associations });
+    }
     return associations;
   }
 
@@ -86,7 +108,8 @@ export function createTabRouteController(input: {
       inventory,
       tab: freshTab,
       configuration,
-      associations
+      associations,
+      intentionallyClosedGroupIds: runtime.intentionallyClosedGroupIds
     });
     if (planned.kind === "held" || planned.kind === "noop") return planned;
     executing = true;
@@ -124,11 +147,13 @@ export function createTabRouteController(input: {
   async function flushDeferredTabs() {
     if (pendingTabs.size === 0) return;
     const session = await input.session.loadSession();
-    const hasExecuting = session.operationGuards.some(
-      (guard) => guard.phase === "executing"
-    );
-    if (hasExecuting) return;
     const inventory = await input.chrome.readInventory();
+    const hasBlockingExecuting = session.operationGuards.some(
+      (guard) =>
+        guard.phase === "executing" &&
+        guard.tabIds.some((tabId) => pendingTabs.has(tabId))
+    );
+    if (hasBlockingExecuting) return;
     for (const tabId of [...pendingTabs]) {
       pendingTabs.delete(tabId);
       const tab = inventory.tabs.find((candidate) => candidate.id === tabId);
@@ -153,6 +178,7 @@ export function createTabRouteController(input: {
       }
     })().finally(() => {
       drainPromise = undefined;
+      if (queue.length > 0 && !executing) void drainQueue();
     });
     return drainPromise;
   }
@@ -175,31 +201,37 @@ export function createTabRouteController(input: {
     return { classification, inventory };
   }
 
-  return {
-    async handleChromeEvent(
-      event: ChromeEventHint
-    ): Promise<EventClassification> {
-      const { classification } = await classifyAndSave(event);
-      if (classification.deferred) {
-        for (const request of classification.requests) {
-          if (request.scope.kind === "tab")
-            pendingTabs.add(request.scope.tabId);
-        }
-        const tabId =
-          event.kind === "tabUpdated" ||
-          event.kind === "tabMoved" ||
-          event.kind === "tabAttached" ||
-          event.kind === "tabCreated" ||
-          event.kind === "tabActivated"
-            ? event.tabId
-            : undefined;
-        if (tabId !== undefined) pendingTabs.add(tabId);
-        return classification;
+  async function handleChromeEventInner(
+    event: ChromeEventHint
+  ): Promise<EventClassification> {
+    const { classification } = await classifyAndSave(event);
+    if (classification.deferred) {
+      for (const request of classification.requests) {
+        if (request.scope.kind === "tab")
+          pendingTabs.add(request.scope.tabId);
       }
-      if (classification.manualOverride) return classification;
-      for (const request of classification.requests) enqueue(request);
-      await drainQueue();
+      const tabId =
+        event.kind === "tabUpdated" ||
+        event.kind === "tabMoved" ||
+        event.kind === "tabAttached" ||
+        event.kind === "tabCreated" ||
+        event.kind === "tabActivated"
+          ? event.tabId
+          : undefined;
+      if (tabId !== undefined) pendingTabs.add(tabId);
       return classification;
+    }
+    if (classification.manualOverride) return classification;
+    for (const request of classification.requests) enqueue(request);
+    await drainQueue();
+    return classification;
+  }
+
+  return {
+    handleChromeEvent(event: ChromeEventHint): Promise<EventClassification> {
+      const result = eventChain.then(() => handleChromeEventInner(event));
+      eventChain = result.catch(() => undefined);
+      return result;
     },
     async handleTabUpdated(tab: ChromeTabSnapshot): Promise<ActionResult> {
       if (!isRoutableUrl(tab.url))

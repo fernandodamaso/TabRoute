@@ -17,7 +17,6 @@ import type { UiMessage } from "../src/ui/messages";
 import { applyChromeGroupPresentation } from "../src/groups/displayTitle";
 import { createManagerMessageRouter } from "../src/background/managerMessageRouter";
 import { GROUP_SETTLEMENT_ALARM } from "../src/groups/groupLifecycle";
-import { GUARD_QUIET_MS } from "../src/actions/operationGuards";
 
 function toSnapshot(tab: chrome.tabs.Tab): ChromeTabSnapshot | undefined {
   if (tab.id === undefined || tab.windowId === undefined || tab.incognito)
@@ -89,19 +88,40 @@ export default defineBackground(() => {
 
   let managerRouter: ReturnType<typeof createManagerMessageRouter> | undefined;
   let controller: ReturnType<typeof createTabRouteController> | undefined;
+  const bufferedEvents: ChromeEventHint[] = [];
 
-  async function dispatchEvent(event: ChromeEventHint) {
+  async function scheduleGroupSettlementFromSession() {
+    if (!chrome.alarms?.create) return;
+    const loaded = await session.loadSession();
+    const deadlines = [
+      ...loaded.pendingGroupRemovals.map((pending) => pending.settleAfter),
+      ...loaded.operationGuards
+        .filter(
+          (guard) => guard.phase === "settling" && guard.settleAfter !== undefined
+        )
+        .map((guard) => guard.settleAfter!)
+    ];
+    if (deadlines.length === 0) return;
+    const when = Math.max(Math.min(...deadlines) - Date.now(), 0);
+    await chrome.alarms.create(GROUP_SETTLEMENT_ALARM, {
+      when: Date.now() + when
+    });
+  }
+
+  async function processLifecycleEvent(event: ChromeEventHint) {
     if (!controller) return;
     await controller.handleChromeEvent(event).catch((error: unknown) =>
       console.error("TabRoute lifecycle event failed", error)
     );
+    await scheduleGroupSettlementFromSession();
   }
 
-  async function scheduleGroupSettlementAlarm() {
-    if (!chrome.alarms?.create) return;
-    await chrome.alarms.create(GROUP_SETTLEMENT_ALARM, {
-      when: Date.now() + GUARD_QUIET_MS
-    });
+  function enqueueLifecycleEvent(event: ChromeEventHint) {
+    if (!controller) {
+      bufferedEvents.push(event);
+      return;
+    }
+    void processLifecycleEvent(event);
   }
 
   const ready = (async () => {
@@ -135,6 +155,9 @@ export default defineBackground(() => {
       .catch((error: unknown) =>
         console.error("TabRoute Sync revision application failed", error)
       );
+    for (const event of bufferedEvents.splice(0)) {
+      await processLifecycleEvent(event);
+    }
   })();
 
   chrome.runtime.onMessage.addListener(
@@ -168,159 +191,154 @@ export default defineBackground(() => {
     }
   );
 
-  void ready
-    .then(() => {
-      if (!controller) return;
+  chrome.tabs.onCreated.addListener((tab) => {
+    if (tab.id === undefined) return;
+    enqueueLifecycleEvent({ kind: "tabCreated", tabId: tab.id });
+  });
 
-      chrome.tabs.onCreated.addListener((tab) => {
-        if (tab.id === undefined) return;
-        void dispatchEvent({ kind: "tabCreated", tabId: tab.id });
-      });
-
-      chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-        const snapshot = toSnapshot(tab);
-        if (!snapshot) return;
-        void dispatchEvent({
-          kind: "tabUpdated",
-          tabId,
-          urlChanged: changeInfo.url !== undefined,
-          groupChanged: changeInfo.groupId !== undefined,
-          pinnedChanged: changeInfo.pinned !== undefined
-        });
-      });
-
-      chrome.tabs.onActivated.addListener((activeInfo) => {
-        void dispatchEvent({
-          kind: "tabActivated",
-          tabId: activeInfo.tabId,
-          windowId: activeInfo.windowId
-        });
-      });
-
-      chrome.tabs.onMoved.addListener((tabId, moveInfo) => {
-        void dispatchEvent({
-          kind: "tabMoved",
-          tabId,
-          windowId: moveInfo.windowId,
-          fromIndex: moveInfo.fromIndex,
-          toIndex: moveInfo.toIndex
-        });
-      });
-
-      chrome.tabs.onAttached.addListener((tabId, attachInfo) => {
-        void dispatchEvent({
-          kind: "tabAttached",
-          tabId,
-          newWindowId: attachInfo.newWindowId,
-          newPosition: attachInfo.newPosition
-        });
-      });
-
-      chrome.tabs.onDetached.addListener((tabId, detachInfo) => {
-        void dispatchEvent({
-          kind: "tabDetached",
-          tabId,
-          oldWindowId: detachInfo.oldWindowId,
-          oldPosition: detachInfo.oldPosition
-        });
-      });
-
-      chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
-        void dispatchEvent({
-          kind: "tabRemoved",
-          tabId,
-          windowId: removeInfo.windowId,
-          isWindowClosing: removeInfo.isWindowClosing
-        });
-      });
-
-      chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
-        void dispatchEvent({ kind: "tabReplaced", addedTabId, removedTabId });
-      });
-
-      chrome.tabGroups.onCreated.addListener((group) => {
-        const snapshot = toGroupSnapshot(group);
-        if (!snapshot) return;
-        void dispatchEvent({ kind: "groupCreated", group: snapshot });
-      });
-
-      chrome.tabGroups.onUpdated.addListener((group) => {
-        if (
-          group.id === undefined ||
-          group.windowId === undefined ||
-          group.shared ||
-          !group.title
-        )
-          return;
-        void (async () => {
-          const association = (await session.loadAssociations()).find(
-            (candidate) =>
-              candidate.chromeGroupId === group.id &&
-              candidate.chromeWindowId === group.windowId
-          );
-          if (!association) {
-            const snapshot = toGroupSnapshot(group);
-            if (snapshot)
-              await dispatchEvent({ kind: "groupUpdated", group: snapshot });
-            return;
-          }
-          const current = controller!.getConfiguration();
-          const next = applyChromeGroupPresentation(
-            current,
-            association.managedGroupId,
-            group.title ?? "",
-            (group.color ?? "grey") as ChromeGroupColor
-          );
-          if (JSON.stringify(next) === JSON.stringify(current)) {
-            const snapshot = toGroupSnapshot(group);
-            if (snapshot)
-              await dispatchEvent({ kind: "groupUpdated", group: snapshot });
-            return;
-          }
-          await repository.save(next);
-          await controller!.replaceConfiguration(next);
-        })().catch((error: unknown) =>
-          console.error("TabRoute group presentation sync failed", error)
-        );
-      });
-
-      chrome.tabGroups.onMoved.addListener((group) => {
-        const snapshot = toGroupSnapshot(group);
-        if (!snapshot) return;
-        void dispatchEvent({ kind: "groupMoved", group: snapshot });
-      });
-
-      chrome.tabGroups.onRemoved.addListener((group) => {
-        if (group.id === undefined || group.windowId === undefined) return;
-        void scheduleGroupSettlementAlarm();
-        void dispatchEvent({
-          kind: "groupRemoved",
-          group: {
-            id: group.id,
-            windowId: group.windowId,
-            title: group.title ?? "",
-            color: (group.color ?? "grey") as ChromeGroupColor,
-            collapsed: group.collapsed ?? false,
-            shared: group.shared ?? false
-          }
-        });
-      });
-
-      chrome.windows.onFocusChanged.addListener((windowId) => {
-        void dispatchEvent(focusHint(windowId));
-      });
-
-      chrome.windows.onRemoved.addListener((windowId) => {
-        void dispatchEvent({ kind: "windowRemoved", windowId });
-      });
-
-      chrome.alarms?.onAlarm.addListener((alarm) => {
-        if (alarm.name === GROUP_SETTLEMENT_ALARM) {
-          void dispatchEvent({ kind: "alarm", name: alarm.name });
-        }
-      });
-    })
-    .catch((error: unknown) => {
-      console.error("TabRoute background startup failed", error);
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const snapshot = toSnapshot(tab);
+    if (!snapshot) return;
+    enqueueLifecycleEvent({
+      kind: "tabUpdated",
+      tabId,
+      urlChanged: changeInfo.url !== undefined,
+      groupChanged: changeInfo.groupId !== undefined,
+      pinnedChanged: changeInfo.pinned !== undefined
     });
+  });
+
+  chrome.tabs.onActivated.addListener((activeInfo) => {
+    enqueueLifecycleEvent({
+      kind: "tabActivated",
+      tabId: activeInfo.tabId,
+      windowId: activeInfo.windowId
+    });
+  });
+
+  chrome.tabs.onMoved.addListener((tabId, moveInfo) => {
+    enqueueLifecycleEvent({
+      kind: "tabMoved",
+      tabId,
+      windowId: moveInfo.windowId,
+      fromIndex: moveInfo.fromIndex,
+      toIndex: moveInfo.toIndex
+    });
+  });
+
+  chrome.tabs.onAttached.addListener((tabId, attachInfo) => {
+    enqueueLifecycleEvent({
+      kind: "tabAttached",
+      tabId,
+      newWindowId: attachInfo.newWindowId,
+      newPosition: attachInfo.newPosition
+    });
+  });
+
+  chrome.tabs.onDetached.addListener((tabId, detachInfo) => {
+    enqueueLifecycleEvent({
+      kind: "tabDetached",
+      tabId,
+      oldWindowId: detachInfo.oldWindowId,
+      oldPosition: detachInfo.oldPosition
+    });
+  });
+
+  chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+    enqueueLifecycleEvent({
+      kind: "tabRemoved",
+      tabId,
+      windowId: removeInfo.windowId,
+      isWindowClosing: removeInfo.isWindowClosing
+    });
+  });
+
+  chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
+    enqueueLifecycleEvent({ kind: "tabReplaced", addedTabId, removedTabId });
+  });
+
+  chrome.tabGroups.onCreated.addListener((group) => {
+    const snapshot = toGroupSnapshot(group);
+    if (!snapshot) return;
+    enqueueLifecycleEvent({ kind: "groupCreated", group: snapshot });
+  });
+
+  chrome.tabGroups.onUpdated.addListener((group) => {
+    if (
+      group.id === undefined ||
+      group.windowId === undefined ||
+      group.shared ||
+      !group.title
+    )
+      return;
+    void (async () => {
+      await ready;
+      if (!controller) return;
+      const association = (await session.loadAssociations()).find(
+        (candidate) =>
+          candidate.chromeGroupId === group.id &&
+          candidate.chromeWindowId === group.windowId
+      );
+      if (!association) {
+        const snapshot = toGroupSnapshot(group);
+        if (snapshot) enqueueLifecycleEvent({ kind: "groupUpdated", group: snapshot });
+        return;
+      }
+      const current = controller.getConfiguration();
+      const next = applyChromeGroupPresentation(
+        current,
+        association.managedGroupId,
+        group.title ?? "",
+        (group.color ?? "grey") as ChromeGroupColor
+      );
+      if (JSON.stringify(next) === JSON.stringify(current)) {
+        const snapshot = toGroupSnapshot(group);
+        if (snapshot) enqueueLifecycleEvent({ kind: "groupUpdated", group: snapshot });
+        return;
+      }
+      await repository.save(next);
+      await controller.replaceConfiguration(next);
+    })().catch((error: unknown) =>
+      console.error("TabRoute group presentation sync failed", error)
+    );
+  });
+
+  chrome.tabGroups.onMoved.addListener((group) => {
+    const snapshot = toGroupSnapshot(group);
+    if (!snapshot) return;
+    enqueueLifecycleEvent({ kind: "groupMoved", group: snapshot });
+  });
+
+  chrome.tabGroups.onRemoved.addListener((group) => {
+    if (group.id === undefined || group.windowId === undefined) return;
+    enqueueLifecycleEvent({
+      kind: "groupRemoved",
+      group: {
+        id: group.id,
+        windowId: group.windowId,
+        title: group.title ?? "",
+        color: (group.color ?? "grey") as ChromeGroupColor,
+        collapsed: group.collapsed ?? false,
+        shared: group.shared ?? false
+      }
+    });
+  });
+
+  chrome.windows.onFocusChanged.addListener((windowId) => {
+    enqueueLifecycleEvent(focusHint(windowId));
+  });
+
+  chrome.windows.onRemoved.addListener((windowId) => {
+    enqueueLifecycleEvent({ kind: "windowRemoved", windowId });
+  });
+
+  chrome.alarms?.onAlarm.addListener((alarm) => {
+    if (alarm.name === GROUP_SETTLEMENT_ALARM) {
+      enqueueLifecycleEvent({ kind: "alarm", name: alarm.name });
+    }
+  });
+
+  void ready.catch((error: unknown) => {
+    console.error("TabRoute background startup failed", error);
+  });
 });

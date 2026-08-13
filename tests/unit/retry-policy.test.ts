@@ -19,6 +19,10 @@ describe("classifyMutationError", () => {
       "permission"
     );
   });
+
+  it("classifies missing tab errors as gone", () => {
+    expect(classifyMutationError(new Error("No tab with id 7"))).toBe("gone");
+  });
 });
 
 describe("executeWithRetry", () => {

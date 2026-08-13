@@ -138,13 +138,15 @@ describe("buildExpectedFootprint", () => {
     });
   });
 
-  it("builds ungroupTabs footprint with ungrouped postcondition", () => {
+  it("builds ungroupTabs footprint with groupRemoved and chromeGroupId", () => {
     const plan: ActionPlan = {
       kind: "ungroup",
       tab: tab({ chromeGroupId: 11 })
     };
     const footprint = buildExpectedFootprint(plan);
     expect(footprint.operation).toBe("ungroupTabs");
+    expect(footprint.chromeGroupIds).toEqual([11]);
+    expect(footprint.expectedEventKinds).toContain("groupRemoved");
     expect(footprint.postcondition).toEqual({
       kind: "tabPlacement",
       tabIds: [7],
@@ -414,7 +416,7 @@ describe("settleOperationGuards", () => {
     expect(next.operationGuards).toHaveLength(0);
   });
 
-  it("leaves an executing guard in place even past hard deadline", () => {
+  it("retires an expired executing guard when postcondition holds", () => {
     const executing = guard({
       phase: "executing",
       startedAt: 100,
@@ -424,6 +426,34 @@ describe("settleOperationGuards", () => {
       inventory(),
       session({ operationGuards: [executing] }),
       6000
+    );
+    expect(next.operationGuards).toHaveLength(0);
+  });
+
+  it("drops an expired executing guard when postcondition no longer holds", () => {
+    const executing = guard({
+      phase: "executing",
+      startedAt: 100,
+      expiresAt: 5100
+    });
+    const next = settleOperationGuards(
+      inventory({ tabs: [tab({ chromeGroupId: 99 })] }),
+      session({ operationGuards: [executing] }),
+      6000
+    );
+    expect(next.operationGuards).toHaveLength(0);
+  });
+
+  it("keeps an executing guard before hard deadline", () => {
+    const executing = guard({
+      phase: "executing",
+      startedAt: 100,
+      expiresAt: 5100
+    });
+    const next = settleOperationGuards(
+      inventory(),
+      session({ operationGuards: [executing] }),
+      2000
     );
     expect(next.operationGuards).toHaveLength(1);
   });
