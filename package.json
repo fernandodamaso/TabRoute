@@ -18,6 +18,12 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "build:workbench": "tsx scripts/workbench/cli.ts build-workbench",
+    "workbench": "tsx scripts/workbench/cli.ts workbench --mode fixture",
+    "workbench:real": "tsx scripts/workbench/cli.ts workbench --mode real",
+    "test:workbench": "tsx scripts/workbench/cli.ts test-workbench",
+    "test:extension": "tsx scripts/workbench/cli.ts test-extension",
+    "smoke:popup": "tsx scripts/workbench/cli.ts smoke-popup",
     "docs:chrome:update": "tsx scripts/update-chrome-docs.ts",
     "docs:chrome:validate": "tsx scripts/update-chrome-docs.ts --check",
     "test:docs": "vitest run tests/unit/update-chrome-docs.test.ts"
