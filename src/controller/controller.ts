@@ -7,7 +7,7 @@ import type {
   ChromeTabSnapshot,
   ChromeEventHint
 } from "../domain/types";
-import { settleOperationGuards } from "../actions/operationGuards";
+import { postconditionHolds, settleOperationGuards } from "../actions/operationGuards";
 import { executeActionPlan } from "../actions/executeActionPlan";
 import { planRuleRoute } from "../actions/planActions";
 import { scrubRuntimeState } from "../state/runtimeSession";
@@ -46,7 +46,13 @@ export function createTabRouteController(input: {
   async function reconcileTab(tab: ChromeTabSnapshot): Promise<ActionResult> {
     if (tab.incognito || !isRoutableUrl(tab.url))
       return { kind: "held", reason: "not-routable" };
-    const runtime = await input.session.loadSession();
+    const inventory = await input.chrome.readInventory();
+    let runtime = await input.session.loadSession();
+    const settledRuntime = settleOperationGuards(inventory, runtime, now());
+    if (settledRuntime !== runtime) {
+      await input.session.saveSession(settledRuntime);
+      runtime = settledRuntime;
+    }
     const override = runtime.manualOverrides[String(tab.id)];
     if (override?.placement.kind === "leaveWherePlaced")
       return { kind: "held", reason: "unmanaged-placement" };
@@ -55,16 +61,17 @@ export function createTabRouteController(input: {
       override?.placement.kind === "ungrouped"
     )
       return { kind: "held", reason: "manual-override" };
-    const guarded = runtime.operationGuards.some(
-      (guard) =>
-        guard.tabIds.includes(tab.id) &&
-        (guard.phase === "executing" || guard.phase === "settling")
-    );
+    const guarded = runtime.operationGuards.some((guard) => {
+      if (!guard.tabIds.includes(tab.id)) return false;
+      if (guard.phase === "executing") return true;
+      if (guard.phase !== "settling") return false;
+      if (!guard.postcondition) return true;
+      return postconditionHolds(guard.postcondition, inventory);
+    });
     if (guarded) {
       pendingTabs.add(tab.id);
       return { kind: "held", reason: "not-routable" };
     }
-    const inventory = await input.chrome.readInventory();
     const freshTab =
       inventory.tabs.find((candidate) => candidate.id === tab.id) ?? tab;
     const associations = await currentAssociations(inventory);

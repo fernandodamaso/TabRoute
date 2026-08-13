@@ -191,17 +191,9 @@ export function settleOperationGuards(
     const hard = now >= guard.expiresAt;
     if (!quiet && !hard) return true;
     if (!guard.postcondition) return false;
-    return !postconditionHolds(guard.postcondition, inventory);
+    if (postconditionHolds(guard.postcondition, inventory)) return false;
+    return true;
   });
-  const retiring = session.operationGuards.filter((guard) => {
-    if (guard.phase === "executing") return false;
-    const quiet = guard.settleAfter !== undefined && now >= guard.settleAfter;
-    const hard = now >= guard.expiresAt;
-    if (!quiet && !hard) return false;
-    if (!guard.postcondition) return true;
-    return postconditionHolds(guard.postcondition, inventory);
-  });
-  void retiring;
   return { ...session, operationGuards };
 }
 

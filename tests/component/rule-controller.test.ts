@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { createTabRouteController } from "../../src/controller/controller";
+import { GUARD_QUIET_MS } from "../../src/actions/operationGuards";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
 import type {
   ChromeInventory,
@@ -135,15 +136,18 @@ it("routes nested positive matches to a managed group and negative matches to fa
     groups: [],
     capturedAt: 1
   });
+  let currentNow = 1000;
   const controller = createTabRouteController({
     configuration,
     chrome: fake.port,
-    session: createMemorySessionRepository()
+    session: createMemorySessionRepository(),
+    now: () => currentNow
   });
 
   await controller.handleTabUpdated(current);
   expect(fake.inventory.groups[0]?.title).toBe("Docs");
 
+  currentNow += GUARD_QUIET_MS + 1;
   const blocked = tab({ title: "blocked guide", chromeGroupId: -1 });
   fake.inventory.tabs = [blocked];
   fake.inventory.groups = [];
