@@ -1,0 +1,150 @@
+import { describe, expect, it } from "vitest";
+import {
+  REQUIRED_METADATA_CAPS,
+  REQUIRED_METADATA_RESERVATION_BYTES,
+  createArtifactLimitFailure,
+  validateStartedMetadata,
+  validateRunResult,
+  type RunResultStartedMetadata
+} from "../../scripts/workbench/contracts";
+
+const metadata: RunResultStartedMetadata & { lease: RunResultStartedMetadata["lease"] & { status: "active" } } = {
+  status: "failed",
+  runId: "run-1",
+  worktreePath: "C:/worktree",
+  buildPath: "C:/worktree/.workbench/tmp/run-1/build",
+  profilePath: "C:/Temp/profile-run-1",
+  mode: "fixture",
+  url: "http://fixture",
+  scenario: "default",
+  route: "groups",
+  deepLink: "none",
+  commandRecords: [],
+  readiness: {},
+  screenshotPaths: [],
+  assertions: [],
+  lease: {
+    runId: "run-1", pid: 1, startedAt: "2026-01-01T00:00:00.000Z",
+    heartbeat: "2026-01-01T00:00:00.000Z", profilePath: "C:/Temp/profile-run-1", status: "active"
+  },
+  cleanup: { profileRemoved: false }
+};
+
+describe("workbench RunResult contracts", () => {
+  it("accepts a worker timeout without an extension id", () => {
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "worker timed out" } })).toBe(true);
+  });
+
+  it("requires a discovered extension id for manager and restart failures", () => {
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_MANAGER_TIMEOUT", phase: "manager-query", error: { message: "manager timed out" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_MANAGER_TIMEOUT", phase: "manager-query", extensionId: "abc", error: { message: "manager timed out" } })).toBe(true);
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "restart-wake", error: { message: "restart wake failed" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "restart-wake", extensionId: "abc", error: { message: "restart wake failed" } })).toBe(true);
+  });
+
+  it("keeps unknown artifact failures bounded and without an invented id", () => {
+    const result = createArtifactLimitFailure({ ...metadata, commandRecords: Array.from({ length: 5000 }, () => ({ recordType: "event", mode: "fixture", source: "page", at: 1, name: "x", details: {} })) }, { message: "metadata too large" });
+    expect(result.status).toBe("failed");
+    expect(result.code).toBe("WORKBENCH_ARTIFACT_LIMIT");
+    expect("extensionId" in result).toBe(false);
+    expect(new TextEncoder().encode(JSON.stringify(result)).byteLength).toBeLessThanOrEqual(REQUIRED_METADATA_RESERVATION_BYTES);
+    expect(result).not.toHaveProperty("commandRecords");
+  });
+
+  it("exposes the required metadata caps as a stable public contract", () => {
+    expect(REQUIRED_METADATA_CAPS).toEqual({ maxCommandRecords: 1000, maxEventRecords: 1000, maxAssertions: 1000, maxScreenshotPaths: 500, maxStringBytes: 4096, maxUrlBytes: 16384, maxErrorBytes: 8192 });
+  });
+
+  it("rejects extension ids and phase fields that do not belong to a union member", () => {
+    expect(validateRunResult({ runId: "run", worktreePath: "x", ok: false, status: "failed", code: "WORKBENCH_ARGUMENT", phase: "argument", extensionId: "invented", error: { message: "bad" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, status: "failed", code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", extensionId: "invented", error: { message: "bad" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, status: "failed", code: "WORKBENCH_MANAGER_TIMEOUT", phase: "worker", extensionId: "abc", error: { message: "bad" } })).toBe(false);
+  });
+
+  it("rejects malformed started and abandoned metadata", () => {
+    expect(validateStartedMetadata({ ...metadata, route: "not-a-route" })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: true, status: "abandoned", lease: { ...metadata.lease, status: "abandoned" }, cleanup: { profileRemoved: true, retainedPath: "invented" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, status: "abandoned", lease: { ...metadata.lease, status: "abandoned" }, cleanup: { profileRemoved: false }, error: { message: "cleanup" }, code: "WORKBENCH_CLEANUP_FAILED", phase: "cleanup" })).toBe(false);
+  });
+
+  it("rejects malformed nested records, readiness, screenshots, assertions, and cleanup", () => {
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", commandRecords: [{ recordType: "event", mode: "fixture", source: "page", at: "not-a-number", name: "x", details: {} }], error: { message: "bad" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", readiness: { workerDiscoveredAt: 42 }, error: { message: "bad" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", screenshotPaths: [42], error: { message: "bad" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", assertions: [{ name: "x", passed: "yes" }], error: { message: "bad" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", cleanup: { profileRemoved: "no" }, error: { message: "bad" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "bad", details: [] } })).toBe(false);
+  });
+
+  it("requires a string worktree path and optional artifact extension id type", () => {
+    expect(validateRunResult({ ...metadata, ok: false, worktreePath: 42, code: "WORKBENCH_ARTIFACT_LIMIT", phase: "artifact", error: { message: "bad" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_ARTIFACT_LIMIT", phase: "artifact", extensionId: 42, error: { message: "bad" } })).toBe(false);
+  });
+
+  it("accepts exact pending request records and rejects pending extras", () => {
+    const pending = { recordType: "request", mode: "fixture", requestId: "request-1", sequence: 1, scenarioId: "default", message: { kind: "manager-query" }, startedAt: 1, latencyMs: 0, state: "pending" };
+    expect(validateRunResult({ ...metadata, commandRecords: [pending], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "pending" } })).toBe(true);
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...pending, endedAt: 2 }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "pending" } })).toBe(false);
+  });
+
+  it("validates save-rule records with the real rule field", () => {
+    const rule = { schemaVersion: 1, id: "rule-1", targetGroupId: "group-1", priority: 1, positive: { kind: "url", operator: "exact", value: "https://example.test" }, negative: [], actions: [{ kind: "group" }], enabled: true, createdAt: 1, updatedAt: 1 };
+    const record = { recordType: "request", mode: "fixture", requestId: "request-1", sequence: 1, scenarioId: "default", message: { kind: "manager-command", command: { kind: "saveRule", rule } }, startedAt: 1, latencyMs: 0, state: "pending" };
+    expect(validateRunResult({ ...metadata, commandRecords: [record], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "pending" } })).toBe(true);
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...record, message: { kind: "manager-command", command: { kind: "saveRule", input: rule } } }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "pending" } })).toBe(false);
+  });
+
+  it("accepts a RuleDraft without generated identity timestamps", () => {
+    const draft = { schemaVersion: 1, targetGroupId: "group-1", priority: 1, positive: { kind: "url", operator: "exact", value: "https://example.test" }, negative: [], actions: [{ kind: "group" }], enabled: true };
+    const record = { recordType: "request", mode: "fixture", requestId: "request-1", sequence: 1, scenarioId: "default", message: { kind: "manager-command", command: { kind: "saveRule", rule: draft } }, startedAt: 1, latencyMs: 0, state: "pending" };
+    expect(validateRunResult({ ...metadata, commandRecords: [record], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "draft" } })).toBe(true);
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...record, message: { kind: "manager-command", command: { kind: "saveRule", rule: { ...draft, createdAt: "now" } } } }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "draft" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...record, message: { kind: "manager-command", command: { kind: "saveRule", rule: { ...draft, positive: { kind: "currentGroup", placement: { kind: "ungrouped" }, extra: true } } } } }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "draft" } })).toBe(false);
+  });
+
+  it("creates an artifact-limit value accepted by its own runtime contract", () => {
+    const result = createArtifactLimitFailure(metadata, { message: "metadata too large" });
+    expect(validateRunResult(result)).toBe(true);
+    expect(() => createArtifactLimitFailure({ ...metadata, runId: "" }, { message: "metadata too large" })).toThrow("WORKBENCH_ARTIFACT_LIMIT");
+  });
+
+  it("requires exact command values and literal configuration values", () => {
+    const base = { recordType: "request", mode: "fixture", requestId: "request-1", sequence: 1, scenarioId: "default", message: { kind: "manager-query" }, startedAt: 1, latencyMs: 0, state: "pending" };
+    const command = (value: unknown) => ({ ...metadata, commandRecords: [{ ...base, message: { kind: "manager-command", command: value } }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "command" } });
+    expect(validateRunResult(command({ kind: "deleteGroup" }))).toBe(false);
+    expect(validateRunResult(command({ kind: "setRuleEnabled", ruleId: "rule-1", enabled: "yes" }))).toBe(false);
+    expect(validateRunResult(command({ kind: "deleteRule", ruleId: "rule-1", extra: true }))).toBe(false);
+    const response = { ok: true, configuration: { schemaVersion: 1, fallbackGroupId: "group-1", automationEnabled: true, groups: [], rules: [], persistentTabs: ["not-empty"], duplicateSettings: { globalPolicy: { kind: "exactUrl" }, globalExclusions: [], trackingParameters: [] }, templates: [], snapshotIntervalMinutes: 5, activityLimit: 500, snapshotLimit: 50, undoTtlMs: 30000, createdAt: 1, updatedAt: 1 }, view: { width: 520, height: 600, headerHeight: 52, navigationHeight: 42, defaultRoute: "groups", routes: ["groups"] } };
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...base, state: "resolved", endedAt: 2, response }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "response" } })).toBe(false);
+  });
+
+  it("keeps fixture scenario IDs and real worker generations disjoint", () => {
+    const real = { recordType: "request", mode: "real", requestId: "request-1", sequence: 1, workerGeneration: 2, message: { kind: "manager-query" }, startedAt: 1, latencyMs: 0, state: "pending" };
+    const fixture = { recordType: "request", mode: "fixture", requestId: "request-1", sequence: 1, scenarioId: "default", message: { kind: "manager-query" }, startedAt: 1, latencyMs: 0, state: "pending" };
+    const result = (record: unknown) => ({ ...metadata, commandRecords: [record], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "mode" } });
+    expect(validateRunResult(result(real))).toBe(true);
+    expect(validateRunResult(result({ ...real, scenarioId: "default" }))).toBe(false);
+    expect(validateRunResult(result(fixture))).toBe(true);
+    expect(validateRunResult(result({ ...fixture, workerGeneration: 2 }))).toBe(false);
+  });
+
+  it("validates exact manager success and failure responses in resolved records", () => {
+    const base = { recordType: "request", mode: "fixture", requestId: "request-1", sequence: 1, scenarioId: "default", message: { kind: "manager-query" }, startedAt: 1, latencyMs: 0, state: "resolved", endedAt: 2 };
+    const success = { ok: true, configuration: { schemaVersion: 1, fallbackGroupId: "group-1", automationEnabled: true, groups: [], rules: [], persistentTabs: [], duplicateSettings: { globalPolicy: { kind: "allow" }, globalExclusions: [], trackingParameters: [] }, templates: [], snapshotIntervalMinutes: 5, activityLimit: 500, snapshotLimit: 50, undoTtlMs: 30000, createdAt: 1, updatedAt: 1 }, view: { width: 520, height: 600, headerHeight: 52, navigationHeight: 42, defaultRoute: "groups", routes: ["groups"] } };
+    const failure = { ok: false, error: { kind: "transport", message: "offline" } };
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...base, response: success }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "x" } })).toBe(true);
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...base, response: { ...success, extra: true } }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "x" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...base, response: failure }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "x" } })).toBe(true);
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...base, response: { ...failure, extra: true } }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "x" } })).toBe(false);
+  });
+
+  it("distinguishes encoded reservation boundaries", () => {
+    const jsonOverhead = new TextEncoder().encode(JSON.stringify({ value: "" })).byteLength;
+    const minus = new TextEncoder().encode(JSON.stringify({ value: "x".repeat(REQUIRED_METADATA_RESERVATION_BYTES - jsonOverhead - 1) })).byteLength;
+    const exact = new TextEncoder().encode(JSON.stringify({ value: "x".repeat(REQUIRED_METADATA_RESERVATION_BYTES - jsonOverhead) })).byteLength;
+    const plus = new TextEncoder().encode(JSON.stringify({ value: "x".repeat(REQUIRED_METADATA_RESERVATION_BYTES - jsonOverhead + 1) })).byteLength;
+    expect(minus).toBe(REQUIRED_METADATA_RESERVATION_BYTES - 1);
+    expect(exact).toBe(REQUIRED_METADATA_RESERVATION_BYTES);
+    expect(plus).toBe(REQUIRED_METADATA_RESERVATION_BYTES + 1);
+  });
+});
