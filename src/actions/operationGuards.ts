@@ -65,28 +65,23 @@ export function postconditionHolds(
   inventory: ChromeInventory
 ): boolean {
   if (postcondition.kind === "managedGroupState") {
-    const association = inventory.groups.find(
-      (group) => group.id === postcondition.managedGroupId
+    const group = inventory.groups.find(
+      (candidate) =>
+        !candidate.shared &&
+        (postcondition.windowId === undefined ||
+          candidate.windowId === postcondition.windowId) &&
+        (postcondition.title === undefined ||
+          candidate.title === postcondition.title)
     );
-    if (!association) return false;
-    if (
-      postcondition.windowId !== undefined &&
-      association.windowId !== postcondition.windowId
-    )
-      return false;
-    if (
-      postcondition.title !== undefined &&
-      association.title !== postcondition.title
-    )
-      return false;
+    if (!group) return false;
     if (
       postcondition.color !== undefined &&
-      association.color !== postcondition.color
+      group.color !== postcondition.color
     )
       return false;
     if (
       postcondition.collapsed !== undefined &&
-      association.collapsed !== postcondition.collapsed
+      group.collapsed !== postcondition.collapsed
     )
       return false;
     return true;

@@ -103,7 +103,8 @@ describe("action recovery with operation guards", () => {
         chrome: fake.port,
         session,
         now: () => now,
-        createId: () => "00000000-0000-4000-8000-000000000099"
+        createId: () =>
+          "00000000-0000-4000-8000-000000000099" as import("../../src/domain/types").UUID
       }
     );
 
@@ -213,7 +214,8 @@ describe("action recovery with operation guards", () => {
         chrome: fake.port,
         session,
         now: () => now,
-        createId: () => "00000000-0000-4000-8000-000000000099"
+        createId: () =>
+          "00000000-0000-4000-8000-000000000099" as import("../../src/domain/types").UUID
       }
     );
 

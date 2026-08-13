@@ -121,7 +121,9 @@ export async function executeCliDispatch(dispatch: CliDispatch): Promise<void> {
   if (dispatch.action === "production-gate") {
     const { runProductionGate } = await import("./runner");
     const gate = await runProductionGate(process.cwd());
-    await runPlaywright("tests/e2e/extension.spec.ts", {
+    await runPlaywright(
+      "tests/e2e/extension.spec.ts tests/e2e/lifecycle.spec.ts",
+      {
       ...process.env,
       TABROUTE_PRODUCTION_BUILD_PATH: gate.productionBuildPath,
       TABROUTE_PRODUCTION_GATE_RESULT_PATH: gate.resultPath

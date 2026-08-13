@@ -119,7 +119,8 @@ describe("controller lifecycle", () => {
     const guard: OperationGuard = {
       id: "00000000-0000-4000-8000-000000000010" as UUID,
       browserSessionId: sessionId,
-      actionId: "00000000-0000-4000-8000-000000000011" as BrowserSessionId as OperationGuard["actionId"],
+      actionId:
+        "00000000-0000-4000-8000-000000000011" as import("../../src/domain/types").ActionId,
       operation: "assignTabsToManagedGroup",
       phase: "settling",
       tabIds: [42],

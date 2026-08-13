@@ -147,9 +147,10 @@ describe("classifyChromeEvent", () => {
       session({
         operationGuards: [
           {
-            id: "00000000-0000-4000-8000-000000000010",
+            id: "00000000-0000-4000-8000-000000000010" as import("../../src/domain/types").UUID,
             browserSessionId: sessionId,
-            actionId: "00000000-0000-4000-8000-000000000011",
+            actionId:
+              "00000000-0000-4000-8000-000000000011" as import("../../src/domain/types").ActionId,
             operation: "assignTabsToManagedGroup",
             phase: "executing",
             tabIds: [7],

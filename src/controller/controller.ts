@@ -94,11 +94,10 @@ export function createTabRouteController(input: {
 
   function enqueue(request: QueueItem) {
     if (request.scope.kind === "tab") {
-      pendingTabs.add(request.scope.tabId);
+      const tabId = request.scope.tabId;
+      pendingTabs.add(tabId);
       const existing = queue.findIndex(
-        (item) =>
-          item.scope.kind === "tab" &&
-          item.scope.tabId === request.scope.tabId
+        (item) => item.scope.kind === "tab" && item.scope.tabId === tabId
       );
       if (existing >= 0) queue.splice(existing, 1);
     }
@@ -127,10 +126,9 @@ export function createTabRouteController(input: {
       while (queue.length > 0 && !executing) {
         const request = queue.shift()!;
         if (request.scope.kind === "tab") {
+          const tabId = request.scope.tabId;
           const inventory = await input.chrome.readInventory();
-          const tab = inventory.tabs.find(
-            (candidate) => candidate.id === request.scope.tabId
-          );
+          const tab = inventory.tabs.find((candidate) => candidate.id === tabId);
           if (tab) await reconcileTab(tab);
         } else if (request.scope.kind === "all") {
           const inventory = await input.chrome.readInventory();

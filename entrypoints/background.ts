@@ -8,10 +8,16 @@ import {
   createConfigurationSyncCoordinator,
   registerConfigurationSyncIntake
 } from "../src/state/configurationSyncCoordinator";
-import type { ChromeTabSnapshot } from "../src/domain/types";
+import type {
+  ChromeEventHint,
+  ChromeGroupColor,
+  ChromeTabSnapshot
+} from "../src/domain/types";
 import type { UiMessage } from "../src/ui/messages";
 import { applyChromeGroupPresentation } from "../src/groups/displayTitle";
 import { createManagerMessageRouter } from "../src/background/managerMessageRouter";
+import { GROUP_SETTLEMENT_ALARM } from "../src/groups/groupLifecycle";
+import { GUARD_QUIET_MS } from "../src/actions/operationGuards";
 
 function toSnapshot(tab: chrome.tabs.Tab): ChromeTabSnapshot | undefined {
   if (tab.id === undefined || tab.windowId === undefined || tab.incognito)
@@ -29,6 +35,27 @@ function toSnapshot(tab: chrome.tabs.Tab): ChromeTabSnapshot | undefined {
     active: tab.active ?? false,
     incognito: false,
     lastAccessed: tab.lastAccessed ?? 0
+  };
+}
+
+function toGroupSnapshot(group: chrome.tabGroups.TabGroup) {
+  if (group.id === undefined || group.windowId === undefined) return undefined;
+  return {
+    id: group.id,
+    windowId: group.windowId,
+    title: group.title ?? "",
+    color: (group.color ?? "grey") as ChromeGroupColor,
+    collapsed: group.collapsed ?? false,
+    shared: group.shared ?? false
+  };
+}
+
+function focusHint(windowId: number): ChromeEventHint {
+  if (windowId === chrome.windows.WINDOW_ID_NONE)
+    return { kind: "windowFocusChanged", focus: { kind: "none" } };
+  return {
+    kind: "windowFocusChanged",
+    focus: { kind: "normal", windowId }
   };
 }
 
@@ -63,6 +90,20 @@ export default defineBackground(() => {
   let managerRouter: ReturnType<typeof createManagerMessageRouter> | undefined;
   let controller: ReturnType<typeof createTabRouteController> | undefined;
 
+  async function dispatchEvent(event: ChromeEventHint) {
+    if (!controller) return;
+    await controller.handleChromeEvent(event).catch((error: unknown) =>
+      console.error("TabRoute lifecycle event failed", error)
+    );
+  }
+
+  async function scheduleGroupSettlementAlarm() {
+    if (!chrome.alarms?.create) return;
+    await chrome.alarms.create(GROUP_SETTLEMENT_ALARM, {
+      when: Date.now() + GUARD_QUIET_MS
+    });
+  }
+
   const ready = (async () => {
     const configuration = await repository.loadOrCreate();
     controller = createTabRouteController({
@@ -70,6 +111,7 @@ export default defineBackground(() => {
       chrome: createLiveChromePort(),
       session
     });
+    await controller.onWorkerWake();
     managerRouter = createManagerMessageRouter({ repository, controller });
     const configurationSync = createConfigurationSyncCoordinator({
       repository,
@@ -130,15 +172,76 @@ export default defineBackground(() => {
     .then(() => {
       if (!controller) return;
 
+      chrome.tabs.onCreated.addListener((tab) => {
+        if (tab.id === undefined) return;
+        void dispatchEvent({ kind: "tabCreated", tabId: tab.id });
+      });
+
       chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-        if (!changeInfo.url && changeInfo.status !== "complete") return;
         const snapshot = toSnapshot(tab);
-        if (snapshot)
-          void controller!
-            .handleTabUpdated(snapshot)
-            .catch((error: unknown) =>
-              console.error("TabRoute routing failed", error)
-            );
+        if (!snapshot) return;
+        void dispatchEvent({
+          kind: "tabUpdated",
+          tabId,
+          urlChanged: changeInfo.url !== undefined,
+          groupChanged: changeInfo.groupId !== undefined,
+          pinnedChanged: changeInfo.pinned !== undefined
+        });
+      });
+
+      chrome.tabs.onActivated.addListener((activeInfo) => {
+        void dispatchEvent({
+          kind: "tabActivated",
+          tabId: activeInfo.tabId,
+          windowId: activeInfo.windowId
+        });
+      });
+
+      chrome.tabs.onMoved.addListener((tabId, moveInfo) => {
+        void dispatchEvent({
+          kind: "tabMoved",
+          tabId,
+          windowId: moveInfo.windowId,
+          fromIndex: moveInfo.fromIndex,
+          toIndex: moveInfo.toIndex
+        });
+      });
+
+      chrome.tabs.onAttached.addListener((tabId, attachInfo) => {
+        void dispatchEvent({
+          kind: "tabAttached",
+          tabId,
+          newWindowId: attachInfo.newWindowId,
+          newPosition: attachInfo.newPosition
+        });
+      });
+
+      chrome.tabs.onDetached.addListener((tabId, detachInfo) => {
+        void dispatchEvent({
+          kind: "tabDetached",
+          tabId,
+          oldWindowId: detachInfo.oldWindowId,
+          oldPosition: detachInfo.oldPosition
+        });
+      });
+
+      chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+        void dispatchEvent({
+          kind: "tabRemoved",
+          tabId,
+          windowId: removeInfo.windowId,
+          isWindowClosing: removeInfo.isWindowClosing
+        });
+      });
+
+      chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
+        void dispatchEvent({ kind: "tabReplaced", addedTabId, removedTabId });
+      });
+
+      chrome.tabGroups.onCreated.addListener((group) => {
+        const snapshot = toGroupSnapshot(group);
+        if (!snapshot) return;
+        void dispatchEvent({ kind: "groupCreated", group: snapshot });
       });
 
       chrome.tabGroups.onUpdated.addListener((group) => {
@@ -155,21 +258,66 @@ export default defineBackground(() => {
               candidate.chromeGroupId === group.id &&
               candidate.chromeWindowId === group.windowId
           );
-          if (!association) return;
+          if (!association) {
+            const snapshot = toGroupSnapshot(group);
+            if (snapshot)
+              await dispatchEvent({ kind: "groupUpdated", group: snapshot });
+            return;
+          }
           const current = controller!.getConfiguration();
           const next = applyChromeGroupPresentation(
             current,
             association.managedGroupId,
             group.title ?? "",
-            (group.color ??
-              "grey") as import("../src/domain/types").ChromeGroupColor
+            (group.color ?? "grey") as ChromeGroupColor
           );
-          if (JSON.stringify(next) === JSON.stringify(current)) return;
+          if (JSON.stringify(next) === JSON.stringify(current)) {
+            const snapshot = toGroupSnapshot(group);
+            if (snapshot)
+              await dispatchEvent({ kind: "groupUpdated", group: snapshot });
+            return;
+          }
           await repository.save(next);
           await controller!.replaceConfiguration(next);
         })().catch((error: unknown) =>
           console.error("TabRoute group presentation sync failed", error)
         );
+      });
+
+      chrome.tabGroups.onMoved.addListener((group) => {
+        const snapshot = toGroupSnapshot(group);
+        if (!snapshot) return;
+        void dispatchEvent({ kind: "groupMoved", group: snapshot });
+      });
+
+      chrome.tabGroups.onRemoved.addListener((group) => {
+        if (group.id === undefined || group.windowId === undefined) return;
+        void scheduleGroupSettlementAlarm();
+        void dispatchEvent({
+          kind: "groupRemoved",
+          group: {
+            id: group.id,
+            windowId: group.windowId,
+            title: group.title ?? "",
+            color: (group.color ?? "grey") as ChromeGroupColor,
+            collapsed: group.collapsed ?? false,
+            shared: group.shared ?? false
+          }
+        });
+      });
+
+      chrome.windows.onFocusChanged.addListener((windowId) => {
+        void dispatchEvent(focusHint(windowId));
+      });
+
+      chrome.windows.onRemoved.addListener((windowId) => {
+        void dispatchEvent({ kind: "windowRemoved", windowId });
+      });
+
+      chrome.alarms?.onAlarm.addListener((alarm) => {
+        if (alarm.name === GROUP_SETTLEMENT_ALARM) {
+          void dispatchEvent({ kind: "alarm", name: alarm.name });
+        }
       });
     })
     .catch((error: unknown) => {

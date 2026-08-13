@@ -29,7 +29,9 @@ function tab(overrides: Partial<ChromeTabSnapshot> = {}): ChromeTabSnapshot {
 }
 
 function fakePort(initial: ChromeInventory) {
-  const inventory = structuredClone(initial);
+  const inventory = structuredClone(initial) as ChromeInventory & {
+    groups: ChromeInventory["groups"][number][];
+  };
   const calls: string[] = [];
   const port: ChromeMutationPort = {
     async readInventory() {

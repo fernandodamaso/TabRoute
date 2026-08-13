@@ -228,12 +228,15 @@ export function classifyChromeEvent(
     if (event.focus.kind === "none") {
       return { guarded: false, deferred: false, requests: [], session: current };
     }
-    const window = inventory.windows.find(
-      (candidate) =>
-        candidate.id === event.focus.windowId && candidate.type === "normal"
-    );
-    if (window) {
-      current = { ...current, lastFocusedNormalWindowId: window.id };
+    const focus = event.focus;
+    if (focus.kind === "normal") {
+      const window = inventory.windows.find(
+        (candidate) =>
+          candidate.id === focus.windowId && candidate.type === "normal"
+      );
+      if (window) {
+        current = { ...current, lastFocusedNormalWindowId: window.id };
+      }
     }
     return { guarded: false, deferred: false, requests: [], session: current };
   }

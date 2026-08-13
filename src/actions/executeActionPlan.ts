@@ -128,7 +128,7 @@ export async function executeActionPlan(
   const now = deps.now?.() ?? Date.now();
   const createId = deps.createId ?? createUuid;
   const delay = deps.delay ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
-  const actionId = createId() as ActionId;
+  const actionId = createId() as unknown as import("../domain/types").ActionId;
   const chrome = deps.chrome;
 
   const fresh = await chrome.readInventory();
