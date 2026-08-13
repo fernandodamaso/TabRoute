@@ -26,7 +26,6 @@ import {
   recordWindowClosure,
   settlePendingWindowClosures,
   STARTUP_RECOVERY_ALARM,
-  WINDOW_SETTLEMENT_ALARM,
   advanceStartupSettlement,
   type AlarmScheduler
 } from "../persistence/startupCoordinator";
@@ -170,8 +169,7 @@ export async function handleStartupCoordinatorEvent(input: {
   }
   if (
     input.event.kind === "alarm" &&
-    input.event.name !== STARTUP_RECOVERY_ALARM &&
-    input.event.name !== WINDOW_SETTLEMENT_ALARM
+    input.event.name !== STARTUP_RECOVERY_ALARM
   ) {
     return input.session;
   }

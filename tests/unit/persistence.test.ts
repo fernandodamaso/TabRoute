@@ -7,6 +7,7 @@ import {
   calculatePersistentRepairs,
   planPersistentRestore,
   planPersistentTabOrdering,
+  planRepairForTab,
   type RestoreContext
 } from "../../src/persistence/startupRestore";
 import {
@@ -24,7 +25,8 @@ import {
   beginStartupRestore,
   recordWindowClosure,
   settlePendingWindowClosures,
-  STARTUP_RECOVERY_ALARM
+  STARTUP_RECOVERY_ALARM,
+  WINDOW_SETTLEMENT_ALARM
 } from "../../src/persistence/startupCoordinator";
 import { resolveHomeWindow } from "../../src/persistence/windowOwnership";
 import { createEmptyRuntimeSession } from "../../src/state/runtimeSession";
@@ -312,6 +314,81 @@ describe("startup restore planning", () => {
         targetManagedGroupId: groupId
       })
     );
+  });
+
+  it("planRepairForTab reclassifies a navigated tab still in the managed group", () => {
+    const config = configuration();
+    const context = restoreContext(config);
+    const inventory = {
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      tabs: [
+        {
+          id: 8,
+          windowId: 1,
+          index: 0,
+          chromeGroupId: 11,
+          url: "https://github.com/",
+          title: "GitHub",
+          pinned: false,
+          active: true,
+          incognito: false as const,
+          lastAccessed: 1
+        }
+      ],
+      groups: [
+        {
+          id: 11,
+          windowId: 1,
+          title: "Docs",
+          color: "blue" as const,
+          collapsed: false,
+          shared: false
+        }
+      ],
+      capturedAt: 1
+    };
+    const repairs = planRepairForTab(inventory.tabs[0]!, inventory, context);
+    expect(repairs[0]).toEqual(
+      expect.objectContaining({
+        action: "reclassifyAndRecreate",
+        targetManagedGroupId: groupId
+      })
+    );
+  });
+
+  it("planRepairForTab still repairs when restorePersistentGroups is false", () => {
+    const config = configuration({ restorePersistentGroups: false });
+    const context = restoreContext(config);
+    const inventory = {
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      tabs: [
+        {
+          id: 8,
+          windowId: 1,
+          index: 0,
+          chromeGroupId: 11,
+          url: "https://github.com/",
+          title: "GitHub",
+          pinned: false,
+          active: true,
+          incognito: false as const,
+          lastAccessed: 1
+        }
+      ],
+      groups: [
+        {
+          id: 11,
+          windowId: 1,
+          title: "Docs",
+          color: "blue" as const,
+          collapsed: false,
+          shared: false
+        }
+      ],
+      capturedAt: 1
+    };
+    const repairs = planRepairForTab(inventory.tabs[0]!, inventory, context);
+    expect(repairs[0]?.action).toBe("reclassifyAndRecreate");
   });
 
   it("creates a managed canonical copy when only a shared-group tab matches", () => {
@@ -606,6 +683,54 @@ describe("startup coordinator", () => {
     });
     expect(settled.kind).toBe("settled");
     expect(alarms.calls.some((call) => call.name === STARTUP_RECOVERY_ALARM)).toBe(true);
+  });
+
+  it("returns idle without startupRestore on ordinary tab events", async () => {
+    const session = createEmptyRuntimeSession({ browserSessionId: "session" as never });
+    const inventory = {
+      windows: [],
+      tabs: [],
+      groups: [],
+      capturedAt: 1
+    };
+    const outcome = await advanceStartupSettlement({
+      session,
+      inventory,
+      alarms: { scheduleOneShot: async () => undefined },
+      clock: { now: () => 5000, waitInWorker: async () => undefined },
+      chromeEvent: { kind: "tabCreated", tabId: 1 },
+      timing: { quietMs: 10, maxMs: 100, recoveryAlarmMs: 200 }
+    });
+    expect(outcome.kind).toBe("idle");
+  });
+
+  it("does not reset startup quiet scans on window-settlement alarms", async () => {
+    const session = {
+      ...createEmptyRuntimeSession({ browserSessionId: "session" as never }),
+      startupRestore: {
+        startedAt: 1000,
+        deadlineAt: 10000,
+        lastRelevantEventAt: 1000,
+        consecutiveQuietScans: 0 as const
+      }
+    };
+    const inventory = {
+      windows: [],
+      tabs: [],
+      groups: [],
+      capturedAt: 1
+    };
+    const outcome = await advanceStartupSettlement({
+      session,
+      inventory,
+      alarms: { scheduleOneShot: async () => undefined },
+      clock: { now: () => 5000, waitInWorker: async () => undefined },
+      chromeEvent: { kind: "alarm", name: WINDOW_SETTLEMENT_ALARM },
+      timing: { quietMs: 100, maxMs: 10000, recoveryAlarmMs: 200 }
+    });
+    expect(outcome.kind).toBe("waiting");
+    expect(outcome.session.startupRestore?.lastRelevantEventAt).toBe(1000);
+    expect(outcome.session.startupRestore?.consecutiveQuietScans).toBe(1);
   });
 
   it("marks persistent groups intentionally closed when a normal window remains", () => {

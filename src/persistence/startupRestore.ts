@@ -251,7 +251,6 @@ export function planRepairForTab(
   if (!url) return repairs;
 
   for (const definition of context.configuration.persistentTabs) {
-    if (!matchesPersistentDefinition(snapshot, definition)) continue;
     if (
       !isGroupEligibleForRepair(
         context.configuration,
@@ -268,6 +267,17 @@ export function planRepairForTab(
       context.lastFocusedWindowId
     );
     if (homeWindow === null) continue;
+
+    const inTargetGroup = isInTargetManagedGroup(
+      tab,
+      definition,
+      inventory,
+      context.associations
+    );
+    if (!matchesPersistentDefinition(snapshot, definition) && !inTargetGroup) {
+      continue;
+    }
+
     repairs.push(
       ...calculatePersistentRepairs(definition, inventory, context, homeWindow)
     );

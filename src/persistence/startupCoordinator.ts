@@ -24,7 +24,7 @@ function isRelevantStartupEvent(event: ChromeEventHint): boolean {
     event.kind === "startup" ||
     event.kind === "tabCreated" ||
     (event.kind === "tabUpdated" && event.urlChanged) ||
-    event.kind === "alarm"
+    (event.kind === "alarm" && event.name === STARTUP_RECOVERY_ALARM)
   );
 }
 
@@ -45,6 +45,7 @@ export async function advanceStartupSettlement(input: {
   chromeEvent: ChromeEventHint;
   timing?: { quietMs: number; maxMs: number; recoveryAlarmMs: number };
 }): Promise<
+  | { kind: "idle"; session: RuntimeSession }
   | { kind: "waiting"; session: RuntimeSession }
   | { kind: "settled"; session: RuntimeSession; inventory: ChromeInventory }
 > {
@@ -72,7 +73,7 @@ export async function advanceStartupSettlement(input: {
 
   const state = session.startupRestore;
   if (!state) {
-    return { kind: "settled", session, inventory: input.inventory };
+    return { kind: "idle", session };
   }
 
   if (now >= state.deadlineAt) {

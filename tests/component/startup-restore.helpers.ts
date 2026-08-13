@@ -5,7 +5,9 @@ export const groupId = "00000000-0000-4000-8000-000000000002" as UUID;
 export const fallbackId = "00000000-0000-4000-8000-000000000001" as UUID;
 export const persistentId = "00000000-0000-4000-8000-000000000010" as UUID;
 
-export function persistenceConfiguration(): Configuration {
+export function persistenceConfiguration(
+  overrides: Partial<Configuration> = {}
+): Configuration {
   const base = createDefaultConfiguration(() => fallbackId);
   const group = {
     schemaVersion: 1 as const,
@@ -34,6 +36,7 @@ export function persistenceConfiguration(): Configuration {
     ...base,
     groups: [...base.groups, group],
     persistentTabs: [definition],
-    restorePersistentGroups: true
+    restorePersistentGroups: true,
+    ...overrides
   };
 }
