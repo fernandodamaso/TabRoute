@@ -58,5 +58,7 @@ export interface ScenarioDefinition {
     heading: string;
     status: "ready" | "loading" | "error";
     description: string;
+    snippets?: readonly string[];
+    dialogTitle?: string;
   };
 }

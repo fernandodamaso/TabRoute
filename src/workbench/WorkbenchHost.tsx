@@ -21,6 +21,7 @@ export interface WorkbenchHostProps {
   records: readonly ManagerTransportRecord[];
   children: React.ReactNode;
   onStateChange(next: WorkbenchUrlState): void;
+  onFixtureReset?: () => void;
 }
 
 function requestStatus(
@@ -45,7 +46,7 @@ function failureModeValue(state: WorkbenchUrlState): FixtureFailurePolicy["mode"
   return state.failure.mode;
 }
 
-export function WorkbenchHost({ state, fixture, real: _real, records, children, onStateChange }: WorkbenchHostProps) {
+export function WorkbenchHost({ state, fixture, real: _real, records, children, onStateChange, onFixtureReset }: WorkbenchHostProps) {
   const status = requestStatus(state.mode, records);
   const payload = useMemo(() => createWorkbenchMarkerPayload(state, status), [state, status]);
   const fixtureMode = state.mode === "fixture" && fixture !== undefined;
@@ -161,7 +162,7 @@ export function WorkbenchHost({ state, fixture, real: _real, records, children, 
         <label>Failure scope<select aria-label="Failure scope" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "failure-scope" }} value={state.failure.mode === "none" ? "persistent" : state.failure.scope} onChange={(event) => changeFailureScope(event.target.value as "once" | "persistent")}><option value="persistent">Persistent</option><option value="once">Once</option></select></label>
         <button type="button" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "release-pending" }} onClick={() => void fixture.controls.releasePending()}>Release pending response</button>
       </>}
-      <button type="button" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "reset" }} onClick={() => { if (fixtureMode) void fixture.controls.reset().then(() => onStateChange({ ...state })); else onStateChange({ ...state }); }}>Reset</button>
+      <button type="button" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "reset" }} onClick={() => { if (fixtureMode) void fixture.controls.reset().then(() => { onStateChange({ ...state }); onFixtureReset?.(); }); else onStateChange({ ...state }); }}>Reset</button>
       <output aria-label="Command log" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "command-log" }}>{records.length} records</output>
       <output aria-label="Screenshot status" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "screenshot-status" }}>Screenshot: not captured</output>
       <output aria-label="Result status" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "result-status" }}>Result: {status === "manager-ready" ? "ready" : status === "manager-error" ? "error" : "pending"}</output>

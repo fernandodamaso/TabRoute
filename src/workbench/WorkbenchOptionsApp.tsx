@@ -49,6 +49,7 @@ export function WorkbenchOptionsApp() {
     real={real}
     records={records}
     onStateChange={change}
+    onFixtureReset={() => setRevision((value) => value + 1)}
   >
     <ManagerApp
       key={`${state.mode}:${state.scenarioId}:${revision}`}

@@ -266,7 +266,8 @@ export const SCENARIO_DEFINITIONS: readonly ScenarioDefinition[] = [
   definition("wb:empty-groups", "groups", "none", {
     heading: "Groups",
     status: "ready",
-    description: "No non-fallback groups"
+    description: "No non-fallback groups",
+    snippets: ["Other"]
   }),
   definition("wb:dense-groups", "groups", "none", {
     heading: "Groups",
@@ -291,12 +292,14 @@ export const SCENARIO_DEFINITIONS: readonly ScenarioDefinition[] = [
   definition("wb:populated-persistent-tabs", "groups", "none", {
     heading: "Groups",
     status: "ready",
-    description: "Populated persistent-tab display"
+    description: "Populated persistent-tab display",
+    snippets: ["Docs — https://docs.example.test/", "Inbox — https://mail.example.test/inbox"]
   }),
   definition("wb:mixed-rules-overview", "rules", "none", {
     heading: "Rules",
     status: "ready",
-    description: "Mixed rule statuses"
+    description: "Mixed rule statuses",
+    snippets: ["Active", "Paused", "Off"]
   }),
   definition("wb:new-rule", "rules", "new-rule", {
     heading: "New rule",
@@ -315,7 +318,8 @@ export const SCENARIO_DEFINITIONS: readonly ScenarioDefinition[] = [
     {
       heading: "Rules",
       status: "ready",
-      description: "Delete confirmation overlay"
+      description: "Delete confirmation overlay",
+      dialogTitle: "Delete rule?"
     }
   ),
   definition("wb:loading", "groups", "none", {
