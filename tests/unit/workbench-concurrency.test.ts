@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile, readFile, access } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, readFile, access, stat, utimes } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createCrossProcessLock } from "../../scripts/workbench/lock";
@@ -127,6 +127,57 @@ describe("workbench cross-process lock", () => {
     await rm(directory, { recursive: true, force: true });
   });
 
+  it("refreshes heartbeat by metadata without rewriting the parseable owner record", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "tabroute-heartbeat-mtime-"));
+    const lockPath = path.join(directory, ".lock");
+    let heartbeat!: () => void;
+    let current = Date.now();
+    const lock = createCrossProcessLock(lockPath, { now: () => current, runId: "owner", setInterval: ((callback: () => void) => { heartbeat = callback; return 1 as unknown as NodeJS.Timeout; }) as never, clearInterval: (() => undefined) as never });
+    const held = await lock.acquire();
+    const beforeRaw = await readFile(lockPath, "utf8");
+    const beforeStat = await stat(lockPath);
+    current = beforeStat.mtimeMs + 5000;
+    heartbeat();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(await readFile(lockPath, "utf8")).toBe(beforeRaw);
+    expect((await stat(lockPath)).mtimeMs).toBeGreaterThan(beforeStat.mtimeMs);
+    await held.release();
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("recovers a malformed owner only after the conservative crash timeout", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "tabroute-malformed-lock-"));
+    const lockPath = path.join(directory, ".lock");
+    await writeFile(lockPath, "{");
+    await utimes(lockPath, new Date(0), new Date(0));
+    const lock = createCrossProcessLock(lockPath, { now: () => 20 * 60 * 1000, retryDelayMs: 1, maxAttempts: 1 });
+    const held = await lock.acquire();
+    expect(JSON.parse(await readFile(lockPath, "utf8")).runId).toBe("unknown");
+    await held.release();
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("does not remove a successor when an old owner releases during a replacement race", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "tabroute-release-race-"));
+    const lockPath = path.join(directory, ".lock");
+    let replacementPublished = false;
+    const old = createCrossProcessLock(lockPath, {
+      runId: "old",
+      beforeReleaseRemove: async () => {
+        await rm(lockPath, { force: true });
+        await writeFile(lockPath, JSON.stringify({ pid: process.pid, runId: "successor", heartbeat: Date.now(), token: "successor-token" }));
+        replacementPublished = true;
+      }
+    });
+    const held = await old.acquire();
+    await held.release();
+    expect(replacementPublished).toBe(true);
+    expect(JSON.parse(await readFile(lockPath, "utf8")).token).toBe("successor-token");
+    const third = createCrossProcessLock(lockPath, { isPidAlive: async () => true, retryDelayMs: 1, maxAttempts: 1 });
+    await expect(third.acquire()).rejects.toMatchObject({ code: "WORKBENCH_CAPACITY" });
+    await rm(directory, { recursive: true, force: true });
+  });
+
   it("opens the post-validation stale window without deleting a newly acquired owner", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "tabroute-stale-window-"));
     const lockPath = path.join(directory, ".lock");
@@ -141,12 +192,12 @@ describe("workbench cross-process lock", () => {
 
   it("serializes real artifact writes and prunes in one deterministic order", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "tabroute-artifact-process-"));
-      const budget = 650;
+      const budget = 2 * 2 * 1024 * 1024 + 650;
     try {
       for (const runId of ["seed-a", "seed-b", "seed-c"]) {
         await mkdir(path.join(directory, runId), { recursive: true });
         await writeFile(path.join(directory, runId, "lease.json"), "{}" );
-        await writeFile(path.join(directory, runId, "status.json"), "{}" );
+        await writeFile(path.join(directory, runId, "status.json"), JSON.stringify({ status: "completed", terminalAt: Date.now() }));
         await writeFile(path.join(directory, runId, "results.json"), "{}" );
         await writeFile(path.join(directory, runId, "error.json"), "{}" );
         await mkdir(path.join(directory, runId, "trace"), { recursive: true });

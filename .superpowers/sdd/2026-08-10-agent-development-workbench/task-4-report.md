@@ -342,3 +342,35 @@ Results: full suite PASS, 29 files and 195 tests; typecheck PASS; lint PASS; pro
 
 - Final SHA placeholder: `<FINAL_SHA_AFTER_COMMIT>`
 - Concern: the existing Node `DEP0190` warning and Git line-ending warnings remain non-failing and outside Task 4 behavior.
+
+## Primary-agent continuation after the final review
+
+The primary agent resumed FDM-623 after the bounded delegated loop. It fixed the four remaining review findings without starting Task 5:
+
+- Required metadata now reserves unused headroom in both affected-run and global budgets for every active run. Only root `lease.json`, `status.json`, `results.json`, and `error.json` are required. Optional affected/global writes have exact minus-one, exact, and plus-one boundary coverage. A full result that fits alone but exceeds the combined reservation now falls back to a bounded artifact failure.
+- Cross-process lock owner JSON is immutable after exclusive creation. Five-second heartbeats update the held inode timestamp, so the public name and parseable owner record remain intact. A short, stale-recoverable guard serializes create/release/recovery decisions; token and inode checks prevent an old owner from deleting a successor. Malformed crash remnants use the conservative ten-minute recovery rule.
+- Runtime validation rejects outer `currentGroup` extras and array-valued error details.
+- `ArtifactLimitFailure` has an active-lease source type, no caller casts, capped lease fields, and a factory postcondition that guarantees every returned value passes `validateRunResult`.
+
+### RED evidence
+
+```text
+rtk npx vitest run tests/unit/workbench-artifacts.test.ts tests/unit/workbench-concurrency.test.ts tests/unit/workbench-result-contract.test.ts --run --testTimeout=30000
+```
+
+Observed RED: 7 failures and 39 passes. Each remaining review area failed through its public seam.
+
+### GREEN and final verification
+
+```text
+rtk npx vitest run tests/unit/workbench-artifacts.test.ts tests/unit/workbench-concurrency.test.ts tests/unit/workbench-result-contract.test.ts tests/unit/workbench-leases.test.ts tests/unit/production-scan.test.ts --run --testTimeout=30000
+rtk npm test -- --run --testTimeout=30000
+rtk npm run typecheck
+rtk npm run lint
+rtk npm run docs:chrome:validate
+rtk npm run build
+npx tsx -e "import { scanProductionBuild } from './scripts/workbench/production-scan.ts'; scanProductionBuild('.output/chrome-mv3').then(result => { console.log(JSON.stringify(result)); if (!result.ok) process.exit(1); });"
+git diff --check
+```
+
+Results: focused suite PASS, 5 files and 67 tests; full suite PASS, 29 files and 204 tests; typecheck PASS; lint PASS; Chrome reference validation PASS; production build PASS; production scan PASS with `{"ok":true,"errors":[]}`; diff check PASS. The existing Node `DEP0190` warning and Git line-ending warnings remain non-failing.

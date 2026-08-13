@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { createArtifactLimitFailure, capRunMetadata, REQUIRED_METADATA_RESERVATION_BYTES, type ArtifactKind, type ArtifactStore } from "./contracts";
+import { createArtifactLimitFailure, capRunMetadata, REQUIRED_METADATA_RESERVATION_BYTES, type ArtifactKind, type ArtifactLimitSource, type ArtifactStore } from "./contracts";
 import { createCrossProcessLock } from "./lock";
 
 export const ACTIVE_RUN_BUDGET_BYTES = 50 * 1024 * 1024;
@@ -23,7 +23,7 @@ export function rotateTextLog(bytes: Uint8Array, maxBytes = TEXT_LOG_BUDGET_BYTE
   return bytes.byteLength <= maxBytes ? bytes : bytes.slice(bytes.byteLength - maxBytes);
 }
 
-export function encodeRequiredMetadata(metadata: Record<string, unknown>, reservationBytes = REQUIRED_METADATA_RESERVATION_BYTES): { ok: true; bytes: Uint8Array; value: Record<string, unknown> } | { ok: false; bytes: Uint8Array; value: Record<string, unknown> } {
+export function encodeRequiredMetadata<T extends object>(metadata: T, reservationBytes = REQUIRED_METADATA_RESERVATION_BYTES): { ok: true; bytes: Uint8Array; value: T } | { ok: false; bytes: Uint8Array; value: T } {
   const value = capMetadata(metadata);
   const bytes = encodeUtf8(JSON.stringify(value));
   return bytes.byteLength <= reservationBytes ? { ok: true, bytes, value } : { ok: false, bytes, value };
@@ -60,6 +60,7 @@ async function filesUnder(root: string): Promise<Array<{ absolutePath: string; r
       throw new Error("WORKBENCH_ARTIFACT_LIMIT");
     }
     for (const child of children) {
+      if (child.name === ".lock" || child.name === ".lock.guard") continue;
       const absolutePath = path.join(directory, child.name);
       if (child.isDirectory()) await visit(absolutePath);
       else {
@@ -72,7 +73,7 @@ async function filesUnder(root: string): Promise<Array<{ absolutePath: string; r
   return entries;
 }
 
-export function createArtifactStore(options: ArtifactStoreOptions): ArtifactStore & { writeRequiredResult(metadata: Record<string, unknown>): Promise<void> } {
+export function createArtifactStore(options: ArtifactStoreOptions): ArtifactStore & { writeRequiredResult<T extends ArtifactLimitSource>(metadata: T): Promise<void> } {
   const root = path.resolve(options.root);
   const globalRoot = path.resolve(options.globalRoot ?? path.dirname(root));
   const lock = createCrossProcessLock(path.join(globalRoot, ".lock"), { runId: options.runId, failureCode: "WORKBENCH_ARTIFACT_LIMIT" });
@@ -89,10 +90,7 @@ export function createArtifactStore(options: ArtifactStoreOptions): ArtifactStor
   // but never consumes the shared required-metadata reservation.
   const requiredNames = new Set(["lease.json", "status.json", "results.json", "error.json"]);
   const isRequiredPath = (relativePath: string): boolean => requiredNames.has(relativePath.replaceAll("\\", "/"));
-  const isRequiredEntry = (relativePath: string): boolean => {
-    const parts = relativePath.replaceAll("\\", "/").split("/");
-    return parts.length <= 2 && requiredNames.has(parts.at(-1) ?? "");
-  };
+  const isRequiredEntry = (relativePath: string): boolean => !relativePath.replaceAll("\\", "/").includes("/") && requiredNames.has(relativePath.replaceAll("\\", "/"));
   async function readIndex(runRoot: string): Promise<Array<{ relativePath: string; kind: ArtifactKind; capturedAt: number }>> {
     try { return JSON.parse(await fs.readFile(indexPath(runRoot), "utf8")) as Array<{ relativePath: string; kind: ArtifactKind; capturedAt: number }>; }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw new Error("WORKBENCH_ARTIFACT_LIMIT"); }
@@ -104,15 +102,37 @@ export function createArtifactStore(options: ArtifactStoreOptions): ArtifactStor
     const entries = await filesUnder(directory);
     return entries.reduce((sum, entry) => sum + (isRequiredEntry(entry.relativePath) && entry.absolutePath !== target ? entry.size : 0), 0);
   };
-  async function prune(requiredBytes: number, affectedRoot: string): Promise<void> {
+  async function isTerminalRun(runRoot: string): Promise<boolean> {
+    try {
+      const status = JSON.parse(await fs.readFile(path.join(runRoot, "status.json"), "utf8")) as { status?: string };
+      return status.status === "completed" || status.status === "failed" || status.status === "abandoned";
+    } catch { return false; }
+  }
+  async function globalRequiredHeadroom(affectedRequiredAfter: number): Promise<number> {
+    if (root === globalRoot) return Math.max(0, REQUIRED_METADATA_RESERVATION_BYTES - affectedRequiredAfter);
+    let directories: import("node:fs").Dirent[] = [];
+    try { directories = await fs.readdir(globalRoot, { withFileTypes: true }); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("WORKBENCH_ARTIFACT_LIMIT"); }
+    const runRoots = new Set(directories.filter((entry) => entry.isDirectory() && entry.name !== ".lock.guard").map((entry) => path.resolve(globalRoot, entry.name)));
+    runRoots.add(root);
+    let headroom = 0;
+    for (const runRoot of runRoots) {
+      if (await isTerminalRun(runRoot)) continue;
+      const bytes = runRoot === root ? affectedRequiredAfter : await requiredBytes(runRoot);
+      headroom += Math.max(0, REQUIRED_METADATA_RESERVATION_BYTES - bytes);
+    }
+    return headroom;
+  }
+  async function prune(requiredCapacity: number, affectedRoot: string, target: string): Promise<void> {
     const entries = await filesUnder(affectedRoot);
-    let total = entries.reduce((sum, entry) => sum + (path.basename(entry.absolutePath) === ".lock" ? 0 : entry.size), 0);
-    if (total + requiredBytes <= activeBudget) return;
+    let total = entries.reduce((sum, entry) => sum + (path.basename(entry.absolutePath) === ".lock" || entry.absolutePath === target ? 0 : entry.size), 0);
+    if (total + requiredCapacity <= activeBudget) return;
     const indexed = await readIndex(affectedRoot);
     const evidence = orderRetentionEvidence(indexed.filter((item) => item.kind === "video" || item.kind === "trace" || item.kind === "screenshot").map((item) => ({ ...item, runId: options.runId, category: item.kind as EvidenceCategory })));
     const sizes = new Map(entries.map((entry) => [entry.relativePath.replaceAll("\\", "/"), entry.size]));
     for (const item of evidence) {
-      if (total + requiredBytes <= activeBudget) break;
+      if (total + requiredCapacity <= activeBudget) break;
+      if (pathFor(item.relativePath) === target) continue;
       const size = sizes.get(item.relativePath.replaceAll("\\", "/")) ?? 0;
       await fs.rm(pathFor(item.relativePath), { force: true });
       total -= size;
@@ -134,10 +154,10 @@ export function createArtifactStore(options: ArtifactStoreOptions): ArtifactStor
     const remaining = orderTerminalRuns(terminal.filter((item) => now - item.terminalAt <= TERMINAL_RUN_RETENTION_MS));
     for (const run of remaining.slice(0, Math.max(0, remaining.length - TERMINAL_RUN_LIMIT))) await fs.rm(path.join(globalRoot, run.runId), { recursive: true, force: true });
   }
-  async function pruneGlobal(requiredBytes: number, target: string): Promise<void> {
+  async function pruneGlobal(requiredCapacity: number, target: string): Promise<void> {
     const entries = await filesUnder(globalRoot);
     let total = entries.reduce((sum, entry) => sum + (entry.absolutePath === target || path.basename(entry.absolutePath) === ".lock" ? 0 : entry.size), 0);
-    if (total + requiredBytes <= globalBudget) return;
+    if (total + requiredCapacity <= globalBudget) return;
     const evidence: Array<OptionalEvidence & { size: number; absolutePath: string }> = [];
     for (const entry of entries) {
       const relative = path.relative(globalRoot, entry.absolutePath).replaceAll("\\", "/");
@@ -151,7 +171,7 @@ export function createArtifactStore(options: ArtifactStoreOptions): ArtifactStor
     }
     evidence.splice(0, evidence.length, ...orderRetentionEvidence(evidence));
     for (const item of evidence) {
-      if (total + requiredBytes <= globalBudget) break;
+      if (total + requiredCapacity <= globalBudget) break;
       await fs.rm(item.absolutePath, { force: true });
       total -= item.size;
     }
@@ -162,48 +182,45 @@ export function createArtifactStore(options: ArtifactStoreOptions): ArtifactStor
         const target = pathFor(relativePath);
         const payload = relativePath.toLowerCase().endsWith(".log") ? rotateTextLog(bytes) : bytes;
         await pruneTerminalRuns();
-        const affectedHeadroom = 0;
+        const affectedRequiredBefore = await requiredBytes(root, target);
+        const affectedRequiredAfter = affectedRequiredBefore + (isRequiredPath(relativePath) ? payload.byteLength : 0);
+        if (affectedRequiredAfter > REQUIRED_METADATA_RESERVATION_BYTES) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
+        const affectedHeadroom = REQUIRED_METADATA_RESERVATION_BYTES - affectedRequiredAfter;
+        const globalHeadroom = await globalRequiredHeadroom(affectedRequiredAfter);
         const preExisting = await filesUnder(root);
         const preIndex = isRequiredPath(relativePath) ? undefined : [...(await readIndex(root)).filter((item) => item.relativePath !== relativePath), { relativePath, kind, capturedAt: writeOptions.capturedAt ?? clock() }];
         const preOldIndexSize = preExisting.find((entry) => path.basename(entry.absolutePath) === ".artifact-index.json")?.size ?? 0;
         const preIndexSizeDelta = preIndex ? encodeUtf8(JSON.stringify(preIndex.slice(0, 2000))).byteLength - preOldIndexSize : 0;
-        await prune(payload.byteLength + preIndexSizeDelta + affectedHeadroom, root);
+        await prune(payload.byteLength + preIndexSizeDelta + affectedHeadroom, root, target);
         const existing = await filesUnder(root);
         const current = existing.reduce((sum, entry) => sum + (path.basename(entry.absolutePath) === ".lock" ? 0 : entry.size - (entry.absolutePath === target ? entry.size : 0)), 0);
         const nextIndex = isRequiredPath(relativePath) ? undefined : [...(await readIndex(root)).filter((item) => item.relativePath !== relativePath), { relativePath, kind, capturedAt: writeOptions.capturedAt ?? clock() }];
         const oldIndexSize = existing.find((entry) => path.basename(entry.absolutePath) === ".artifact-index.json")?.size ?? 0;
         const indexSizeDelta = nextIndex ? encodeUtf8(JSON.stringify(nextIndex.slice(0, 2000))).byteLength - oldIndexSize : 0;
         const writeSize = payload.byteLength + indexSizeDelta;
-        if (current + writeSize > activeBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
-        const affectedRequired = await requiredBytes(root, target);
-        const affectedRequiredAfter = affectedRequired + (isRequiredPath(relativePath) ? payload.byteLength : 0);
-        if (affectedRequiredAfter > REQUIRED_METADATA_RESERVATION_BYTES) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
-        if (current + writeSize > activeBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
-        const globalRequiredBefore = await requiredBytes(globalRoot, target);
-        const globalRequiredAfter = globalRequiredBefore + (isRequiredPath(relativePath) ? payload.byteLength : 0);
-        if (globalRequiredAfter > REQUIRED_METADATA_RESERVATION_BYTES) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
-        await pruneGlobal(writeSize, target);
+        if (current + writeSize + affectedHeadroom > activeBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
+        await pruneGlobal(writeSize + globalHeadroom, target);
         const globalEntries = await filesUnder(globalRoot);
         const globalTotal = globalEntries.reduce((sum, entry) => sum + (entry.absolutePath === target || path.basename(entry.absolutePath) === ".lock" ? 0 : entry.size), 0);
-        if (globalTotal + writeSize > globalBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
-        const globalRequired = await requiredBytes(globalRoot, target);
-        const globalRequiredAfterWrite = globalRequired + (isRequiredPath(relativePath) ? payload.byteLength : 0);
-        if (globalRequiredAfterWrite > REQUIRED_METADATA_RESERVATION_BYTES) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
-        if (globalTotal + writeSize > globalBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
+        if (globalTotal + writeSize + globalHeadroom > globalBudget) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
         await writeAtomic(target, payload);
         if (nextIndex) await writeIndex(root, nextIndex);
       });
     },
     async writeRequiredResult(metadata) {
       const encoded = encodeRequiredMetadata(metadata);
-      if (!encoded.ok) {
-        const bounded = createArtifactLimitFailure(metadata as never, { message: "required metadata exceeds reserved artifact space" });
-        const replacement = encodeRequiredMetadata(bounded as unknown as Record<string, unknown>);
-        if (!replacement.ok) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
-        await this.write("results.json", replacement.bytes, "result");
-        return;
+      if (encoded.ok) {
+        try {
+          await this.write("results.json", encoded.bytes, "result");
+          return;
+        } catch (error) {
+          if ((error as Error).message !== "WORKBENCH_ARTIFACT_LIMIT") throw error;
+        }
       }
-      await this.write("results.json", encoded.bytes, "result");
+      const bounded = createArtifactLimitFailure(metadata, { message: "required metadata exceeds reserved artifact space" });
+      const replacement = encodeRequiredMetadata(bounded);
+      if (!replacement.ok) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
+      await this.write("results.json", replacement.bytes, "result");
     },
     async finalize(status) {
       await this.write("status.json", encodeUtf8(JSON.stringify({ status, terminalAt: clock() })), "status");

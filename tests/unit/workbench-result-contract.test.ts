@@ -8,7 +8,7 @@ import {
   type RunResultStartedMetadata
 } from "../../scripts/workbench/contracts";
 
-const metadata: RunResultStartedMetadata = {
+const metadata: RunResultStartedMetadata & { lease: RunResultStartedMetadata["lease"] & { status: "active" } } = {
   status: "failed",
   runId: "run-1",
   worktreePath: "C:/worktree",
@@ -73,6 +73,7 @@ describe("workbench RunResult contracts", () => {
     expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", screenshotPaths: [42], error: { message: "bad" } })).toBe(false);
     expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", assertions: [{ name: "x", passed: "yes" }], error: { message: "bad" } })).toBe(false);
     expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", cleanup: { profileRemoved: "no" }, error: { message: "bad" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "bad", details: [] } })).toBe(false);
   });
 
   it("requires a string worktree path and optional artifact extension id type", () => {
@@ -98,6 +99,13 @@ describe("workbench RunResult contracts", () => {
     const record = { recordType: "request", mode: "fixture", requestId: "request-1", sequence: 1, scenarioId: "default", message: { kind: "manager-command", command: { kind: "saveRule", rule: draft } }, startedAt: 1, latencyMs: 0, state: "pending" };
     expect(validateRunResult({ ...metadata, commandRecords: [record], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "draft" } })).toBe(true);
     expect(validateRunResult({ ...metadata, commandRecords: [{ ...record, message: { kind: "manager-command", command: { kind: "saveRule", rule: { ...draft, createdAt: "now" } } } }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "draft" } })).toBe(false);
+    expect(validateRunResult({ ...metadata, commandRecords: [{ ...record, message: { kind: "manager-command", command: { kind: "saveRule", rule: { ...draft, positive: { kind: "currentGroup", placement: { kind: "ungrouped" }, extra: true } } } } }], ok: false, code: "WORKBENCH_WORKER_TIMEOUT", phase: "worker", error: { message: "draft" } })).toBe(false);
+  });
+
+  it("creates an artifact-limit value accepted by its own runtime contract", () => {
+    const result = createArtifactLimitFailure(metadata, { message: "metadata too large" });
+    expect(validateRunResult(result)).toBe(true);
+    expect(() => createArtifactLimitFailure({ ...metadata, runId: "" }, { message: "metadata too large" })).toThrow("WORKBENCH_ARTIFACT_LIMIT");
   });
 
   it("requires exact command values and literal configuration values", () => {
@@ -131,11 +139,12 @@ describe("workbench RunResult contracts", () => {
   });
 
   it("distinguishes encoded reservation boundaries", () => {
-    const minus = new TextEncoder().encode(JSON.stringify({ value: "x".repeat(REQUIRED_METADATA_RESERVATION_BYTES - 100) })).byteLength;
-    const exact = new TextEncoder().encode(JSON.stringify({ value: "x".repeat(REQUIRED_METADATA_RESERVATION_BYTES - 13) })).byteLength;
-    const plus = new TextEncoder().encode(JSON.stringify({ value: "x".repeat(REQUIRED_METADATA_RESERVATION_BYTES + 100) })).byteLength;
-    expect(minus).toBeLessThan(REQUIRED_METADATA_RESERVATION_BYTES);
-    expect(exact).toBeLessThanOrEqual(REQUIRED_METADATA_RESERVATION_BYTES);
-    expect(plus).toBeGreaterThan(REQUIRED_METADATA_RESERVATION_BYTES);
+    const jsonOverhead = new TextEncoder().encode(JSON.stringify({ value: "" })).byteLength;
+    const minus = new TextEncoder().encode(JSON.stringify({ value: "x".repeat(REQUIRED_METADATA_RESERVATION_BYTES - jsonOverhead - 1) })).byteLength;
+    const exact = new TextEncoder().encode(JSON.stringify({ value: "x".repeat(REQUIRED_METADATA_RESERVATION_BYTES - jsonOverhead) })).byteLength;
+    const plus = new TextEncoder().encode(JSON.stringify({ value: "x".repeat(REQUIRED_METADATA_RESERVATION_BYTES - jsonOverhead + 1) })).byteLength;
+    expect(minus).toBe(REQUIRED_METADATA_RESERVATION_BYTES - 1);
+    expect(exact).toBe(REQUIRED_METADATA_RESERVATION_BYTES);
+    expect(plus).toBe(REQUIRED_METADATA_RESERVATION_BYTES + 1);
   });
 });

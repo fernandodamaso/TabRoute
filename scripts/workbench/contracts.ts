@@ -53,10 +53,19 @@ export interface ArtifactLimitFailure {
   worktreePath: string;
   buildPath: string;
   profilePath: string;
-  lease: LeaseRecord;
+  lease: LeaseRecord & { status: "active" };
   cleanup: { profileRemoved: true; retainedPath?: never } | { profileRemoved: false; retainedPath: string };
   extensionId?: string;
   error: BoundedRunError;
+}
+export interface ArtifactLimitSource {
+  runId: string;
+  worktreePath: string;
+  buildPath: string;
+  profilePath: string;
+  lease: LeaseRecord & { status: "active" };
+  cleanup: RunResultStartedMetadata["cleanup"];
+  extensionId?: string;
 }
 export interface AbandonedRunMetadata extends Omit<RunResultStartedMetadata, "status" | "lease" | "cleanup"> { status: "abandoned"; extensionId?: string; lease: LeaseRecord & { status: "abandoned" }; cleanup: { profileRemoved: true; retainedPath?: never } | { profileRemoved: false; retainedPath: string }; }
 export interface AbandonedRunResult extends AbandonedRunMetadata { ok: true; cleanup: { profileRemoved: true; retainedPath?: never }; code?: never; phase?: never; error?: never; }
@@ -78,7 +87,7 @@ export function boundedError(error: BoundedRunError): BoundedRunError {
   const details = error.details ? Object.fromEntries(Object.entries(error.details).slice(0, 32).map(([key, value]) => [capUtf8(key, 256), typeof value === "string" ? capUtf8(value, REQUIRED_METADATA_CAPS.maxErrorBytes) : value])) : undefined;
   return { message: capUtf8(error.message, REQUIRED_METADATA_CAPS.maxErrorBytes), ...(details && { details }) };
 }
-export function capRunMetadata<T extends Record<string, unknown>>(metadata: T): T {
+export function capRunMetadata<T extends object>(metadata: T): T {
   const capAny = (value: unknown, key?: string): unknown => {
     if (typeof value === "string") return capUtf8(value, key === "url" ? REQUIRED_METADATA_CAPS.maxUrlBytes : REQUIRED_METADATA_CAPS.maxStringBytes);
     if (Array.isArray(value)) return value.slice(0, key === "commandRecords" ? REQUIRED_METADATA_CAPS.maxCommandRecords : key === "assertions" ? REQUIRED_METADATA_CAPS.maxAssertions : key === "screenshotPaths" ? REQUIRED_METADATA_CAPS.maxScreenshotPaths : REQUIRED_METADATA_CAPS.maxEventRecords).map((item) => capAny(item));
@@ -87,9 +96,8 @@ export function capRunMetadata<T extends Record<string, unknown>>(metadata: T): 
   };
   return capAny(metadata) as T;
 }
-export function createArtifactLimitFailure(metadata: RunResultStartedMetadata, error: BoundedRunError): ArtifactLimitFailure {
+export function createArtifactLimitFailure<T extends ArtifactLimitSource>(metadata: T, error: BoundedRunError): ArtifactLimitFailure {
   const safe = (value: unknown) => capUtf8(typeof value === "string" ? value : "", REQUIRED_METADATA_CAPS.maxStringBytes);
-  const sourceLease = metadata.lease && typeof metadata.lease === "object" ? metadata.lease : { runId: "", pid: 0, startedAt: "", heartbeat: "", profilePath: "", status: "active" as const };
   const minimal = {
     ok: false as const,
     status: "failed" as const,
@@ -99,22 +107,22 @@ export function createArtifactLimitFailure(metadata: RunResultStartedMetadata, e
     worktreePath: safe(metadata.worktreePath),
     buildPath: safe(metadata.buildPath),
     profilePath: safe(metadata.profilePath),
-    lease: { ...sourceLease, runId: safe(sourceLease.runId), profilePath: safe(sourceLease.profilePath) },
+    lease: { ...metadata.lease, runId: safe(metadata.lease.runId), startedAt: safe(metadata.lease.startedAt), heartbeat: safe(metadata.lease.heartbeat), profilePath: safe(metadata.lease.profilePath) },
     cleanup: metadata.cleanup?.profileRemoved ? { profileRemoved: true as const } : { profileRemoved: false as const, retainedPath: safe(metadata.cleanup?.retainedPath ?? metadata.profilePath) },
     error: boundedError(error)
   };
-  if (typeof (metadata as Partial<RunResultStartedMetadata & { extensionId?: unknown }>).extensionId === "string") return { ...minimal, extensionId: safe((metadata as unknown as { extensionId: string }).extensionId) };
-  return minimal;
+  const result: ArtifactLimitFailure = metadata.extensionId !== undefined ? { ...minimal, extensionId: safe(metadata.extensionId) } : minimal;
+  if (!validateRunResult(result)) throw new Error("WORKBENCH_ARTIFACT_LIMIT");
+  return result;
 }
 
 function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean { return Object.keys(value).every((key) => allowed.includes(key)); }
 function validString(value: unknown): value is string { return typeof value === "string" && value.length > 0; }
 function validRecord(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 function validBoundedError(value: unknown): value is BoundedRunError {
-  if (!value || typeof value !== "object" || !validString((value as Record<string, unknown>).message)) return false;
-  if (!hasOnlyKeys(value as Record<string, unknown>, ["message", "details"])) return false;
-  const details = (value as Record<string, unknown>).details;
-  return details === undefined || (details !== null && typeof details === "object" && Object.keys(details as Record<string, unknown>).every(validString) && Object.values(details as Record<string, unknown>).every((item) => typeof item === "string" || typeof item === "number" || typeof item === "boolean"));
+  if (!validRecord(value) || !validString(value.message) || !hasOnlyKeys(value, ["message", "details"])) return false;
+  const details = value.details;
+  return details === undefined || (validRecord(details) && Object.keys(details).every(validString) && Object.values(details).every((item) => typeof item === "string" || typeof item === "number" || typeof item === "boolean"));
 }
 function validDetails(value: unknown): boolean {
   return value === undefined || (value !== null && typeof value === "object" && !Array.isArray(value) && Object.values(value as Record<string, unknown>).every((item) => typeof item === "string" || typeof item === "number" || typeof item === "boolean"));
@@ -127,7 +135,7 @@ function validCondition(value: unknown): boolean {
   if (value.kind === "all" || value.kind === "any") return hasOnlyKeys(value, ["kind", "children"]) && Array.isArray(value.children) && value.children.every(validCondition);
   if (value.kind === "pinned") return hasOnlyKeys(value, ["kind", "value"]) && typeof value.value === "boolean";
   if (value.kind === "currentGroup") {
-    if (!validRecord(value.placement) || typeof value.placement.kind !== "string") return false;
+    if (!hasOnlyKeys(value, ["kind", "placement"]) || !validRecord(value.placement) || typeof value.placement.kind !== "string") return false;
     if (value.placement.kind === "managed") return hasOnlyKeys(value.placement, ["kind", "managedGroupId"]) && validString(value.placement.managedGroupId);
     return (value.placement.kind === "unmanaged" || value.placement.kind === "ungrouped") && hasOnlyKeys(value.placement, ["kind"]);
   }
@@ -243,9 +251,9 @@ export function validateRunResult(value: unknown): value is RunResult {
   }
   if (result.status !== "failed" || result.ok !== false || typeof result.code !== "string" || typeof result.phase !== "string") return false;
   if (result.code === "WORKBENCH_ARGUMENT" || result.code === "WORKBENCH_CAPACITY") return !("extensionId" in result) && result.phase === (result.code === "WORKBENCH_ARGUMENT" ? "argument" : "capacity") && typeof result.runId === "string" && typeof result.worktreePath === "string" && validBoundedError(result.error) && hasOnlyKeys(result, ["ok", "status", "code", "phase", "runId", "worktreePath", "error"]);
-  if (result.code === "WORKBENCH_ARTIFACT_LIMIT" && result.phase === "artifact" && validBoundedError(result.error) && typeof result.runId === "string" && typeof result.worktreePath === "string" && validLease(result.lease, "active") && typeof result.buildPath === "string" && typeof result.profilePath === "string" && result.cleanup && typeof result.cleanup === "object") {
+  if (result.code === "WORKBENCH_ARTIFACT_LIMIT" && result.phase === "artifact" && validBoundedError(result.error) && validString(result.runId) && validString(result.worktreePath) && validLease(result.lease, "active") && validString(result.buildPath) && validString(result.profilePath) && result.cleanup && typeof result.cleanup === "object") {
     const cleanup = result.cleanup as Record<string, unknown>;
-    return hasOnlyKeys(result, ["ok", "status", "code", "phase", "runId", "worktreePath", "buildPath", "profilePath", "lease", "cleanup", "error", "extensionId"]) && hasOnlyKeys(cleanup, ["profileRemoved", "retainedPath"]) && typeof cleanup.profileRemoved === "boolean" && (cleanup.profileRemoved ? !('retainedPath' in cleanup) : typeof cleanup.retainedPath === "string") && (!('extensionId' in result) || typeof result.extensionId === "string");
+    return hasOnlyKeys(result, ["ok", "status", "code", "phase", "runId", "worktreePath", "buildPath", "profilePath", "lease", "cleanup", "error", "extensionId"]) && hasOnlyKeys(cleanup, ["profileRemoved", "retainedPath"]) && typeof cleanup.profileRemoved === "boolean" && (cleanup.profileRemoved ? !('retainedPath' in cleanup) : validString(cleanup.retainedPath)) && (!('extensionId' in result) || validString(result.extensionId));
   }
   if (!validateStartedMetadata(result) || !validBoundedError(result.error)) return false;
   const startedKeys = ["ok", "status", "code", "phase", "runId", "worktreePath", "buildPath", "profilePath", "mode", "url", "scenario", "route", "deepLink", "commandRecords", "readiness", "screenshotPaths", "assertions", "lease", "cleanup", "extensionId", "error"];
