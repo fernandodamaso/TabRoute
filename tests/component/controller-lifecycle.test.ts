@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { createTabRouteController } from "../../src/controller/controller";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
@@ -8,7 +8,7 @@ import type {
   ChromeMutationPort,
   ChromeTabSnapshot
 } from "../../src/chrome/types";
-import type { BrowserSessionId, OperationGuard, UUID } from "../../src/domain/types";
+import type { OperationGuard, UUID } from "../../src/domain/types";
 
 function tab(overrides: Partial<ChromeTabSnapshot> = {}): ChromeTabSnapshot {
   return {

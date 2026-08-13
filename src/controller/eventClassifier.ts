@@ -1,4 +1,4 @@
-import { isRoutableUrl, findTab } from "../chrome/types";
+import { isRoutableUrl } from "../chrome/types";
 import type {
   ChromeEventHint,
   ChromeInventory,
@@ -52,11 +52,6 @@ function tabIdFromEvent(event: ChromeEventHint): number | undefined {
   }
 }
 
-function windowForTab(inventory: ChromeInventory, tabId: number) {
-  const tab = tabFromInventory(inventory, tabId);
-  if (!tab) return undefined;
-  return inventory.windows.find((window) => window.id === tab.windowId);
-}
 
 function isIncognitoSubject(
   event: ChromeEventHint,
