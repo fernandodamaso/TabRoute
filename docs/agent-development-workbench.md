@@ -42,7 +42,18 @@ The runner and artifact layer expose exactly six stable failure codes:
 ## Viewport and scenarios
 
 - Manager preview is **520×600** (`data-manager-viewport="520x600"` on popup; `.workbench-preview` in the host).
-- Fifteen fixture scenarios: `wb:default`, `wb:loading`, `wb:slow`, `wb:validation-error`, `wb:query-failure-once`, `wb:command-failure-once`, `wb:empty-groups`, `wb:populated-persistent-tabs`, `wb:rules-overview`, `wb:rules-editor-new`, `wb:rules-editor-edit`, `wb:rules-confirm-delete`, `wb:activity`, `wb:settings`, `wb:offline-preview`.
+- Fifteen fixture scenarios: `wb:default`, `wb:empty-groups`, `wb:dense-groups`, `wb:enabled-group`, `wb:disabled-group`, `wb:empty-persistent-tabs`, `wb:populated-persistent-tabs`, `wb:mixed-rules-overview`, `wb:new-rule`, `wb:edit-rule`, `wb:confirmation-overlay`, `wb:loading`, `wb:slow`, `wb:validation-error`, `wb:offline`. Activity and Settings are routes exercised through the host, not separate scenario ids.
+
+## Removal path
+
+- Workbench code lives under `src/workbench/` and `scripts/workbench/` and is excluded from the production graph by `wxt.config.ts`.
+- Removing the harness means deleting those trees, the six npm scripts, Playwright e2e specs, and `.workbench/` artifacts; production `ManagerApp` remains the shipping UI.
+
+## Non-goals
+
+- No Sync/Activity/Undo/snapshot persistence in workbench tests.
+- No Chrome tab/group mutations from workbench UI.
+- No branded Chrome packaging, store submission, or user-profile automation.
 
 ## Isolation rules
 
