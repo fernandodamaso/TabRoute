@@ -161,7 +161,7 @@ export type GuardPostcondition =
   | {
       kind: "tabPlacement";
       tabIds: number[];
-      windowId: number;
+      windowId?: number;
       chromeGroupId?: number;
       ungrouped?: true;
     }

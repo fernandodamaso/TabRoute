@@ -87,6 +87,43 @@ describe("tabs.onReplaced transfer", () => {
     expect(next.operationGuards[0]?.tabIds).toEqual([99]);
     expect(next.pendingGroupRemovals[0]?.memberTabIds).toEqual([99]);
   });
+
+  it("remaps tabPlacement postcondition tabIds 7 → 99", () => {
+    const next = transferReplacedTab(
+      session({
+        operationGuards: [
+          {
+            id: "00000000-0000-4000-8000-000000000010" as OperationGuard["id"],
+            browserSessionId: sessionId,
+            actionId:
+              "00000000-0000-4000-8000-000000000011" as OperationGuard["actionId"],
+            operation: "assignTabsToManagedGroup",
+            phase: "settling",
+            tabIds: [7],
+            chromeGroupIds: [11],
+            expectedEventKinds: ["tabUpdated"],
+            seenEventKinds: [],
+            postcondition: {
+              kind: "tabPlacement",
+              tabIds: [7],
+              windowId: 1,
+              chromeGroupId: 11
+            },
+            startedAt: 1,
+            expiresAt: 5001
+          }
+        ]
+      }),
+      7,
+      99
+    );
+    expect(next.operationGuards[0]?.postcondition).toEqual({
+      kind: "tabPlacement",
+      tabIds: [99],
+      windowId: 1,
+      chromeGroupId: 11
+    });
+  });
 });
 
 describe("ordinary removal and worker-wake scrub", () => {
@@ -194,5 +231,87 @@ describe("ordinary removal and worker-wake scrub", () => {
     expect(next.operationGuards[0]?.tabIds).toEqual([8]);
     expect(next.operationGuards[0]?.chromeGroupIds).toEqual([]);
     expect(next.associations).toEqual([]);
+  });
+
+  it("scrubs stale tabPlacement and managedGroupState postcondition ids", () => {
+    const next = scrubRuntimeState(
+      session({
+        lastFocusedNormalWindowId: 1,
+        operationGuards: [
+          {
+            id: "00000000-0000-4000-8000-000000000010" as OperationGuard["id"],
+            browserSessionId: sessionId,
+            actionId:
+              "00000000-0000-4000-8000-000000000011" as OperationGuard["actionId"],
+            operation: "assignTabsToManagedGroup",
+            phase: "settling",
+            tabIds: [7, 8],
+            chromeGroupIds: [11],
+            expectedEventKinds: ["tabUpdated"],
+            seenEventKinds: [],
+            postcondition: {
+              kind: "tabPlacement",
+              tabIds: [7, 8],
+              windowId: 1,
+              chromeGroupId: 11
+            },
+            startedAt: 1,
+            expiresAt: 5001
+          },
+          {
+            id: "00000000-0000-4000-8000-000000000012" as OperationGuard["id"],
+            browserSessionId: sessionId,
+            actionId:
+              "00000000-0000-4000-8000-000000000013" as OperationGuard["actionId"],
+            operation: "assignTabsToManagedGroup",
+            phase: "settling",
+            tabIds: [8],
+            chromeGroupIds: [],
+            expectedEventKinds: ["groupUpdated"],
+            seenEventKinds: [],
+            postcondition: {
+              kind: "managedGroupState",
+              managedGroupId:
+                "00000000-0000-4000-8000-000000000001" as RuntimeSession["intentionallyClosedGroupIds"][number],
+              windowId: 1,
+              title: "Other"
+            },
+            startedAt: 1,
+            expiresAt: 5001
+          }
+        ]
+      }),
+      {
+        windows: [{ id: 2, focused: true, incognito: false, type: "normal" }],
+        tabs: [
+          {
+            id: 8,
+            windowId: 2,
+            index: 0,
+            chromeGroupId: -1,
+            url: "https://a.example/",
+            title: "A",
+            pinned: false,
+            active: true,
+            incognito: false,
+            lastAccessed: 1
+          }
+        ],
+        groups: [],
+        capturedAt: 2
+      }
+    );
+    expect(next.browserSessionId).toBe(sessionId);
+    expect(next.lastFocusedNormalWindowId).toBeUndefined();
+    expect(next.operationGuards[0]?.postcondition).toEqual({
+      kind: "tabPlacement",
+      tabIds: [8]
+    });
+    expect(next.operationGuards[1]?.postcondition).toEqual({
+      kind: "managedGroupState",
+      managedGroupId:
+        "00000000-0000-4000-8000-000000000001" as RuntimeSession["intentionallyClosedGroupIds"][number],
+      title: "Other"
+    });
   });
 });

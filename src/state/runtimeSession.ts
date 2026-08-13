@@ -2,6 +2,7 @@ import type {
   BrowserSessionId,
   ChromeAssociation,
   ChromeInventory,
+  GuardPostcondition,
   ManualOverride,
   OperationGuard,
   PendingGroupRemoval,
@@ -100,7 +101,12 @@ export function transferReplacedTab(
     manualOverrides,
     operationGuards: session.operationGuards.map((guard) => ({
       ...guard,
-      tabIds: remapTabIds(guard.tabIds, removedTabId, addedTabId)
+      tabIds: remapTabIds(guard.tabIds, removedTabId, addedTabId),
+      postcondition: remapPostconditionTabIds(
+        guard.postcondition,
+        removedTabId,
+        addedTabId
+      )
     })),
     pendingGroupRemovals: session.pendingGroupRemovals.map((pending) => ({
       ...pending,
@@ -149,6 +155,12 @@ export function scrubRuntimeState(
       tabIds: guard.tabIds.filter((tabId) => tabIds.has(tabId)),
       chromeGroupIds: guard.chromeGroupIds.filter((chromeGroupId) =>
         groupIds.has(chromeGroupId)
+      ),
+      postcondition: scrubPostcondition(
+        guard.postcondition,
+        tabIds,
+        groupIds,
+        windowIds
       )
     })),
     associations: session.associations.filter(
@@ -165,6 +177,49 @@ function remapTabIds(
   addedTabId: number
 ) {
   return tabIds.map((tabId) => (tabId === removedTabId ? addedTabId : tabId));
+}
+
+function remapPostconditionTabIds(
+  postcondition: GuardPostcondition | undefined,
+  removedTabId: number,
+  addedTabId: number
+): GuardPostcondition | undefined {
+  if (postcondition?.kind !== "tabPlacement") {
+    return postcondition;
+  }
+  return {
+    ...postcondition,
+    tabIds: remapTabIds(postcondition.tabIds, removedTabId, addedTabId)
+  };
+}
+
+function scrubPostcondition(
+  postcondition: GuardPostcondition | undefined,
+  tabIds: Set<number>,
+  groupIds: Set<number>,
+  windowIds: Set<number>
+): GuardPostcondition | undefined {
+  if (!postcondition) {
+    return undefined;
+  }
+  if (postcondition.kind === "tabPlacement") {
+    const { chromeGroupId, windowId, ...rest } = postcondition;
+    return {
+      ...rest,
+      tabIds: postcondition.tabIds.filter((tabId) => tabIds.has(tabId)),
+      ...(windowId !== undefined && windowIds.has(windowId)
+        ? { windowId }
+        : {}),
+      ...(chromeGroupId !== undefined && groupIds.has(chromeGroupId)
+        ? { chromeGroupId }
+        : {})
+    };
+  }
+  const { windowId, ...rest } = postcondition;
+  return {
+    ...rest,
+    ...(windowId !== undefined && windowIds.has(windowId) ? { windowId } : {})
+  };
 }
 
 function parseAssociation(value: unknown): ChromeAssociation {
