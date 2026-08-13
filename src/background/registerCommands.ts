@@ -76,6 +76,21 @@ async function handleCommand(
   ) {
     return;
   }
+  if (
+    (command.kind === "makePersistent" || command.kind === "pinGroup") &&
+    contextTab?.id !== undefined
+  ) {
+    const inventoryTab = findTab(menuContext.inventory, contextTab.id);
+    const group =
+      inventoryTab && inventoryTab.chromeGroupId >= 0
+        ? menuContext.inventory.groups.find(
+            (candidate) =>
+              candidate.id === inventoryTab.chromeGroupId &&
+              candidate.windowId === inventoryTab.windowId
+          )
+        : undefined;
+    if (group?.shared) return;
+  }
   await host.executeUserCommand(command);
 }
 

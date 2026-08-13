@@ -279,8 +279,8 @@ export default defineBackground(() => {
       }
     });
     menuHost = {
-      executeUserCommand: (command: UserCommand) =>
-        executeUserCommand(command, {
+      async executeUserCommand(command: UserCommand) {
+        const result = await executeUserCommand(command, {
           getConfiguration: () => controller!.getConfiguration(),
           replaceConfiguration: (next) => controller!.replaceConfiguration(next),
           persistConfiguration: (next) => repository.save(next),
@@ -290,7 +290,14 @@ export default defineBackground(() => {
           openOptionsPage: async () => {
             await chrome.runtime.openOptionsPage();
           }
-        }),
+        });
+        if (result.ok) {
+          void rebuildMenus().catch((error: unknown) =>
+            console.error("TabRoute menu refresh failed", error)
+          );
+        }
+        return result;
+      },
       async readMenuContext() {
         const configuration = controller!.getConfiguration();
         const inventory = await controller!.actionDeps().reads.readInventory();

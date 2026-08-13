@@ -493,6 +493,33 @@ describe("background menus and commands wiring", () => {
     expect(fake.executed()).toEqual([{ kind: "toggleAutomation" }]);
   });
 
+  it("blocks make-persistent and pin-group shortcuts for shared-group tabs", async () => {
+    const fake = createFakeBrowser({
+      inventoryTabs: [
+        {
+          id: 10,
+          windowId: 1,
+          url: "https://example.com/",
+          groupId: 5,
+          active: true
+        }
+      ],
+      inventoryGroups: [
+        {
+          id: 5,
+          windowId: 1,
+          shared: true,
+          title: "Shared"
+        }
+      ]
+    });
+    registerCommands(fake.browser, fake.controller);
+    await fake.commands.emit("make-persistent");
+    await fake.commands.emit("pin-group");
+    await fake.commands.emit("move-to-other");
+    expect(fake.executed()).toEqual([{ kind: "moveToOther", tabId: 10 }]);
+  });
+
   it("uses the last-focused normal window for shortcuts", async () => {
     const fake = createFakeBrowser({
       inventoryTabs: [
