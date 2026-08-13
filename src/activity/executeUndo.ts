@@ -2,7 +2,7 @@ import { executeActionPlan, type ActionEngineDeps } from "../actions/executeActi
 import type { Configuration, UUID } from "../domain/types";
 import type { LocalRepository } from "../state/localRepository";
 import type { SessionRepository } from "../state/sessionRepository";
-import { planUndoActions, WINDOW_ID_NONE } from "./undoPlanner";
+import { planUndoActions, undoPlanIsDegraded, WINDOW_ID_NONE } from "./undoPlanner";
 
 export type UndoExecutionResult = "success" | "expired" | "unavailable" | "degraded";
 
@@ -23,8 +23,8 @@ export async function executeUndo(input: {
   const payload = record.payloads[0];
   if (!payload) return "unavailable";
 
-  const focusedId = await input.deps.reads.getLastFocusedNormalWindowId();
   const inventory = await input.deps.reads.readInventory();
+  const focusedId = await input.deps.reads.getLastFocusedNormalWindowId();
   const normalWindow =
     inventory.windows.find(
       (window) =>
@@ -37,11 +37,17 @@ export async function executeUndo(input: {
   const windowId = normalWindow?.id ?? null;
   if (windowId === null || windowId === WINDOW_ID_NONE) return "unavailable";
 
-  const placement =
+  const degradedBeforeExecute =
     payload.kind === "restoreClosedTab" || payload.kind === "restorePlacement"
-      ? payload.placement
-      : { kind: "ungrouped" as const, index: 0 };
-  const planResult = planUndoActions(payload, placement, windowId);
+      ? undoPlanIsDegraded(payload, windowId, input.configuration, inventory)
+      : false;
+
+  const planResult = planUndoActions({
+    payload,
+    windowId,
+    configuration: input.configuration,
+    inventory
+  });
   if ("status" in planResult) return "unavailable";
 
   const result = await executeActionPlan(planResult, {
@@ -50,5 +56,5 @@ export async function executeUndo(input: {
   });
   if (result.status === "failure") return "degraded";
   await input.local.deleteUndo(input.undoId);
-  return "success";
+  return degradedBeforeExecute ? "degraded" : "success";
 }

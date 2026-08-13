@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { createUuid } from "../../src/domain/ids";
 import {
   createMemoryLocalRepository,
-  LOCAL_SOFT_BUDGET_BYTES
+  LOCAL_SOFT_BUDGET_BYTES,
+  createActivityEntry
 } from "../../src/state/localRepository";
-import { createActivityEntry } from "../../src/state/localRepository";
 
 describe("storage repositories", () => {
   it("prunes expired undo before automatic snapshots and activity", async () => {
@@ -110,5 +111,27 @@ describe("storage repositories", () => {
     const result = await local.saveShutdownCheckpoint(oversized);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("CHECKPOINT_CAPACITY");
+  });
+
+  it("incomplete remote generation does not append success activity", async () => {
+    const local = createMemoryLocalRepository();
+    const { recordSyncRevisionActivity } = await import(
+      "../../src/activity/activityRepository"
+    );
+    await recordSyncRevisionActivity(
+      local,
+      { kind: "pending" },
+      1
+    );
+    expect(await local.listActivity(undefined, 10)).toHaveLength(0);
+
+    await recordSyncRevisionActivity(
+      local,
+      { kind: "applied" },
+      2
+    );
+    const entries = await local.listActivity(undefined, 10);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.result).toBe("success");
   });
 });

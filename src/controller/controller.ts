@@ -2,7 +2,7 @@ import { reconstructAssociations } from "../chrome/reconstructAssociations";
 
 import { observeInventory } from "../duplicates/observations";
 
-import { attemptDuplicateClose } from "../duplicates/duplicateRuntime";
+import { attemptDuplicateClose } from "./duplicateClose";
 
 import type { LiveChromePort } from "../chrome/types";
 

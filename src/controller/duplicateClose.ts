@@ -19,9 +19,9 @@ import { placementAction, selectRule } from "../rules/ruleEngine";
 import { identifyClosedSession } from "../activity/identifyClosedSession";
 import { appendActivityEntry } from "../activity/activityRepository";
 import { createActivityEntry, type LocalRepository } from "../state/localRepository";
-import { observeInventory } from "./observations";
-import { planDuplicateClose } from "./planDuplicateClose";
-import { resolveDuplicate } from "./resolveDuplicate";
+import { observeInventory } from "../duplicates/observations";
+import { planDuplicateClose } from "../duplicates/planDuplicateClose";
+import { resolveDuplicate } from "../duplicates/resolveDuplicate";
 import { planUndoRestore } from "../activity/undoPlanner";
 
 function duplicateContext(input: {
@@ -165,9 +165,18 @@ export async function attemptDuplicateClose(input: {
       at
     });
   const observed = observeInventory(input.inventory, input.runtime);
+  const triggeringTab =
+    observed.inventory.tabs.find((candidate) => candidate.id === input.tab.id) ??
+    ({
+      ...input.tab,
+      routing: isRoutableUrl(input.tab.url)
+        ? { kind: "routable" as const, url: input.tab.url }
+        : { kind: "pending" as const }
+    } satisfies TabSnapshot);
   const decision = resolveDuplicate({
     inventory: observed.inventory,
     tabs: observed.inventory.tabs,
+    triggeringTab,
     configuration: input.configuration,
     associations: input.associations,
     session: observed.session,

@@ -5,7 +5,7 @@ import type {
   TabObservation,
   TabSnapshot
 } from "../domain/types";
-import { isRoutableUrl } from "../chrome/types";
+import { isRoutableUrl } from "./normalizeUrl";
 
 export function observeInventory(
   raw: ChromeInventory,

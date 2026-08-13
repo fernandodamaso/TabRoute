@@ -4,7 +4,8 @@ import { createMemorySessionRepository } from "../../src/state/sessionRepository
 import { resolveDuplicatePolicy } from "../../src/duplicates/policy";
 import { buildDuplicateKey } from "../../src/duplicates/normalizeUrl";
 import { observeInventory } from "../../src/duplicates/observations";
-import { selectDuplicateSurvivor } from "../../src/duplicates/resolveDuplicate";
+import { planDuplicateClose } from "../../src/duplicates/planDuplicateClose";
+import { resolveDuplicate, selectDuplicateSurvivor } from "../../src/duplicates/resolveDuplicate";
 import type { ChromeInventory, ManagedGroup, Rule, TabSnapshot, UUID } from "../../src/domain/types";
 
 const groupId = "00000000-0000-4000-8000-000000000002" as UUID;
@@ -195,5 +196,71 @@ describe("duplicates", () => {
       nextObservationOrdinal: 0
     });
     expect(restarted.session.tabObservations.map((o) => o.tabId)).toEqual([1, 2]);
+  });
+
+  it("resolves duplicates from the triggering tab key, not the first eligible tab", async () => {
+    const configuration = {
+      ...createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000001"),
+      duplicateSettings: {
+        ...createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000001")
+          .duplicateSettings,
+        globalPolicy: { kind: "exactUrl" as const }
+      }
+    };
+    const sessionRepo = createMemorySessionRepository();
+    const session = await sessionRepo.loadSession();
+    const tabs = [
+      tab(1, {
+        routing: { kind: "routable", url: "https://unique.test/only" }
+      }),
+      tab(2, {
+        lastAccessed: 1,
+        routing: { kind: "routable", url: "https://pair.test/shared" }
+      }),
+      tab(3, {
+        lastAccessed: 3,
+        routing: { kind: "routable", url: "https://pair.test/shared" }
+      })
+    ];
+    const inventory = {
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      tabs,
+      groups: [],
+      capturedAt: 1
+    };
+    const decision = resolveDuplicate({
+      inventory,
+      tabs,
+      triggeringTab: tabs[2]!,
+      configuration,
+      associations: [],
+      session,
+      rule: null,
+      destination: "ungrouped",
+      destinationManaged: false,
+      destinationGroup: null
+    });
+    expect(decision?.survivor.id).toBe(3);
+    expect(decision?.duplicatesToClose.map((candidate) => candidate.id)).toEqual([2]);
+  });
+
+  it("moves a survivor that is in the wrong group before close", () => {
+    const configuration = createDefaultConfiguration(
+      () => "00000000-0000-4000-8000-000000000001"
+    );
+    const workId = configuration.groups[0]!.id;
+    const decision = {
+      survivor: tab(1, { chromeGroupId: 10, lastAccessed: 3 }),
+      duplicatesToClose: [tab(2, { lastAccessed: 1 })],
+      destination: workId,
+      moveSurvivor: true,
+      focusSurvivor: true
+    };
+    const plan = planDuplicateClose(decision, configuration, []);
+    expect(plan.actions.map((action) => action.kind)).toEqual([
+      "assignTabsToManagedGroup",
+      "focusTab",
+      "closeDuplicate"
+    ]);
   });
 });

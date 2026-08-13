@@ -98,6 +98,7 @@ describe("controller duplicates", () => {
     const decision = resolveDuplicate({
       inventory,
       tabs: inventory.tabs,
+      triggeringTab: inventory.tabs[0]!,
       configuration,
       associations: [],
       session,
@@ -123,6 +124,7 @@ describe("controller duplicates", () => {
     const decision = resolveDuplicate({
       inventory,
       tabs,
+      triggeringTab: tabs[1]!,
       configuration,
       associations: [],
       session,

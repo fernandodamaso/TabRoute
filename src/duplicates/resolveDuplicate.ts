@@ -64,6 +64,7 @@ export function selectDuplicateSurvivor(
 export function resolveDuplicate(input: {
   inventory: ChromeInventory;
   tabs: readonly TabSnapshot[];
+  triggeringTab: TabSnapshot;
   configuration: Configuration;
   associations: readonly ChromeAssociation[];
   session: RuntimeSession;
@@ -76,16 +77,18 @@ export function resolveDuplicate(input: {
     (tab) => tab.routing.kind === "routable" && !isSharedMember(input.inventory, tab)
   );
   if (eligible.length < 2) return null;
+  const trigger = eligible.find((tab) => tab.id === input.triggeringTab.id);
+  if (!trigger || trigger.routing.kind !== "routable") return null;
   const policy = resolveDuplicatePolicy(
     input.rule,
     input.destinationGroup,
     input.configuration.duplicateSettings,
     input.destinationManaged,
-    eligible[0]!.routing.kind === "routable" ? eligible[0]!.routing.url : undefined
+    trigger.routing.url
   );
   if (policy.kind === "allow") return null;
   const key = buildDuplicateKey(
-    eligible[0]!,
+    trigger,
     policy,
     input.configuration.duplicateSettings
   );

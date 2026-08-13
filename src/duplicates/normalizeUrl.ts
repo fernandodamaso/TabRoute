@@ -1,6 +1,16 @@
 import type { DuplicatePolicy, DuplicateSettings } from "../domain/types";
 import type { TabSnapshot } from "../domain/types";
 
+export function isRoutableUrl(url: string | undefined): url is string {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function stripTracking(url: URL, trackingParameters: readonly string[]): URL {
   const next = new URL(url.toString());
   for (const parameter of trackingParameters) {

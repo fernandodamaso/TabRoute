@@ -282,7 +282,24 @@ async function executePlannedAction(
       }
       return { status: "success" };
     }
-    case "assignTabsToUnmanagedGroup":
+    case "assignTabsToUnmanagedGroup": {
+      const tabIds = action.tabs
+        .map((ref) => resolveTabRef(ref, outputs, inventory))
+        .filter((id): id is number => id !== undefined);
+      if (tabIds.length === 0) return { status: "failure", errorCode: "TAB_MISSING" };
+      await executeWithRetry(
+        () =>
+          deps.mutations.groupTabs({
+            kind: "existing",
+            tabIds: tabIds as [number, ...number[]],
+            chromeGroupId: action.chromeGroupId,
+            windowId: action.windowId
+          }),
+        refresh,
+        delay
+      );
+      return { status: "success" };
+    }
     case "updateManagedGroup":
     case "moveManagedGroup":
     case "reorderTabs":
