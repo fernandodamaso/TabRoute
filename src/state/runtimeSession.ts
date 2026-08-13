@@ -27,6 +27,7 @@ export function createEmptyRuntimeSession(input: {
     intentionallyClosedGroupIds: [],
     operationGuards: [],
     pendingGroupRemovals: [],
+    pendingWindowClosures: [],
     associations: []
   };
 }
@@ -69,11 +70,17 @@ export function parseRuntimeSession(
     pendingGroupRemovals: Array.isArray(value.pendingGroupRemovals)
       ? (value.pendingGroupRemovals as PendingGroupRemoval[])
       : [],
+    pendingWindowClosures: Array.isArray(value.pendingWindowClosures)
+      ? (value.pendingWindowClosures as import("../domain/types").PendingWindowClosure[])
+      : [],
     associations: Array.isArray(value.associations)
       ? value.associations.map(parseAssociation)
       : [],
     ...(typeof value.lastFocusedNormalWindowId === "number"
       ? { lastFocusedNormalWindowId: value.lastFocusedNormalWindowId }
+      : {}),
+    ...(isRecord(value.startupRestore)
+      ? { startupRestore: value.startupRestore as unknown as import("../domain/types").StartupRestoreState }
       : {})
   };
 }

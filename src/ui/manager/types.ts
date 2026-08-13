@@ -37,7 +37,18 @@ export type ManagerCommandPayload =
   | { kind: "setRuleEnabled"; ruleId: UUID; enabled: boolean }
   | { kind: "setRulePaused"; ruleId: UUID; pausedUntil?: number | "restart" }
   | { kind: "undo"; undoId: UUID }
-  | { kind: "clearActivity" };
+  | { kind: "clearActivity" }
+  | { kind: "savePersistentTab"; draft: PersistentTabDraft }
+  | { kind: "removePersistent"; persistentTabId: UUID }
+  | { kind: "reorderPersistentTabs"; managedGroupId: UUID; orderedIds: readonly UUID[] }
+  | { kind: "pinGroup"; managedGroupId: UUID; memberUrls: readonly string[] }
+  | { kind: "makePersistent"; managedGroupId: UUID; url: string }
+  | { kind: "setRestorePersistentGroups"; enabled: boolean };
+
+export type PersistentTabDraft = Omit<
+  import("../../domain/types").PersistentTab,
+  "schemaVersion" | "id" | "createdAt" | "updatedAt"
+> & { id?: UUID };
 
 export interface ManagerCommand {
   kind: "manager-command";
@@ -54,6 +65,7 @@ export type ManagerDeepLink =
 export interface PersistentTabsViewFixture {
   state: "loading" | "empty" | "populated" | "disabled" | "error";
   tabs: readonly string[];
+  persistentTabRecords?: readonly import("../../domain/types").PersistentTab[];
 }
 
 export interface ManagerViewFixture {

@@ -84,7 +84,7 @@ export async function executeActionPlan(
   const completed: EngineActionResult["completed"] = [];
   let inventory = await deps.reads.readInventory();
   const session = await deps.session.loadSession();
-  const associations = reconstructAssociations(inventory, deps.configuration);
+  let associations = reconstructAssociations(inventory, deps.configuration);
 
   if (plan.checkpoint === "required") {
     try {
@@ -120,6 +120,7 @@ export async function executeActionPlan(
     if (result.output) outputs[action.id] = result.output;
     completed.push(action.id);
     inventory = await deps.reads.readInventory();
+    associations = reconstructAssociations(inventory, deps.configuration);
   }
 
   return { actionId: plan.id, status: "success", completed, outputs };
@@ -300,8 +301,36 @@ async function executePlannedAction(
       );
       return { status: "success" };
     }
-    case "updateManagedGroup":
-    case "moveManagedGroup":
+    case "updateManagedGroup": {
+      const association = associations.find(
+        (candidate) => candidate.managedGroupId === action.managedGroupId
+      );
+      if (!association) return { status: "failure", errorCode: "GROUP_MISSING" };
+      await executeWithRetry(
+        () =>
+          deps.mutations.updateGroup(association.chromeGroupId, action.patch),
+        refresh,
+        delay
+      );
+      return { status: "success" };
+    }
+    case "moveManagedGroup": {
+      const association = associations.find(
+        (candidate) => candidate.managedGroupId === action.managedGroupId
+      );
+      if (!association) return { status: "failure", errorCode: "GROUP_MISSING" };
+      await executeWithRetry(
+        () =>
+          deps.mutations.moveGroup(
+            association.chromeGroupId,
+            action.windowId,
+            action.index
+          ),
+        refresh,
+        delay
+      );
+      return { status: "success" };
+    }
     case "reorderTabs":
       return { status: "success" };
     default:

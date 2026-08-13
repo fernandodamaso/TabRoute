@@ -384,15 +384,16 @@ it("reset restores the selected seed, clock, identifiers, latency, failure polic
   expectSuccess(await resetPending);
 });
 
-it("keeps populated persistent tabs in view fixtures and leaves Configuration.persistentTabs unchanged", async () => {
+it("seeds populated persistent tabs in configuration and view fixtures", async () => {
   const fixture = createFixtureManagerTransport({ scenarioId: "wb:populated-persistent-tabs" });
   const response = await fixture.transport.request(query);
 
   expectSuccess(response);
-  expect(response.configuration.persistentTabs).toEqual([]);
+  expect(response.configuration.persistentTabs).toHaveLength(2);
   expect(response.viewFixture?.persistentTabsByGroup[FIXTURE_IDS.primaryGroup]).toEqual({
     state: "populated",
-    tabs: ["Docs — https://docs.example.test/", "Inbox — https://mail.example.test/inbox"]
+    tabs: ["Docs — https://docs.example.test/", "Inbox — https://mail.example.test/inbox"],
+    persistentTabRecords: response.configuration.persistentTabs
   });
 });
 

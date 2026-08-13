@@ -16,6 +16,6 @@ export function GroupsPage({ configuration, command, viewFixture, onNavigate }: 
   if (!selected) return <p>No managed groups.</p>;
   return <div className="groups-page"><h1 className="sr-only">Groups</h1>
     <GroupNavigator groups={configuration.groups} selectedId={selected.id} onSelect={setSelectedId} onAdd={() => void command({ kind: "manager-command", command: { kind: "createGroup", input: { name: "New group", color: "blue" } } })} onDelete={(id) => void command({ kind: "manager-command", command: { kind: "deleteGroup", groupId: id } })} />
-    <GroupInspector group={selected} command={command} viewFixture={viewFixture?.persistentTabsByGroup[selected.id]} onNavigate={onNavigate} />
+    <GroupInspector group={selected} configuration={configuration} command={command} viewFixture={viewFixture?.persistentTabsByGroup[selected.id]} onNavigate={onNavigate} />
   </div>;
 }

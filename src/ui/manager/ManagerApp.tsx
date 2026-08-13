@@ -91,11 +91,31 @@ export function ManagerApp({
                 await state.runCommand(payload);
               }}
             />
-          : <>
-            <h1 data-page-heading="true">{title}</h1>
-            <section aria-label={`${title} content`} className="manager-page-content">
-              <p className="manager-lede">{`${title} is ready for this manager.`}</p>
-            </section>
-          </>}
+          : route === "settings"
+            ? <>
+              <h1 data-page-heading="true">Settings</h1>
+              <section aria-label="Settings content" className="manager-page-content">
+                <label className="toggle-row">
+                  <input
+                    aria-label="Restore persistent groups"
+                    type="checkbox"
+                    checked={state.configuration.restorePersistentGroups ?? true}
+                    onChange={(event) =>
+                      void state.runCommand({
+                        kind: "setRestorePersistentGroups",
+                        enabled: event.target.checked
+                      })
+                    }
+                  />
+                  Restore persistent groups
+                </label>
+              </section>
+            </>
+            : <>
+              <h1 data-page-heading="true">{title}</h1>
+              <section aria-label={`${title} content`} className="manager-page-content">
+                <p className="manager-lede">{`${title} is ready for this manager.`}</p>
+              </section>
+            </>}
   </ManagerShell>;
 }

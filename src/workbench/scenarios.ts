@@ -205,13 +205,39 @@ function createSeedFor(id: ScenarioId): {
   }
 
   if (id === "wb:populated-persistent-tabs") {
+    configuration = {
+      ...configuration,
+      persistentTabs: [
+        {
+          schemaVersion: 1,
+          id: "00000000-0000-4000-8000-000000000301" as import("../domain/types").UUID,
+          managedGroupId: FIXTURE_IDS.primaryGroup,
+          canonicalUrl: "https://docs.example.test/",
+          acceptedPatterns: ["https://docs.example.test/"],
+          order: 0,
+          createdAt: SEED_TIME,
+          updatedAt: SEED_TIME
+        },
+        {
+          schemaVersion: 1,
+          id: "00000000-0000-4000-8000-000000000302" as import("../domain/types").UUID,
+          managedGroupId: FIXTURE_IDS.primaryGroup,
+          canonicalUrl: "https://mail.example.test/inbox",
+          acceptedPatterns: ["https://mail.example.test/inbox"],
+          order: 1,
+          createdAt: SEED_TIME,
+          updatedAt: SEED_TIME
+        }
+      ]
+    };
     viewFixture.persistentTabsByGroup = {
       [FIXTURE_IDS.primaryGroup]: {
         state: "populated",
         tabs: [
           "Docs — https://docs.example.test/",
           "Inbox — https://mail.example.test/inbox"
-        ]
+        ],
+        persistentTabRecords: configuration.persistentTabs
       }
     };
   }

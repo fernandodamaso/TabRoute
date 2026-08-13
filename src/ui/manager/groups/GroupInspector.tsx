@@ -1,13 +1,21 @@
-import type { ManagedGroup } from "../../../domain/types";
+import type { ManagedGroup, PersistentTab } from "../../../domain/types";
 import { renderGroupTitle } from "../../../groups/displayTitle";
+import { persistentTabsForGroup } from "../../../persistence/requirements";
 import type { ManagerCommand, ManagerResponse, PersistentTabsViewFixture } from "../types";
 import { PersistentTabsSection } from "./PersistentTabsSection";
 import { useGroupAutosave } from "./useGroupAutosave";
 
 const colors: ManagedGroup["color"][] = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 
-export function GroupInspector({ group, command, viewFixture, onNavigate }: {
+export function GroupInspector({
+  group,
+  configuration,
+  command,
+  viewFixture,
+  onNavigate
+}: {
   group: ManagedGroup;
+  configuration: import("../../../domain/types").Configuration;
   command: (message: ManagerCommand) => Promise<ManagerResponse>;
   viewFixture?: PersistentTabsViewFixture;
   onNavigate?: (route: "rules") => void;
@@ -19,6 +27,20 @@ export function GroupInspector({ group, command, viewFixture, onNavigate }: {
       return { ok: response.ok };
     }
   });
+  const persistentTabs = persistentTabsForGroup(configuration, group.id);
+  const fixtureState = viewFixture?.state;
+  const sectionState =
+    fixtureState ??
+    (group.enabled
+      ? persistentTabs.length > 0
+        ? "populated"
+        : "empty"
+      : "disabled");
+  const sectionTabs: readonly PersistentTab[] =
+    fixtureState === "populated" && viewFixture?.persistentTabRecords
+      ? viewFixture.persistentTabRecords
+      : persistentTabs;
+
   return <article className="groups-inspector groups-scroll-owner" aria-label={`${renderGroupTitle(group)} inspector`}>
     <div className="inspector-heading"><div><p className="manager-eyebrow">IDENTITY</p><h2>{renderGroupTitle(group)}</h2></div><span role="status" className={`autosave-status autosave-${autosave.status.toLowerCase()}`}>{autosave.status}</span></div>
     <section className="manager-card" aria-labelledby="identity-heading"><h3 id="identity-heading">Identity</h3>
@@ -31,8 +53,11 @@ export function GroupInspector({ group, command, viewFixture, onNavigate }: {
     <section className="manager-card" aria-labelledby="routing-heading"><div className="section-title"><h3 id="routing-heading">Routing rules</h3><button type="button" onClick={() => onNavigate?.("rules")}>Open Rules</button></div><p className="manager-note">Rules that target {renderGroupTitle(group)}.</p></section>
     <section className="manager-card" aria-labelledby="behavior-heading"><h3 id="behavior-heading">Behavior</h3><p className="manager-note">Group presentation and pause behavior use the typed controller boundary.</p></section>
     <PersistentTabsSection
-      state={viewFixture?.state ?? (group.enabled ? "empty" : "disabled")}
-      tabs={viewFixture?.tabs ? [...viewFixture.tabs] : []}
+      state={sectionState}
+      tabs={sectionTabs}
+      managedGroupId={group.id}
+      groupEnabled={group.enabled}
+      command={viewFixture ? undefined : command}
     />
   </article>;
 }

@@ -69,7 +69,7 @@ it("covers empty, dense, enabled, disabled, loading, error, overlay, and persist
     state: "populated",
     tabs: ["Docs — https://docs.example.test/", "Inbox — https://mail.example.test/inbox"]
   });
-  expect(persistentPopulated.configuration.persistentTabs).toEqual([]);
+  expect(persistentPopulated.configuration.persistentTabs).toHaveLength(2);
 
   expect(getScenarioDefinition("wb:loading").expected.status).toBe("loading");
   expect(getScenarioDefinition("wb:validation-error").expected.status).toBe("error");

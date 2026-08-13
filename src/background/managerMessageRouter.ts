@@ -7,7 +7,16 @@ import { executeUndo } from "../activity/executeUndo";
 import type { ActionEngineDeps } from "../actions/executeActionPlan";
 import { createManagedGroup, removeManagedGroup, updateManagedGroup } from "../domain/defaults";
 import { validateConfiguration } from "../domain/schemas";
-import type { Configuration, UUID } from "../domain/types";
+import type { Configuration, PersistentTab, UUID } from "../domain/types";
+import {
+  makePersistentDefinition,
+  pinGroupDefinitions,
+  removePersistent,
+  reorderPersistentTabs,
+  savePersistentTab,
+  setRestorePersistentGroups,
+  type PersistentTabDraft
+} from "../persistence/persistentCommands";
 import type { LocalRepository } from "../state/localRepository";
 import type { SessionRepository } from "../state/sessionRepository";
 import { validateRuleActions } from "../rules/ruleEngine";
@@ -185,6 +194,27 @@ function applyCommand(current: Configuration, command: ManagerCommandPayload, ra
     case "setRulePaused":
       if (!isUuid(command.ruleId)) throw new Error("rule id must be a UUID");
       return updateRule(current, command.ruleId, { pausedUntil: command.pausedUntil }, now);
+    case "savePersistentTab": {
+      const draft = command.draft as PersistentTabDraft;
+      if (draft.id !== undefined && !isUuid(draft.id)) throw new Error("persistent tab id must be a UUID");
+      if (!isUuid(draft.managedGroupId)) throw new Error("managed group id must be a UUID");
+      return savePersistentTab(current, draft, now, randomUuid);
+    }
+    case "removePersistent":
+      if (!isUuid(command.persistentTabId)) throw new Error("persistent tab id must be a UUID");
+      return removePersistent(current, command.persistentTabId, now);
+    case "reorderPersistentTabs":
+      if (!isUuid(command.managedGroupId)) throw new Error("managed group id must be a UUID");
+      if (!command.orderedIds.every((id) => isUuid(id))) throw new Error("ordered ids must be UUIDs");
+      return reorderPersistentTabs(current, command.managedGroupId, command.orderedIds, now);
+    case "pinGroup":
+      if (!isUuid(command.managedGroupId)) throw new Error("managed group id must be a UUID");
+      return pinGroupDefinitions(current, command.managedGroupId, command.memberUrls, now, randomUuid);
+    case "makePersistent":
+      if (!isUuid(command.managedGroupId)) throw new Error("managed group id must be a UUID");
+      return makePersistentDefinition(current, command.managedGroupId, command.url, now, randomUuid);
+    case "setRestorePersistentGroups":
+      return setRestorePersistentGroups(current, command.enabled, now);
     case "undo":
     case "clearActivity":
       return current;

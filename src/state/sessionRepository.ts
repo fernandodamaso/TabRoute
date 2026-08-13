@@ -51,8 +51,10 @@ const RUNTIME_SESSION_KEYS = [
   "intentionallyClosedGroupIds",
   "operationGuards",
   "pendingGroupRemovals",
+  "pendingWindowClosures",
   "lastFocusedNormalWindowId",
-  "associations"
+  "associations",
+  "startupRestore"
 ] as const satisfies readonly (keyof RuntimeSession)[];
 
 function sessionFromStore(current: Record<string, unknown>): RuntimeSession {
@@ -73,10 +75,14 @@ function toStoredSession(session: RuntimeSession): Record<string, unknown> {
     intentionallyClosedGroupIds: session.intentionallyClosedGroupIds,
     operationGuards: session.operationGuards,
     pendingGroupRemovals: session.pendingGroupRemovals,
+    pendingWindowClosures: session.pendingWindowClosures,
     associations: session.associations
   };
   if (session.lastFocusedNormalWindowId !== undefined) {
     stored.lastFocusedNormalWindowId = session.lastFocusedNormalWindowId;
+  }
+  if (session.startupRestore !== undefined) {
+    stored.startupRestore = session.startupRestore;
   }
   return stored;
 }

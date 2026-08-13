@@ -37,6 +37,21 @@ import type { SessionRepository } from "../state/sessionRepository";
 import { settlePendingGroupRemovals } from "../groups/groupLifecycle";
 
 import {
+  handleStartupCoordinatorEvent,
+  handleWindowLifecycleEvent,
+  repairClosedTabIfNeeded,
+  repairTabIfNeeded,
+  updateOwnershipFromInventory
+} from "./persistentRepairRunner";
+
+import {
+  settlePendingWindowClosures,
+  STARTUP_RECOVERY_ALARM,
+  WINDOW_SETTLEMENT_ALARM,
+  type AlarmScheduler
+} from "../persistence/startupCoordinator";
+
+import {
 
   classifyChromeEvent,
 
@@ -65,6 +80,8 @@ export function createTabRouteController(input: {
   local: LocalRepository;
 
   checkpoints: PreMutationCheckpointPort;
+
+  alarms?: AlarmScheduler;
 
   now?: () => number;
 
@@ -176,9 +193,7 @@ export function createTabRouteController(input: {
 
   async function reconcileTab(tab: ChromeTabSnapshot): Promise<RouteResult> {
 
-    if (tab.incognito || !isRoutableUrl(tab.url))
-
-      return { kind: "held", reason: "not-routable" };
+    if (tab.incognito) return { kind: "held", reason: "not-routable" };
 
     const inventory = await input.chrome.readInventory();
 
@@ -193,6 +208,90 @@ export function createTabRouteController(input: {
       runtime = settledRuntime;
 
     }
+
+    const associations = await currentAssociations(inventory);
+
+    const currentGroup = inventory.groups.find(
+
+      (group) => group.id === tab.chromeGroupId
+
+    );
+
+    if (currentGroup?.shared) {
+
+      const repaired = await repairTabIfNeeded({
+
+        tab,
+
+        inventory,
+
+        session: runtime,
+
+        configuration,
+
+        local: input.local,
+
+        associations,
+
+        actionDeps: actionDeps()
+
+      });
+
+      if (repaired) {
+
+        const after = await input.chrome.readInventory();
+
+        return {
+
+          kind: "executed",
+
+          chromeGroupId: tab.chromeGroupId,
+
+          inventory: after
+
+        };
+
+      }
+
+      return { kind: "held", reason: "unmanaged-placement" };
+
+    }
+
+    const persistentRepaired = await repairTabIfNeeded({
+
+      tab,
+
+      inventory,
+
+      session: runtime,
+
+      configuration,
+
+      local: input.local,
+
+      associations,
+
+      actionDeps: actionDeps()
+
+    });
+
+    if (persistentRepaired) {
+
+      const after = await input.chrome.readInventory();
+
+      return {
+
+        kind: "executed",
+
+        chromeGroupId: tab.chromeGroupId,
+
+        inventory: after
+
+      };
+
+    }
+
+    if (!isRoutableUrl(tab.url)) return { kind: "held", reason: "not-routable" };
 
     const override = runtime.manualOverrides[String(tab.id)];
 
@@ -232,12 +331,6 @@ export function createTabRouteController(input: {
 
     }
 
-    const freshTab =
-
-      inventory.tabs.find((candidate) => candidate.id === tab.id) ?? tab;
-
-    const associations = await currentAssociations(inventory);
-
     if (
 
       !configuration.automationEnabled ||
@@ -251,6 +344,12 @@ export function createTabRouteController(input: {
     )
 
       return { kind: "held", reason: "paused" };
+
+
+
+    const freshTab =
+
+      inventory.tabs.find((candidate) => candidate.id === tab.id) ?? tab;
 
 
 
@@ -456,7 +555,7 @@ export function createTabRouteController(input: {
 
     const inventory = await input.chrome.readInventory();
 
-    const session = await input.session.loadSession();
+    let session = await input.session.loadSession();
 
     const sessionWithAssociations = {
 
@@ -466,13 +565,85 @@ export function createTabRouteController(input: {
 
     };
 
+    session = await handleWindowLifecycleEvent({
+
+      event,
+
+      session: sessionWithAssociations,
+
+      inventory,
+
+      configuration,
+
+      associations: sessionWithAssociations.associations,
+
+      now: now()
+
+    });
+
+    if (event.kind === "tabRemoved" && !event.isWindowClosing) {
+
+      const observation = session.tabObservations.find(
+
+        (record) => record.tabId === event.tabId
+
+      );
+
+      if (observation?.lastObservedUrl) {
+
+        const closedTab: ChromeTabSnapshot = {
+
+          id: event.tabId,
+
+          windowId: event.windowId,
+
+          index: 0,
+
+          chromeGroupId: -1,
+
+          url: observation.lastObservedUrl,
+
+          title: "",
+
+          pinned: false,
+
+          active: false,
+
+          incognito: false,
+
+          lastAccessed: 0
+
+        };
+
+        await repairClosedTabIfNeeded({
+
+          closedTab,
+
+          inventory,
+
+          session,
+
+          configuration,
+
+          local: input.local,
+
+          associations: sessionWithAssociations.associations,
+
+          actionDeps: actionDeps()
+
+        });
+
+      }
+
+    }
+
     const classification = classifyChromeEvent(
 
       event,
 
       inventory,
 
-      sessionWithAssociations,
+      session,
 
       now(),
 
@@ -480,7 +651,53 @@ export function createTabRouteController(input: {
 
     );
 
-    await input.session.saveSession(classification.session);
+    session = classification.session;
+
+    session = await handleStartupCoordinatorEvent({
+
+      event,
+
+      session,
+
+      inventory,
+
+      alarms: input.alarms ?? {
+
+        scheduleOneShot: async () => undefined
+
+      },
+
+      clock: {
+
+        now,
+
+        waitInWorker: delay
+
+      },
+
+      configuration,
+
+      local: input.local,
+
+      associations: sessionWithAssociations.associations,
+
+      actionDeps: actionDeps()
+
+    });
+
+    await input.session.saveSession(session);
+
+    await updateOwnershipFromInventory({
+
+      configuration,
+
+      inventory: await input.chrome.readInventory(),
+
+      associations: sessionWithAssociations.associations,
+
+      local: input.local
+
+    });
 
     return { classification, inventory };
 
@@ -623,6 +840,16 @@ export function createTabRouteController(input: {
         inventory,
 
         configuration,
+
+        now: now()
+
+      });
+
+      session = settlePendingWindowClosures({
+
+        session,
+
+        inventory,
 
         now: now()
 

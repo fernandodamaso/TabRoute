@@ -22,6 +22,10 @@ import type {
 import type { UiMessage } from "../src/ui/messages";
 import { applyChromeGroupPresentation } from "../src/groups/displayTitle";
 import { GROUP_SETTLEMENT_ALARM } from "../src/groups/groupLifecycle";
+import {
+  STARTUP_RECOVERY_ALARM,
+  WINDOW_SETTLEMENT_ALARM
+} from "../src/persistence/startupCoordinator";
 
 function toSnapshot(tab: chrome.tabs.Tab): ChromeTabSnapshot | undefined {
   if (tab.id === undefined || tab.windowId === undefined || tab.incognito)
@@ -119,6 +123,20 @@ export default defineBackground(() => {
       console.error("TabRoute lifecycle event failed", error)
     );
     await scheduleGroupSettlementFromSession();
+    await scheduleWindowSettlementFromSession();
+  }
+
+  async function scheduleWindowSettlementFromSession() {
+    if (!chrome.alarms?.create) return;
+    const loaded = await session.loadSession();
+    if (loaded.pendingWindowClosures.length === 0) return;
+    const deadlines = loaded.pendingWindowClosures.map(
+      (pending) => pending.startedAt + 2000
+    );
+    const when = Math.max(Math.min(...deadlines) - Date.now(), 0);
+    await chrome.alarms.create(WINDOW_SETTLEMENT_ALARM, {
+      when: Date.now() + when
+    });
   }
 
   function enqueueLifecycleEvent(event: ChromeEventHint) {
@@ -148,7 +166,14 @@ export default defineBackground(() => {
       chrome: createLiveChromePort(),
       session,
       local,
-      checkpoints
+      checkpoints,
+      alarms: chrome.alarms?.create
+        ? {
+            scheduleOneShot: async (name, when) => {
+              await chrome.alarms.create(name, { when });
+            }
+          }
+        : undefined
     });
     await controller.onWorkerWake();
     const activity = createActivityManagerPort({
@@ -360,9 +385,17 @@ export default defineBackground(() => {
   });
 
   chrome.alarms?.onAlarm.addListener((alarm) => {
-    if (alarm.name === GROUP_SETTLEMENT_ALARM) {
+    if (
+      alarm.name === GROUP_SETTLEMENT_ALARM ||
+      alarm.name === WINDOW_SETTLEMENT_ALARM ||
+      alarm.name === STARTUP_RECOVERY_ALARM
+    ) {
       enqueueLifecycleEvent({ kind: "alarm", name: alarm.name });
     }
+  });
+
+  chrome.runtime.onStartup.addListener(() => {
+    enqueueLifecycleEvent({ kind: "startup" });
   });
 
   void ready.catch((error: unknown) => {

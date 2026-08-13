@@ -11,6 +11,17 @@ export type ChromeGroupColor =
   | "cyan"
   | "orange";
 
+export interface PersistentTab {
+  schemaVersion: 1;
+  id: UUID;
+  managedGroupId: UUID;
+  canonicalUrl: string;
+  acceptedPatterns: string[];
+  order: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ManagedGroup {
   schemaVersion: 1;
   id: UUID;
@@ -35,7 +46,8 @@ export interface Configuration {
   globalPausedUntil?: number | "restart";
   groups: ManagedGroup[];
   rules: Rule[];
-  persistentTabs: never[];
+  persistentTabs: PersistentTab[];
+  restorePersistentGroups?: boolean;
   duplicateSettings: DuplicateSettings;
   templates: never[];
   snapshotIntervalMinutes: number;
@@ -362,6 +374,20 @@ export interface PendingGroupRemoval {
   settleAfter: number;
 }
 
+export interface PendingWindowClosure {
+  windowId: number;
+  managedGroupIds: UUID[];
+  tabIds: number[];
+  startedAt: number;
+}
+
+export interface StartupRestoreState {
+  startedAt: number;
+  deadlineAt: number;
+  lastRelevantEventAt: number;
+  consecutiveQuietScans: 0 | 1 | 2;
+}
+
 export interface ChromeAssociation {
   managedGroupId: UUID;
   chromeGroupId: number;
@@ -380,8 +406,10 @@ export interface RuntimeSession {
   intentionallyClosedGroupIds: UUID[];
   operationGuards: OperationGuard[];
   pendingGroupRemovals: PendingGroupRemoval[];
+  pendingWindowClosures: PendingWindowClosure[];
   lastFocusedNormalWindowId?: number;
   associations: ChromeAssociation[];
+  startupRestore?: StartupRestoreState;
 }
 
 export type ChromeEventHint =
@@ -429,6 +457,7 @@ export type ChromeEventHint =
       focus: { kind: "none" } | { kind: "normal"; windowId: number };
     }
   | { kind: "windowRemoved"; windowId: number }
+  | { kind: "startup" }
   | { kind: "alarm"; name: string };
 
 export interface RuntimeAssociations {

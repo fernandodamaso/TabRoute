@@ -175,6 +175,17 @@ function collectRegexes(node: ConditionNode): string[] {
   return [];
 }
 
+const persistentTab = z.strictObject({
+  schemaVersion: z.literal(1),
+  id: uuid,
+  managedGroupId: uuid,
+  canonicalUrl: z.string().url(),
+  acceptedPatterns: z.array(z.string()),
+  order: z.number().int(),
+  createdAt: z.number(),
+  updatedAt: z.number()
+});
+
 const configuration = z
   .strictObject({
     schemaVersion: z.literal(1),
@@ -183,7 +194,8 @@ const configuration = z
     globalPausedUntil: pauseValue.optional(),
     groups: z.array(managedGroup),
     rules: z.array(rule),
-    persistentTabs: z.array(z.never()),
+    persistentTabs: z.array(persistentTab),
+    restorePersistentGroups: z.boolean().optional(),
     duplicateSettings: z.strictObject({
       globalPolicy: duplicatePolicy,
       globalExclusions: z.array(z.string()),
@@ -217,8 +229,22 @@ const configuration = z
           message: "rule target group does not exist"
         });
     });
+    const persistentGroupIds = new Set(value.groups.map((group) => group.id));
+    value.persistentTabs.forEach((tab, index) => {
+      if (!persistentGroupIds.has(tab.managedGroupId)) {
+        context.addIssue({
+          code: "custom",
+          path: ["persistentTabs", index, "managedGroupId"],
+          message: "persistent tab group does not exist"
+        });
+      }
+    });
   });
 
 export function validateConfiguration(value: unknown): Configuration {
-  return configuration.parse(value) as Configuration;
+  const parsed = configuration.parse(value) as Configuration;
+  return {
+    ...parsed,
+    restorePersistentGroups: parsed.restorePersistentGroups ?? true
+  };
 }
