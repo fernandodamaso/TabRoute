@@ -2,15 +2,24 @@ import { access } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
-import { buildExtension, resolveBuildOutput } from "../../scripts/workbench/build";
-import { launchExtensionSession, sendManagerQueryFromPage } from "../../scripts/workbench/browser";
+import {
+  buildExtension,
+  resolveBuildOutput
+} from "../../scripts/workbench/build";
+import {
+  launchExtensionSession,
+  sendManagerQueryFromPage
+} from "../../scripts/workbench/browser";
 import {
   MANAGER_QUERY_TIMEOUT_MS,
   settleManagerQuery,
   WORKER_DISCOVERY_TIMEOUT_MS
 } from "../../scripts/workbench/readiness";
 
-const MANAGER_SETTLE_TIMEOUT_MS = Math.max(MANAGER_QUERY_TIMEOUT_MS, WORKER_DISCOVERY_TIMEOUT_MS);
+const MANAGER_SETTLE_TIMEOUT_MS = Math.max(
+  MANAGER_QUERY_TIMEOUT_MS,
+  WORKER_DISCOVERY_TIMEOUT_MS
+);
 import { readProductionGateResult } from "../../scripts/workbench/production-scan";
 
 const profileRoot = path.join(os.tmpdir(), "tabroute-workbench");
@@ -23,7 +32,10 @@ function requireProductionBuildPath(): string {
 
 async function launchProductionSession(profileSuffix: string) {
   const buildPath = requireProductionBuildPath();
-  const profilePath = path.join(profileRoot, `${profileSuffix}-${crypto.randomUUID()}`);
+  const profilePath = path.join(
+    profileRoot,
+    `${profileSuffix}-${crypto.randomUUID()}`
+  );
   const session = await launchExtensionSession({
     buildPath,
     profilePath,
@@ -34,7 +46,8 @@ async function launchProductionSession(profileSuffix: string) {
 
 test("production gate result points at an existing production build", async () => {
   const gatePath = process.env.TABROUTE_PRODUCTION_GATE_RESULT_PATH;
-  if (!gatePath) throw new Error("TABROUTE_PRODUCTION_GATE_RESULT_PATH is required");
+  if (!gatePath)
+    throw new Error("TABROUTE_PRODUCTION_GATE_RESULT_PATH is required");
   const gate = await readProductionGateResult(gatePath);
   expect(gate.graph).toBe("production");
   expect(gate.resultPath).toBe(path.resolve(gatePath));
@@ -43,7 +56,8 @@ test("production gate result points at an existing production build", async () =
 });
 
 test("real options sends typed manager messages through the MV3 worker", async () => {
-  const { session, profilePath } = await launchProductionSession("real-options");
+  const { session, profilePath } =
+    await launchProductionSession("real-options");
   const page = await session.context.newPage();
   try {
     await page.goto(`chrome-extension://${session.extensionId}/options.html`);
@@ -52,9 +66,19 @@ test("real options sends typed manager messages through the MV3 worker", async (
       request: () => sendManagerQueryFromPage(page)
     });
     expect(query).toMatchObject({ ok: true });
-    expect(await page.evaluate(() => document.querySelectorAll("[data-workbench-marker]").length)).toBe(0);
+    expect(
+      await page.evaluate(
+        () => document.querySelectorAll("[data-workbench-marker]").length
+      )
+    ).toBe(0);
     const invalid = await page.evaluate(async () => {
-      const chromeApi = (globalThis as { chrome?: { runtime?: { sendMessage: (message: unknown) => Promise<unknown> } } }).chrome;
+      const chromeApi = (
+        globalThis as {
+          chrome?: {
+            runtime?: { sendMessage: (message: unknown) => Promise<unknown> };
+          };
+        }
+      ).chrome;
       return chromeApi?.runtime?.sendMessage({
         kind: "manager-command",
         command: { kind: "deleteGroup", groupId: "not-a-valid-uuid" }
@@ -66,16 +90,21 @@ test("real options sends typed manager messages through the MV3 worker", async (
       request: () => sendManagerQueryFromPage(page)
     });
     expect(preserved).toMatchObject({ ok: true });
-    expect((preserved as { configuration: unknown }).configuration).toEqual((query as { configuration: unknown }).configuration);
+    expect((preserved as { configuration: unknown }).configuration).toEqual(
+      (query as { configuration: unknown }).configuration
+    );
   } finally {
     await page.close();
     await session.close();
-    await import("node:fs/promises").then((fs) => fs.rm(profilePath, { recursive: true, force: true }));
+    await import("node:fs/promises").then((fs) =>
+      fs.rm(profilePath, { recursive: true, force: true })
+    );
   }
 });
 
 test("worker restart survives CDP termination and wake-up", async () => {
-  const { session, profilePath } = await launchProductionSession("worker-restart");
+  const { session, profilePath } =
+    await launchProductionSession("worker-restart");
   const page = await session.context.newPage();
   try {
     await page.goto(`chrome-extension://${session.extensionId}/options.html`);
@@ -94,7 +123,9 @@ test("worker restart survives CDP termination and wake-up", async () => {
   } finally {
     await page.close();
     await session.close();
-    await import("node:fs/promises").then((fs) => fs.rm(profilePath, { recursive: true, force: true }));
+    await import("node:fs/promises").then((fs) =>
+      fs.rm(profilePath, { recursive: true, force: true })
+    );
   }
 });
 
@@ -102,16 +133,36 @@ test("parallel production runs keep isolated profiles and build paths", async ()
   const runA = crypto.randomUUID();
   const runB = crypto.randomUUID();
   const worktree = process.cwd();
-  const buildA = await buildExtension({ worktreePath: worktree, runId: runA, graph: "production" });
-  const buildB = await buildExtension({ worktreePath: worktree, runId: runB, graph: "production" });
+  const buildA = await buildExtension({
+    worktreePath: worktree,
+    runId: runA,
+    graph: "production"
+  });
+  const buildB = await buildExtension({
+    worktreePath: worktree,
+    runId: runB,
+    graph: "production"
+  });
   expect(buildA.buildPath).not.toBe(buildB.buildPath);
-  expect(resolveBuildOutput(worktree, runA, "production").buildPath).toBe(buildA.buildPath);
-  expect(resolveBuildOutput(worktree, runB, "production").buildPath).toBe(buildB.buildPath);
+  expect(resolveBuildOutput(worktree, runA, "production").buildPath).toBe(
+    buildA.buildPath
+  );
+  expect(resolveBuildOutput(worktree, runB, "production").buildPath).toBe(
+    buildB.buildPath
+  );
 
   const profileA = path.join(profileRoot, `parallel-a-${crypto.randomUUID()}`);
   const profileB = path.join(profileRoot, `parallel-b-${crypto.randomUUID()}`);
-  const sessionA = await launchExtensionSession({ buildPath: buildA.buildPath, profilePath: profileA, headless: true });
-  const sessionB = await launchExtensionSession({ buildPath: buildB.buildPath, profilePath: profileB, headless: true });
+  const sessionA = await launchExtensionSession({
+    buildPath: buildA.buildPath,
+    profilePath: profileA,
+    headless: true
+  });
+  const sessionB = await launchExtensionSession({
+    buildPath: buildB.buildPath,
+    profilePath: profileB,
+    headless: true
+  });
   try {
     expect(profileA).not.toBe(profileB);
     expect(sessionA.extensionId).toMatch(/^[a-p]{32}$/);

@@ -10,7 +10,11 @@ async function resolveProductionBuildPath(): Promise<string> {
   const fromEnv = process.env.TABROUTE_PRODUCTION_BUILD_PATH;
   if (fromEnv) return fromEnv;
   const runId = `popup-smoke-${crypto.randomUUID()}`;
-  const build = await buildExtension({ worktreePath: process.cwd(), runId, graph: "production" });
+  const build = await buildExtension({
+    worktreePath: process.cwd(),
+    runId,
+    graph: "production"
+  });
   return build.buildPath;
 }
 
@@ -18,22 +22,39 @@ test("popup smoke renders ManagerApp at 520x600 without workbench controls", asy
   const buildPath = await resolveProductionBuildPath();
   const runId = `popup-${crypto.randomUUID()}`;
   const profilePath = path.join(profileRoot, runId);
-  const artifactPath = path.join(process.cwd(), ".workbench", "artifacts", runId);
-  const session = await launchExtensionSession({ buildPath, profilePath, headless: true });
+  const artifactPath = path.join(
+    process.cwd(),
+    ".workbench",
+    "artifacts",
+    runId
+  );
+  const session = await launchExtensionSession({
+    buildPath,
+    profilePath,
+    headless: true
+  });
   const page = await session.context.newPage();
   try {
     await page.goto(`chrome-extension://${session.extensionId}/popup.html`);
     await expect(page.getByRole("heading", { name: "Groups" })).toBeVisible();
-    expect(await page.locator("html").getAttribute("data-manager-viewport")).toBe("520x600");
+    expect(
+      await page.locator("html").getAttribute("data-manager-viewport")
+    ).toBe("520x600");
     const dimensions = await page.evaluate(() => ({
-      width: Number.parseFloat(getComputedStyle(document.documentElement).width),
-      height: Number.parseFloat(getComputedStyle(document.documentElement).height)
+      width: Number.parseFloat(
+        getComputedStyle(document.documentElement).width
+      ),
+      height: Number.parseFloat(
+        getComputedStyle(document.documentElement).height
+      )
     }));
     expect(dimensions).toEqual({ width: 520, height: 600 });
-    expect(await page.locator('[data-workbench-marker]').count()).toBe(0);
-    expect(await page.locator('[data-workbench-control]').count()).toBe(0);
+    expect(await page.locator("[data-workbench-marker]").count()).toBe(0);
+    expect(await page.locator("[data-workbench-control]").count()).toBe(0);
 
-    await import("node:fs/promises").then((fs) => fs.mkdir(artifactPath, { recursive: true }));
+    await import("node:fs/promises").then((fs) =>
+      fs.mkdir(artifactPath, { recursive: true })
+    );
     const screenshotRelative = "screenshots/popup-smoke.png";
     const screenshotAbsolute = path.join(artifactPath, screenshotRelative);
     await page.screenshot({ path: screenshotAbsolute, type: "png" });
@@ -49,8 +70,13 @@ test("popup smoke renders ManagerApp at 520x600 without workbench controls", asy
       screenshotPaths: [screenshotRelative]
     };
     const resultPath = path.join(artifactPath, "results.json");
-    await import("node:fs/promises").then((fs) => fs.writeFile(resultPath, JSON.stringify(result, null, 2), "utf8"));
-    const persisted = JSON.parse(await readFile(resultPath, "utf8")) as { runId: string; extensionId: string };
+    await import("node:fs/promises").then((fs) =>
+      fs.writeFile(resultPath, JSON.stringify(result, null, 2), "utf8")
+    );
+    const persisted = JSON.parse(await readFile(resultPath, "utf8")) as {
+      runId: string;
+      extensionId: string;
+    };
     expect(persisted.runId).toBe(runId);
     expect(persisted.extensionId).toBe(session.extensionId);
   } finally {

@@ -1,5 +1,10 @@
 import path from "node:path";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type Page
+} from "playwright";
 import { serializeWorkbenchUrl } from "../../src/workbench/url";
 import {
   MANAGER_QUERY_TIMEOUT_MS,
@@ -21,7 +26,10 @@ export interface ExtensionSession {
   extensionId: string;
   workerGenerations: WorkerGeneration[];
   openExtensionPage(pathname: string): Promise<Page>;
-  restartWorker(): Promise<{ terminatedTargetId: string; awakenedTargetId: string }>;
+  restartWorker(): Promise<{
+    terminatedTargetId: string;
+    awakenedTargetId: string;
+  }>;
   close(): Promise<void>;
 }
 
@@ -31,24 +39,36 @@ export type RunnerEvent = {
   details?: Record<string, string | number | boolean>;
 };
 
-export function createChromiumLaunchOptions(buildPath: string, headless: boolean) {
+export function createChromiumLaunchOptions(
+  buildPath: string,
+  headless: boolean
+) {
   const resolved = path.resolve(buildPath);
   return {
     channel: "chromium" as const,
     headless,
-    args: [`--disable-extensions-except=${resolved}`, `--load-extension=${resolved}`]
+    args: [
+      `--disable-extensions-except=${resolved}`,
+      `--load-extension=${resolved}`
+    ]
   };
 }
 
 export function parseExtensionWorkerUrl(workerUrl: string): string {
   const parsed = new URL(workerUrl);
-  if (parsed.protocol !== "chrome-extension:") throw new Error("WORKBENCH_ARGUMENT: invalid extension worker URL");
+  if (parsed.protocol !== "chrome-extension:")
+    throw new Error("WORKBENCH_ARGUMENT: invalid extension worker URL");
   const extensionId = parsed.hostname;
-  if (!EXTENSION_ID_PATTERN.test(extensionId)) throw new Error("WORKBENCH_ARGUMENT: invalid extension id");
+  if (!EXTENSION_ID_PATTERN.test(extensionId))
+    throw new Error("WORKBENCH_ARGUMENT: invalid extension id");
   return extensionId;
 }
 
-export function canonicalExtensionUrl(extensionId: string, entryPoint: string, mode: "fixture" | "real"): string {
+export function canonicalExtensionUrl(
+  extensionId: string,
+  entryPoint: string,
+  mode: "fixture" | "real"
+): string {
   const search = serializeWorkbenchUrl({
     workbench: true,
     mode,
@@ -72,15 +92,21 @@ export function recordWorkerGeneration(
 
 export async function sendManagerQueryFromPage(page: Page): Promise<unknown> {
   return page.evaluate(async () => {
-    const chromeApi = (globalThis as {
-      chrome?: {
-        runtime?: {
-          lastError?: { message?: string };
-          sendMessage: (message: unknown, callback?: (response: unknown) => void) => void;
+    const chromeApi = (
+      globalThis as {
+        chrome?: {
+          runtime?: {
+            lastError?: { message?: string };
+            sendMessage: (
+              message: unknown,
+              callback?: (response: unknown) => void
+            ) => void;
+          };
         };
-      };
-    }).chrome;
-    if (!chromeApi?.runtime?.sendMessage) throw new Error("chrome.runtime.sendMessage unavailable");
+      }
+    ).chrome;
+    if (!chromeApi?.runtime?.sendMessage)
+      throw new Error("chrome.runtime.sendMessage unavailable");
     const runtime = chromeApi.runtime;
     return await new Promise((resolve, reject) => {
       runtime.sendMessage({ kind: "manager-query" }, (response) => {
@@ -96,14 +122,23 @@ export async function sendManagerQueryFromPage(page: Page): Promise<unknown> {
 }
 
 function extensionPages(context: BrowserContext, extensionId: string): Page[] {
-  return context.pages().filter((page) => page.url().startsWith(`chrome-extension://${extensionId}/`));
+  return context
+    .pages()
+    .filter((page) =>
+      page.url().startsWith(`chrome-extension://${extensionId}/`)
+    );
 }
 
-async function discoverExtensionId(context: BrowserContext, timeoutMs = WORKER_DISCOVERY_TIMEOUT_MS): Promise<string> {
+async function discoverExtensionId(
+  context: BrowserContext,
+  timeoutMs = WORKER_DISCOVERY_TIMEOUT_MS
+): Promise<string> {
   const existing = context.serviceWorkers();
   if (existing.length > 0) return parseExtensionWorkerUrl(existing[0]!.url());
   try {
-    const worker = await context.waitForEvent("serviceworker", { timeout: timeoutMs });
+    const worker = await context.waitForEvent("serviceworker", {
+      timeout: timeoutMs
+    });
     return parseExtensionWorkerUrl(worker.url());
   } catch {
     throw new WorkbenchCodedError(
@@ -114,12 +149,20 @@ async function discoverExtensionId(context: BrowserContext, timeoutMs = WORKER_D
   }
 }
 
-async function listExtensionServiceWorkerTargets(browser: Browser): Promise<Array<{ targetId: string; url: string }>> {
+async function listExtensionServiceWorkerTargets(
+  browser: Browser
+): Promise<Array<{ targetId: string; url: string }>> {
   const cdp = await browser.newBrowserCDPSession();
   try {
-    const response = await cdp.send("Target.getTargets") as { targetInfos?: Array<{ targetId: string; type: string; url: string }> };
+    const response = (await cdp.send("Target.getTargets")) as {
+      targetInfos?: Array<{ targetId: string; type: string; url: string }>;
+    };
     return (response.targetInfos ?? [])
-      .filter((target) => target.type === "service_worker" && target.url.startsWith("chrome-extension://"))
+      .filter(
+        (target) =>
+          target.type === "service_worker" &&
+          target.url.startsWith("chrome-extension://")
+      )
       .map((target) => ({ targetId: target.targetId, url: target.url }));
   } finally {
     await cdp.detach().catch(() => undefined);
@@ -145,12 +188,23 @@ export async function launchExtensionSession(input: {
   headless: boolean;
   onEvent?: (event: RunnerEvent) => Promise<void>;
 }): Promise<ExtensionSession> {
-  const launchOptions = createChromiumLaunchOptions(input.buildPath, input.headless);
+  const launchOptions = createChromiumLaunchOptions(
+    input.buildPath,
+    input.headless
+  );
   let context: BrowserContext | undefined;
   try {
-    context = await chromium.launchPersistentContext(input.profilePath, launchOptions);
+    context = await chromium.launchPersistentContext(
+      input.profilePath,
+      launchOptions
+    );
     const browser = context.browser();
-    if (!browser) throw new WorkbenchCodedError("WORKBENCH_ARGUMENT", "persistent Chromium session has no browser handle", "argument");
+    if (!browser)
+      throw new WorkbenchCodedError(
+        "WORKBENCH_ARGUMENT",
+        "persistent Chromium session has no browser handle",
+        "argument"
+      );
 
     const emit = async (event: RunnerEvent) => {
       if (input.onEvent) await input.onEvent(event);
@@ -158,25 +212,47 @@ export async function launchExtensionSession(input: {
 
     context.on("console", (message) => {
       const url = message.location().url;
-      const source = url.includes("background") || url.includes("service_worker") ? "worker" as const : "page" as const;
+      const source =
+        url.includes("background") || url.includes("service_worker")
+          ? ("worker" as const)
+          : ("page" as const);
       void emit({ source, name: "console", details: { text: message.text() } });
     });
     context.on("page", (page) => {
       page.on("pageerror", (error) => {
-        void emit({ source: "page", name: "pageerror", details: { message: error.message } });
+        void emit({
+          source: "page",
+          name: "pageerror",
+          details: { message: error.message }
+        });
       });
       page.on("crash", () => {
-        void emit({ source: "page", name: "crash", details: { url: page.url() } });
+        void emit({
+          source: "page",
+          name: "crash",
+          details: { url: page.url() }
+        });
       });
     });
 
     const extensionId = await discoverExtensionId(context);
-    await emit({ source: "worker", name: "discovered", details: { extensionId } });
+    await emit({
+      source: "worker",
+      name: "discovered",
+      details: { extensionId }
+    });
 
     const workerGenerations: WorkerGeneration[] = [];
     const targets = await listExtensionServiceWorkerTargets(browser);
-    const initialTarget = targets.find((target) => parseExtensionWorkerUrl(target.url) === extensionId);
-    if (initialTarget) recordWorkerGeneration(workerGenerations, initialTarget.targetId, new Date().toISOString());
+    const initialTarget = targets.find(
+      (target) => parseExtensionWorkerUrl(target.url) === extensionId
+    );
+    if (initialTarget)
+      recordWorkerGeneration(
+        workerGenerations,
+        initialTarget.targetId,
+        new Date().toISOString()
+      );
 
     return {
       context,
@@ -192,7 +268,9 @@ export async function launchExtensionSession(input: {
         const cdp = await browser.newBrowserCDPSession();
         try {
           const targets = await listExtensionServiceWorkerTargets(browser);
-          const current = targets.find((target) => parseExtensionWorkerUrl(target.url) === extensionId);
+          const current = targets.find(
+            (target) => parseExtensionWorkerUrl(target.url) === extensionId
+          );
           if (!current) {
             throw new WorkbenchCodedError(
               "WORKBENCH_WORKER_TIMEOUT",
@@ -201,10 +279,15 @@ export async function launchExtensionSession(input: {
             );
           }
           const terminatedTargetId = current.targetId;
-          await cdp.send("Target.closeTarget", { targetId: terminatedTargetId });
+          await cdp.send("Target.closeTarget", {
+            targetId: terminatedTargetId
+          });
           const terminated = await waitUntil(async () => {
-            const nextTargets = await listExtensionServiceWorkerTargets(browser);
-            return !nextTargets.some((target) => target.targetId === terminatedTargetId);
+            const nextTargets =
+              await listExtensionServiceWorkerTargets(browser);
+            return !nextTargets.some(
+              (target) => target.targetId === terminatedTargetId
+            );
           }, MANAGER_QUERY_TIMEOUT_MS);
           if (!terminated) {
             throw new WorkbenchCodedError(
@@ -214,11 +297,15 @@ export async function launchExtensionSession(input: {
             );
           }
 
-          const page = extensionPages(context!, extensionId)[0] ?? await (async () => {
-            const opened = await context!.newPage();
-            await opened.goto(`chrome-extension://${extensionId}/options.html`);
-            return opened;
-          })();
+          const page =
+            extensionPages(context!, extensionId)[0] ??
+            (await (async () => {
+              const opened = await context!.newPage();
+              await opened.goto(
+                `chrome-extension://${extensionId}/options.html`
+              );
+              return opened;
+            })());
           await settleManagerQuery({
             timeoutMs: WORKER_DISCOVERY_TIMEOUT_MS,
             request: () => sendManagerQueryFromPage(page)
@@ -226,12 +313,24 @@ export async function launchExtensionSession(input: {
 
           let awakenedTarget: { targetId: string; url: string } | undefined;
           const awakened = await waitUntil(async () => {
-            const nextTargets = await listExtensionServiceWorkerTargets(browser);
-            awakenedTarget = nextTargets.find(
-              (target) => target.targetId !== terminatedTargetId && parseExtensionWorkerUrl(target.url) === extensionId
-            ) ?? nextTargets.find((target) => parseExtensionWorkerUrl(target.url) === extensionId);
+            const nextTargets =
+              await listExtensionServiceWorkerTargets(browser);
+            awakenedTarget =
+              nextTargets.find(
+                (target) =>
+                  target.targetId !== terminatedTargetId &&
+                  parseExtensionWorkerUrl(target.url) === extensionId
+              ) ??
+              nextTargets.find(
+                (target) => parseExtensionWorkerUrl(target.url) === extensionId
+              );
             if (awakenedTarget) return true;
-            return context!.serviceWorkers().some((worker) => parseExtensionWorkerUrl(worker.url()) === extensionId);
+            return context!
+              .serviceWorkers()
+              .some(
+                (worker) =>
+                  parseExtensionWorkerUrl(worker.url()) === extensionId
+              );
           }, WORKER_DISCOVERY_TIMEOUT_MS);
           if (!awakened) {
             throw new WorkbenchCodedError(
@@ -242,7 +341,12 @@ export async function launchExtensionSession(input: {
           }
 
           if (!awakenedTarget) {
-            const worker = context!.serviceWorkers().find((candidate) => parseExtensionWorkerUrl(candidate.url()) === extensionId);
+            const worker = context!
+              .serviceWorkers()
+              .find(
+                (candidate) =>
+                  parseExtensionWorkerUrl(candidate.url()) === extensionId
+              );
             if (!worker) {
               throw new WorkbenchCodedError(
                 "WORKBENCH_WORKER_TIMEOUT",
@@ -255,8 +359,15 @@ export async function launchExtensionSession(input: {
               url: worker.url()
             };
           }
-          recordWorkerGeneration(workerGenerations, awakenedTarget.targetId, new Date().toISOString());
-          return { terminatedTargetId, awakenedTargetId: awakenedTarget.targetId };
+          recordWorkerGeneration(
+            workerGenerations,
+            awakenedTarget.targetId,
+            new Date().toISOString()
+          );
+          return {
+            terminatedTargetId,
+            awakenedTargetId: awakenedTarget.targetId
+          };
         } finally {
           await cdp.detach().catch(() => undefined);
         }
