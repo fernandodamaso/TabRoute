@@ -46,7 +46,10 @@ export function createTabRouteController(input: {
       associations
     });
     if (planned.kind === "held" || planned.kind === "noop") return planned;
-    const result = await executeActionPlan(planned, input.chrome);
+    const result = await executeActionPlan(planned, {
+      chrome: input.chrome,
+      session: input.session
+    });
     if (result.kind === "executed") {
       await input.session.saveAssociations(
         reconstructAssociations(result.inventory, configuration)
