@@ -46,6 +46,23 @@ it("updates group enablement without changing identity and keeps fallback enable
   expect(updated.fallbackGroupId).toBe(configuration.fallbackGroupId);
 });
 
+it("accepts a non-allow global duplicate policy without bumping schemaVersion", () => {
+  const configuration = createDefaultConfiguration(
+    () => "00000000-0000-4000-8000-000000000001"
+  );
+  const withDomain = {
+    ...configuration,
+    duplicateSettings: {
+      ...configuration.duplicateSettings,
+      globalPolicy: { kind: "domain" as const }
+    }
+  };
+  expect(validateConfiguration(withDomain).duplicateSettings.globalPolicy.kind).toBe(
+    "domain"
+  );
+  expect(withDomain.schemaVersion).toBe(1);
+});
+
 it("accepts integer pause timestamps and rejects invalid numeric pause values", () => {
   const configuration = createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000001");
   const timed = { ...configuration, globalPausedUntil: 2000000000000 };

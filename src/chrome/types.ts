@@ -1,10 +1,11 @@
 import type {
   ChromeGroupColor,
   ChromeInventory,
-  ChromeTabSnapshot
+  ChromeTabSnapshot,
+  RecentlyClosedTab
 } from "../domain/types";
 
-export type { ChromeInventory, ChromeTabSnapshot } from "../domain/types";
+export type { ChromeInventory, ChromeTabSnapshot, RecentlyClosedTab } from "../domain/types";
 
 export type GroupTabsInput =
   | { kind: "create"; tabIds: readonly [number, ...number[]]; windowId: number }
@@ -15,8 +16,20 @@ export type GroupTabsInput =
       windowId: number;
     };
 
-export interface ChromeMutationPort {
+export interface CreateTabInput {
+  url: string;
+  windowId: number;
+  active?: false;
+  index?: number;
+}
+
+export interface ChromeReadPort {
   readInventory(): Promise<ChromeInventory>;
+  getLastFocusedNormalWindowId(): Promise<number | null>;
+  getRecentlyClosed(maxResults: number): Promise<readonly RecentlyClosedTab[]>;
+}
+
+export interface ChromeMutationPort {
   groupTabs(input: GroupTabsInput): Promise<number>;
   ungroupTabs(tabIds: readonly number[]): Promise<void>;
   moveTabs(
@@ -28,7 +41,14 @@ export interface ChromeMutationPort {
     groupId: number,
     patch: { title?: string; color?: ChromeGroupColor; collapsed?: boolean }
   ): Promise<void>;
+  createTab(input: CreateTabInput): Promise<number>;
+  removeTabs(tabIds: readonly number[]): Promise<void>;
+  moveGroup(groupId: number, windowId: number, index: number): Promise<void>;
+  focusTab(tabId: number, windowId: number): Promise<void>;
+  restoreClosedTab(sessionId: string): Promise<number>;
 }
+
+export type LiveChromePort = ChromeReadPort & ChromeMutationPort;
 
 export function isRoutableUrl(url: string | undefined): url is string {
   if (!url) return false;

@@ -7,13 +7,13 @@ import type {
   OperationGuard,
   RuntimeSession
 } from "../domain/types";
-import type { ActionPlan } from "./types";
+import type { RoutePlan } from "./types";
 
 export const GUARD_QUIET_MS = 750;
 export const GUARD_HARD_MS = 5000;
 
 export function buildExpectedFootprint(
-  plan: ActionPlan
+  plan: RoutePlan
 ): Pick<
   OperationGuard,
   "operation" | "expectedEventKinds" | "postcondition" | "tabIds" | "chromeGroupIds"

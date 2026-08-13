@@ -1,5 +1,6 @@
 import { reconstructAssociations } from "../chrome/reconstructAssociations";
-import type { ChromeMutationPort } from "../chrome/types";
+import { observeInventory } from "../duplicates/observations";
+import type { LiveChromePort } from "../chrome/types";
 import { isRoutableUrl } from "../chrome/types";
 import type {
   Configuration,
@@ -8,7 +9,7 @@ import type {
   ChromeEventHint
 } from "../domain/types";
 import { postconditionHolds, settleOperationGuards } from "../actions/operationGuards";
-import { executeActionPlan } from "../actions/executeActionPlan";
+import { executeRoutePlan } from "../actions/executeRoutePlan";
 import { planRuleRoute } from "../actions/planActions";
 import { scrubRuntimeState } from "../state/runtimeSession";
 import type { SessionRepository } from "../state/sessionRepository";
@@ -18,13 +19,13 @@ import {
   type EventClassification,
   type ReconciliationRequest
 } from "./eventClassifier";
-import type { ActionResult } from "../actions/types";
+import type { RouteResult } from "../actions/types";
 
 type QueueItem = ReconciliationRequest;
 
 export function createTabRouteController(input: {
   configuration: Configuration;
-  chrome: ChromeMutationPort;
+  chrome: LiveChromePort;
   session: SessionRepository;
   now?: () => number;
 }) {
@@ -65,7 +66,7 @@ export function createTabRouteController(input: {
     return associations;
   }
 
-  async function reconcileTab(tab: ChromeTabSnapshot): Promise<ActionResult> {
+  async function reconcileTab(tab: ChromeTabSnapshot): Promise<RouteResult> {
     if (tab.incognito || !isRoutableUrl(tab.url))
       return { kind: "held", reason: "not-routable" };
     const inventory = await input.chrome.readInventory();
@@ -114,7 +115,7 @@ export function createTabRouteController(input: {
     if (planned.kind === "held" || planned.kind === "noop") return planned;
     executing = true;
     try {
-      const result = await executeActionPlan(planned, {
+      const result = await executeRoutePlan(planned, {
         chrome: input.chrome,
         session: input.session,
         now
@@ -236,7 +237,7 @@ export function createTabRouteController(input: {
       );
       return result;
     },
-    async handleTabUpdated(tab: ChromeTabSnapshot): Promise<ActionResult> {
+    async handleTabUpdated(tab: ChromeTabSnapshot): Promise<RouteResult> {
       if (!isRoutableUrl(tab.url))
         return { kind: "held", reason: "not-routable" };
       const runtime = await input.session.loadSession();
@@ -261,6 +262,8 @@ export function createTabRouteController(input: {
     async onWorkerWake(): Promise<void> {
       const inventory = await input.chrome.readInventory();
       let session = await input.session.loadSession();
+      const observed = observeInventory(inventory, session);
+      session = observed.session;
       session = scrubRuntimeState(session, inventory);
       session = settleOperationGuards(inventory, session, now());
       session = settlePendingGroupRemovals({

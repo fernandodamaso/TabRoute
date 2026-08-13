@@ -11,7 +11,10 @@ export interface ManagerViewMetadata {
   routes: readonly ManagerRoute[];
 }
 
+import type { ActivityEntry, UndoRecord } from "../../domain/types";
+
 export interface ManagerQuery { kind: "manager-query"; }
+export type ActivityQuery = { kind: "activity-query"; before?: number; limit: number };
 
 export type ManagedGroupPatch = Partial<Pick<ManagedGroup,
   "name" | "emoji" | "color" | "enabled" | "isPersistent" |
@@ -32,7 +35,9 @@ export type ManagerCommandPayload =
   | { kind: "duplicateRule"; ruleId: UUID }
   | { kind: "deleteRule"; ruleId: UUID }
   | { kind: "setRuleEnabled"; ruleId: UUID; enabled: boolean }
-  | { kind: "setRulePaused"; ruleId: UUID; pausedUntil?: number | "restart" };
+  | { kind: "setRulePaused"; ruleId: UUID; pausedUntil?: number | "restart" }
+  | { kind: "undo"; undoId: UUID }
+  | { kind: "clearActivity" };
 
 export interface ManagerCommand {
   kind: "manager-command";
@@ -53,6 +58,8 @@ export interface PersistentTabsViewFixture {
 
 export interface ManagerViewFixture {
   persistentTabsByGroup: Readonly<Record<UUID, PersistentTabsViewFixture>>;
+  activity?: readonly ActivityEntry[];
+  availableUndo?: UndoRecord;
 }
 
 export interface ManagerSuccess {

@@ -25,6 +25,7 @@ export type StorageAreaPort = {
   get(keys?: string | readonly string[]): Promise<Record<string, unknown>>;
   set(values: Record<string, unknown>): Promise<void>;
   remove(keys: string | string[]): Promise<void>;
+  getBytesInUse?(keys?: string | string[] | null): Promise<number>;
 };
 
 export type ChromeStoragePort = {

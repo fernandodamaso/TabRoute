@@ -16,7 +16,7 @@ import type {
   RuntimeSession,
   UUID
 } from "../../src/domain/types";
-import type { ActionPlan } from "../../src/actions/types";
+import type { RoutePlan } from "../../src/actions/types";
 
 const sessionId = "session-a" as BrowserSessionId;
 const actionId = "00000000-0000-4000-8000-000000000011" as ActionId;
@@ -93,7 +93,7 @@ function guard(overrides: Partial<OperationGuard> = {}): OperationGuard {
 
 describe("buildExpectedFootprint", () => {
   it("builds assignTabsToManagedGroup footprint for routeToGroup with existing group", () => {
-    const plan: ActionPlan = {
+    const plan: RoutePlan = {
       kind: "routeToGroup",
       tab: tab({ chromeGroupId: -1 }),
       managedGroupId: "00000000-0000-4000-8000-000000000001" as UUID,
@@ -120,7 +120,7 @@ describe("buildExpectedFootprint", () => {
   });
 
   it("builds assignTabsToManagedGroup footprint for routeToFallback creating a group", () => {
-    const plan: ActionPlan = {
+    const plan: RoutePlan = {
       kind: "routeToFallback",
       tab: tab({ chromeGroupId: -1 }),
       managedGroupId: "00000000-0000-4000-8000-000000000001" as UUID,
@@ -139,7 +139,7 @@ describe("buildExpectedFootprint", () => {
   });
 
   it("builds ungroupTabs footprint with groupRemoved and chromeGroupId", () => {
-    const plan: ActionPlan = {
+    const plan: RoutePlan = {
       kind: "ungroup",
       tab: tab({ chromeGroupId: 11 })
     };

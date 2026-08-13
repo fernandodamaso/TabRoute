@@ -3,11 +3,8 @@ import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { createTabRouteController } from "../../src/controller/controller";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
 import { GUARD_HARD_MS, GUARD_QUIET_MS } from "../../src/actions/operationGuards";
-import type {
-  ChromeInventory,
-  ChromeMutationPort,
-  ChromeTabSnapshot
-} from "../../src/chrome/types";
+import { createFakeChromePort } from "../fakes/fakeChromePort";
+import type { ChromeTabSnapshot } from "../../src/chrome/types";
 import type { OperationGuard, UUID } from "../../src/domain/types";
 
 function tab(overrides: Partial<ChromeTabSnapshot> = {}): ChromeTabSnapshot {
@@ -27,61 +24,12 @@ function tab(overrides: Partial<ChromeTabSnapshot> = {}): ChromeTabSnapshot {
   };
 }
 
-function fakePort(initial: ChromeInventory) {
-  const inventory = structuredClone(initial);
-  let groupCalls = 0;
-  const port: ChromeMutationPort = {
-    async readInventory() {
-      return structuredClone(inventory);
-    },
-    async groupTabs(input) {
-      groupCalls += 1;
-      const id = input.kind === "create" ? 11 : input.chromeGroupId;
-      inventory.groups = [
-        ...inventory.groups.filter((group) => group.id !== id),
-        {
-          id,
-          windowId: input.windowId,
-          title: "",
-          color: "grey" as const,
-          collapsed: false,
-          shared: false
-        }
-      ];
-      inventory.tabs = inventory.tabs.map((candidate) =>
-        input.tabIds.includes(candidate.id)
-          ? { ...candidate, chromeGroupId: id }
-          : candidate
-      );
-      return id;
-    },
-    async ungroupTabs(ids) {
-      inventory.tabs = inventory.tabs.map((candidate) =>
-        ids.includes(candidate.id)
-          ? { ...candidate, chromeGroupId: -1 }
-          : candidate
-      );
-    },
-    async moveTabs() {},
-    async updateGroup(groupId, patch) {
-      inventory.groups = inventory.groups.map((group) =>
-        group.id === groupId ? { ...group, ...patch } : group
-      );
-    }
-  };
-  return {
-    port,
-    inventory,
-    getGroupCalls: () => groupCalls
-  };
-}
-
 describe("controller lifecycle", () => {
   it("coalesces two tabUpdated events for the same tab into one groupTabs", async () => {
     const configuration = createDefaultConfiguration(
       () => "00000000-0000-4000-8000-000000000001"
     );
-    const fake = fakePort({
+    const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
       tabs: [tab()],
       groups: [],
@@ -89,7 +37,7 @@ describe("controller lifecycle", () => {
     });
     const controller = createTabRouteController({
       configuration,
-      chrome: fake.port,
+      chrome: fake,
       session: createMemorySessionRepository(),
       now: () => 1000
     });
@@ -109,7 +57,7 @@ describe("controller lifecycle", () => {
       pinnedChanged: false
     });
 
-    expect(fake.getGroupCalls()).toBe(1);
+    expect(fake.callsFor("groupTabs").length).toBe(1);
   });
 
   it("does not write manualOverrides during extension routeToGroup echoes", async () => {
@@ -145,7 +93,7 @@ describe("controller lifecycle", () => {
     const configuration = createDefaultConfiguration(
       () => "00000000-0000-4000-8000-000000000001"
     );
-    const fake = fakePort({
+    const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
       tabs: [tab({ chromeGroupId: 11 })],
       groups: [
@@ -162,14 +110,14 @@ describe("controller lifecycle", () => {
     });
     const controller = createTabRouteController({
       configuration,
-      chrome: fake.port,
+      chrome: fake,
       session,
       now: () => now + 10
     });
 
     await controller.handleChromeEvent({
       kind: "groupCreated",
-      group: fake.inventory.groups[0]!
+      group: fake.getInventory().groups[0]!
     });
     await controller.handleChromeEvent({
       kind: "tabUpdated",
@@ -214,7 +162,7 @@ describe("controller lifecycle", () => {
     const configuration = createDefaultConfiguration(
       () => "00000000-0000-4000-8000-000000000001"
     );
-    const fake = fakePort({
+    const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
       tabs: [tab({ chromeGroupId: 99 })],
       groups: [
@@ -231,7 +179,7 @@ describe("controller lifecycle", () => {
     });
     const controller = createTabRouteController({
       configuration,
-      chrome: fake.port,
+      chrome: fake,
       session,
       now: () => now + 10
     });
@@ -245,7 +193,7 @@ describe("controller lifecycle", () => {
     });
 
     expect((await session.loadSession()).manualOverrides["42"]).toBeDefined();
-    expect(fake.getGroupCalls()).toBe(0);
+    expect(fake.callsFor("groupTabs").length).toBe(0);
   });
 
   it("onWorkerWake settles guards without duplicating groupTabs", async () => {
@@ -278,7 +226,7 @@ describe("controller lifecycle", () => {
     const configuration = createDefaultConfiguration(
       () => "00000000-0000-4000-8000-000000000001"
     );
-    const fake = fakePort({
+    const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
       tabs: [tab({ chromeGroupId: 11 })],
       groups: [
@@ -295,28 +243,28 @@ describe("controller lifecycle", () => {
     });
     const first = createTabRouteController({
       configuration,
-      chrome: fake.port,
+      chrome: fake,
       session,
       now: () => now
     });
     const second = createTabRouteController({
       configuration,
-      chrome: fake.port,
+      chrome: fake,
       session,
       now: () => now + GUARD_QUIET_MS + 1
     });
 
     await first.onWorkerWake();
-    const callsAfterWake = fake.getGroupCalls();
+    const callsAfterWake = fake.callsFor("groupTabs").length;
     await second.onWorkerWake();
-    expect(fake.getGroupCalls()).toBe(callsAfterWake);
+    expect(fake.callsFor("groupTabs").length).toBe(callsAfterWake);
   });
 
   it("routes a loading tab at most once after committed URL", async () => {
     const configuration = createDefaultConfiguration(
       () => "00000000-0000-4000-8000-000000000001"
     );
-    const fake = fakePort({
+    const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
       tabs: [tab({ url: undefined, status: "loading" })],
       groups: [],
@@ -324,15 +272,15 @@ describe("controller lifecycle", () => {
     });
     const controller = createTabRouteController({
       configuration,
-      chrome: fake.port,
+      chrome: fake,
       session: createMemorySessionRepository(),
       now: () => 1000
     });
 
     await controller.handleTabUpdated(tab({ url: undefined, status: "loading" }));
-    expect(fake.getGroupCalls()).toBe(0);
+    expect(fake.callsFor("groupTabs").length).toBe(0);
 
-    fake.inventory.tabs = [tab()];
+    fake.getStorage().inventory.tabs = [tab()];
     await controller.handleChromeEvent({
       kind: "tabUpdated",
       tabId: 42,
@@ -340,7 +288,7 @@ describe("controller lifecycle", () => {
       groupChanged: false,
       pinnedChanged: false
     });
-    expect(fake.getGroupCalls()).toBe(1);
+    expect(fake.callsFor("groupTabs").length).toBe(1);
 
     await controller.handleChromeEvent({
       kind: "tabUpdated",
@@ -349,6 +297,6 @@ describe("controller lifecycle", () => {
       groupChanged: false,
       pinnedChanged: false
     });
-    expect(fake.getGroupCalls()).toBe(1);
+    expect(fake.callsFor("groupTabs").length).toBe(1);
   });
 });

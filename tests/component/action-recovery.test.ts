@@ -1,16 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  executeActionPlan,
+  executeRoutePlan,
   settleGuardsFromSession
-} from "../../src/actions/executeActionPlan";
+} from "../../src/actions/executeRoutePlan";
 import { GUARD_HARD_MS, GUARD_QUIET_MS } from "../../src/actions/operationGuards";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
-import type {
-  ChromeInventory,
-  ChromeMutationPort,
-  ChromeTabSnapshot
-} from "../../src/chrome/types";
+import { createFakeChromePort } from "../fakes/fakeChromePort";
+import type { ChromeTabSnapshot } from "../../src/chrome/types";
 
 function tab(overrides: Partial<ChromeTabSnapshot> = {}): ChromeTabSnapshot {
   return {
@@ -29,57 +26,11 @@ function tab(overrides: Partial<ChromeTabSnapshot> = {}): ChromeTabSnapshot {
   };
 }
 
-function fakePort(initial: ChromeInventory, options?: { failGroupTabs?: boolean }) {
-  const inventory = structuredClone(initial);
-  let groupCalls = 0;
-  const port: ChromeMutationPort = {
-    async readInventory() {
-      return structuredClone(inventory);
-    },
-    async groupTabs(input) {
-      groupCalls += 1;
-      if (options?.failGroupTabs) throw new Error("groupTabs failed");
-      const id = input.kind === "create" ? 11 : input.chromeGroupId;
-      inventory.groups = [
-        ...inventory.groups.filter((group) => group.id !== id),
-        {
-          id,
-          windowId: input.windowId,
-          title: "",
-          color: "grey" as const,
-          collapsed: false,
-          shared: false
-        }
-      ];
-      inventory.tabs = inventory.tabs.map((candidate) =>
-        input.tabIds.includes(candidate.id)
-          ? { ...candidate, chromeGroupId: id }
-          : candidate
-      );
-      return id;
-    },
-    async ungroupTabs(tabIds) {
-      inventory.tabs = inventory.tabs.map((candidate) =>
-        tabIds.includes(candidate.id)
-          ? { ...candidate, chromeGroupId: -1 }
-          : candidate
-      );
-    },
-    async moveTabs() {},
-    async updateGroup(groupId, patch) {
-      inventory.groups = inventory.groups.map((group) =>
-        group.id === groupId ? { ...group, ...patch } : group
-      );
-    }
-  };
-  return { port, inventory, getGroupCalls: () => groupCalls };
-}
-
 describe("action recovery with operation guards", () => {
   it("writes an executing guard before groupTabs and a settling guard after verification", async () => {
     const now = 1000;
     const session = createMemorySessionRepository();
-    const fake = fakePort({
+    const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
       tabs: [tab()],
       groups: [],
@@ -90,7 +41,7 @@ describe("action recovery with operation guards", () => {
     );
     const fallback = configuration.groups.find((group) => group.isFallback)!;
 
-    await executeActionPlan(
+    await executeRoutePlan(
       {
         kind: "routeToFallback",
         tab: tab(),
@@ -100,7 +51,7 @@ describe("action recovery with operation guards", () => {
         color: "grey"
       },
       {
-        chrome: fake.port,
+        chrome: fake,
         session,
         now: () => now,
         createId: () =>
@@ -119,7 +70,7 @@ describe("action recovery with operation guards", () => {
 
   it("keeps the guard present after the executor returns", async () => {
     const session = createMemorySessionRepository();
-    const fake = fakePort({
+    const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
       tabs: [tab()],
       groups: [],
@@ -130,7 +81,7 @@ describe("action recovery with operation guards", () => {
     );
     const fallback = configuration.groups.find((group) => group.isFallback)!;
 
-    await executeActionPlan(
+    await executeRoutePlan(
       {
         kind: "routeToFallback",
         tab: tab(),
@@ -139,7 +90,7 @@ describe("action recovery with operation guards", () => {
         title: "Other",
         color: "grey"
       },
-      { chrome: fake.port, session, now: () => 1000 }
+      { chrome: fake, session, now: () => 1000 }
     );
 
     expect((await session.loadSession()).operationGuards).toHaveLength(1);
@@ -147,22 +98,20 @@ describe("action recovery with operation guards", () => {
 
   it("removes the executing guard when groupTabs throws", async () => {
     const session = createMemorySessionRepository();
-    const fake = fakePort(
-      {
-        windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
-        tabs: [tab()],
-        groups: [],
-        capturedAt: 1
-      },
-      { failGroupTabs: true }
-    );
+    const fake = createFakeChromePort({
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+      tabs: [tab()],
+      groups: [],
+      capturedAt: 1
+    });
+    fake.setError("groupTabs", new Error("groupTabs failed"));
     const configuration = createDefaultConfiguration(
       () => "00000000-0000-4000-8000-000000000001"
     );
     const fallback = configuration.groups.find((group) => group.isFallback)!;
 
     await expect(
-      executeActionPlan(
+      executeRoutePlan(
         {
           kind: "routeToFallback",
           tab: tab(),
@@ -171,7 +120,7 @@ describe("action recovery with operation guards", () => {
           title: "Other",
           color: "grey"
         },
-        { chrome: fake.port, session, now: () => 1000 }
+        { chrome: fake, session, now: () => 1000 }
       )
     ).rejects.toThrow("groupTabs failed");
 
@@ -181,7 +130,7 @@ describe("action recovery with operation guards", () => {
   it("settles guards from inventory without replaying mutations", async () => {
     const now = 1000;
     const session = createMemorySessionRepository();
-    const fake = fakePort({
+    const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
       tabs: [tab({ chromeGroupId: 11 })],
       groups: [
@@ -201,7 +150,7 @@ describe("action recovery with operation guards", () => {
     );
     const fallback = configuration.groups.find((group) => group.isFallback)!;
 
-    await executeActionPlan(
+    await executeRoutePlan(
       {
         kind: "routeToFallback",
         tab: tab(),
@@ -211,7 +160,7 @@ describe("action recovery with operation guards", () => {
         color: "grey"
       },
       {
-        chrome: fake.port,
+        chrome: fake,
         session,
         now: () => now,
         createId: () =>
@@ -219,13 +168,13 @@ describe("action recovery with operation guards", () => {
       }
     );
 
-    const callsBefore = fake.getGroupCalls();
+    const callsBefore = fake.callsFor("groupTabs").length;
     await settleGuardsFromSession({
-      chrome: fake.port,
+      chrome: fake,
       session,
       now: () => now + GUARD_QUIET_MS + 1
     });
-    expect(fake.getGroupCalls()).toBe(callsBefore);
+    expect(fake.callsFor("groupTabs").length).toBe(callsBefore);
     expect((await session.loadSession()).operationGuards).toHaveLength(0);
   });
 });

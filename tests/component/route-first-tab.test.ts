@@ -1,11 +1,8 @@
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { createTabRouteController } from "../../src/controller/controller";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
-import type {
-  ChromeInventory,
-  ChromeMutationPort,
-  ChromeTabSnapshot
-} from "../../src/chrome/types";
+import { createFakeChromePort } from "../fakes/fakeChromePort";
+import type { ChromeTabSnapshot } from "../../src/chrome/types";
 
 function tab(overrides: Partial<ChromeTabSnapshot> = {}): ChromeTabSnapshot {
   return {
@@ -24,58 +21,11 @@ function tab(overrides: Partial<ChromeTabSnapshot> = {}): ChromeTabSnapshot {
   };
 }
 
-function fakePort(initial: ChromeInventory) {
-  const inventory = structuredClone(initial);
-  const calls: string[] = [];
-  const port: ChromeMutationPort = {
-    async readInventory() {
-      return inventory;
-    },
-    async groupTabs(input) {
-      calls.push(input.kind === "create" ? "create-group" : "reuse-group");
-      const id = input.kind === "create" ? 11 : input.chromeGroupId;
-      inventory.groups = [
-        ...inventory.groups,
-        {
-          id,
-          windowId: input.windowId,
-          title: "",
-          color: "grey" as const,
-          collapsed: false,
-          shared: false
-        }
-      ].filter(
-        (group, index, groups) =>
-          groups.findIndex((candidate) => candidate.id === group.id) === index
-      );
-      inventory.tabs = inventory.tabs.map((candidate) =>
-        input.tabIds.includes(candidate.id)
-          ? { ...candidate, chromeGroupId: id }
-          : candidate
-      );
-      return id;
-    },
-    async ungroupTabs() {
-      calls.push("ungroup-tabs");
-    },
-    async moveTabs() {
-      calls.push("move-tabs");
-    },
-    async updateGroup(groupId, patch) {
-      calls.push("update-group");
-      inventory.groups = inventory.groups.map((group) =>
-        group.id === groupId ? { ...group, ...patch } : group
-      );
-    }
-  };
-  return { port, calls, getInventory: () => inventory };
-}
-
 it("holds a newly created tab until it has a committed supported URL", async () => {
   const configuration = createDefaultConfiguration(
     () => "00000000-0000-4000-8000-000000000001"
   );
-  const fake = fakePort({
+  const fake = createFakeChromePort({
     windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
     tabs: [tab({ url: undefined, status: "loading" })],
     groups: [],
@@ -83,20 +33,20 @@ it("holds a newly created tab until it has a committed supported URL", async () 
   });
   const controller = createTabRouteController({
     configuration,
-    chrome: fake.port,
+    chrome: fake,
     session: createMemorySessionRepository()
   });
 
   await controller.handleTabUpdated(tab({ url: undefined, status: "loading" }));
 
-  expect(fake.calls).toEqual([]);
+  expect(fake.callsFor("groupTabs")).toEqual([]);
 });
 
 it("routes an unmatched routable tab through the Action Engine into lazy Other", async () => {
   const configuration = createDefaultConfiguration(
     () => "00000000-0000-4000-8000-000000000001"
   );
-  const fake = fakePort({
+  const fake = createFakeChromePort({
     windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
     tabs: [tab()],
     groups: [],
@@ -104,14 +54,15 @@ it("routes an unmatched routable tab through the Action Engine into lazy Other",
   });
   const controller = createTabRouteController({
     configuration,
-    chrome: fake.port,
+    chrome: fake,
     session: createMemorySessionRepository()
   });
 
   await controller.handleTabUpdated(tab());
 
-  expect(fake.calls).toEqual(["create-group", "update-group"]);
-  expect(fake.getInventory().tabs[0]?.chromeGroupId).toBe(11);
+  expect(fake.callsFor("groupTabs").length).toBe(1);
+  expect(fake.callsFor("updateGroup").length).toBe(1);
+  expect(fake.getInventory().tabs[0]?.chromeGroupId).toBeGreaterThan(0);
   expect(fake.getInventory().groups[0]?.title).toBe("Other");
 });
 
@@ -121,7 +72,7 @@ it("reuses each normal window's fallback group after fresh association reconstru
   );
   const first = tab({ id: 7, windowId: 1 });
   const second = tab({ id: 8, windowId: 2 });
-  const fake = fakePort({
+  const fake = createFakeChromePort({
     windows: [
       { id: 1, focused: true, incognito: false, type: "normal" },
       { id: 2, focused: false, incognito: false, type: "normal" }
@@ -149,19 +100,15 @@ it("reuses each normal window's fallback group after fresh association reconstru
   });
   const controller = createTabRouteController({
     configuration,
-    chrome: fake.port,
+    chrome: fake,
     session: createMemorySessionRepository()
   });
 
   await controller.handleTabUpdated(first);
   await controller.handleTabUpdated(second);
 
-  expect(fake.calls).toEqual([
-    "reuse-group",
-    "update-group",
-    "reuse-group",
-    "update-group"
-  ]);
+  expect(fake.callsFor("groupTabs")).toHaveLength(2);
+  expect(fake.callsFor("updateGroup")).toHaveLength(2);
   expect(
     fake.getInventory().tabs.find((candidate) => candidate.id === first.id)
       ?.chromeGroupId

@@ -5,7 +5,7 @@ import type {
   ChromeTabSnapshot,
   UUID
 } from "../domain/types";
-import type { ActionPlan } from "./types";
+import type { RoutePlan } from "./types";
 import { renderGroupTitle } from "../groups/displayTitle";
 import { isRoutableUrl } from "../chrome/types";
 import { placementAction, selectRule } from "../rules/ruleEngine";
@@ -16,7 +16,7 @@ export function planFallbackRoute(input: {
   configuration: Configuration;
   associations: readonly ChromeAssociation[];
 }):
-  | ActionPlan
+  | RoutePlan
   | {
       kind: "held";
       reason: "not-routable" | "incognito" | "unmanaged-placement";
@@ -73,7 +73,7 @@ export function planRuleRoute(input: {
   associations: readonly ChromeAssociation[];
   intentionallyClosedGroupIds?: readonly UUID[];
 }):
-  | ActionPlan
+  | RoutePlan
   | {
       kind: "held";
       reason: "not-routable" | "incognito" | "unmanaged-placement" | "paused";
@@ -113,7 +113,7 @@ export function planManagedGroupRoute(input: {
   targetGroupId: UUID;
   collapsed?: boolean;
 }):
-  | ActionPlan
+  | RoutePlan
   | {
       kind: "held";
       reason: "not-routable" | "incognito" | "unmanaged-placement" | "paused";

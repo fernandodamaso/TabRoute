@@ -174,6 +174,30 @@ function createSeedFor(id: ScenarioId): {
     };
   }
 
+  if (id === "wb:default" || id === "wb:offline") {
+    viewFixture.activity = [
+      {
+        schemaVersion: 1,
+        id: "00000000-0000-4000-8000-000000000201" as import("../domain/types").UUID,
+        action: "Closed duplicate tab",
+        result: "success",
+        affectedManagedGroupIds: [FIXTURE_IDS.primaryGroup],
+        affectedUrls: ["https://docs.example.test/guide"],
+        undoId: "00000000-0000-4000-8000-000000000202" as import("../domain/types").UUID,
+        createdAt: SEED_TIME
+      }
+    ];
+    viewFixture.availableUndo = {
+      schemaVersion: 1,
+      id: "00000000-0000-4000-8000-000000000202" as import("../domain/types").UUID,
+      actionId: "00000000-0000-4000-8000-000000000203" as import("../domain/types").ActionId,
+      browserSessionId: "00000000-0000-4000-8000-000000000204" as import("../domain/types").BrowserSessionId,
+      payloads: [],
+      expiresAt: SEED_TIME + 30_000,
+      createdAt: SEED_TIME
+    };
+  }
+
   if (id === "wb:empty-persistent-tabs") {
     viewFixture.persistentTabsByGroup = {
       [FIXTURE_IDS.primaryGroup]: { state: "empty", tabs: [] }

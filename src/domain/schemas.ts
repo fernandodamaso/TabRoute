@@ -82,6 +82,7 @@ const managedGroup = z.strictObject({
   isPersistent: z.boolean(),
   defaultOrder: z.number().int(),
   defaultCollapsed: z.boolean(),
+  duplicatePolicy: duplicatePolicy.optional(),
   pausedUntil: pauseValue.optional(),
   createdAt: z.number(),
   updatedAt: z.number()
@@ -184,7 +185,7 @@ const configuration = z
     rules: z.array(rule),
     persistentTabs: z.array(z.never()),
     duplicateSettings: z.strictObject({
-      globalPolicy: z.strictObject({ kind: z.literal("allow") }),
+      globalPolicy: duplicatePolicy,
       globalExclusions: z.array(z.string()),
       trackingParameters: z.array(z.string())
     }),

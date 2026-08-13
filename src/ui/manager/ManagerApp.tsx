@@ -5,6 +5,7 @@ import { ManagerShell } from "./ManagerShell";
 import { useManagerState } from "./useManagerState";
 import { GroupsPage } from "./pages/GroupsPage";
 import { RulesPage } from "./pages/RulesPage";
+import { ActivityPage } from "./pages/ActivityPage";
 import "./manager.css";
 
 function initialRuleEditor(deepLink: ManagerDeepLink | undefined): UUID | "new" | undefined {
@@ -77,7 +78,13 @@ export function ManagerApp({
             onCancel={() => setEditingRuleId(undefined)}
             onSaved={() => setEditingRuleId(undefined)}
           />
-        : <>
+        : route === "activity"
+          ? <ActivityPage
+              activity={state.viewFixture?.activity ?? []}
+              availableUndo={state.viewFixture?.availableUndo}
+              command={state.command}
+            />
+          : <>
             <h1 data-page-heading="true">{title}</h1>
             <section aria-label={`${title} content`} className="manager-page-content">
               <p className="manager-lede">{`${title} is ready for this manager.`}</p>

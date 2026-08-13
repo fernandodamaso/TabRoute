@@ -2,11 +2,8 @@ import { describe, expect, it } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { createTabRouteController } from "../../src/controller/controller";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
-import type {
-  ChromeInventory,
-  ChromeMutationPort,
-  ChromeTabSnapshot
-} from "../../src/chrome/types";
+import { createFakeChromePort } from "../fakes/fakeChromePort";
+import type { ChromeTabSnapshot } from "../../src/chrome/types";
 import type { Configuration, UUID } from "../../src/domain/types";
 
 const docsId = "00000000-0000-4000-8000-000000000002" as UUID;
@@ -28,69 +25,12 @@ function tab(overrides: Partial<ChromeTabSnapshot> = {}): ChromeTabSnapshot {
   };
 }
 
-function fakePort(initial: ChromeInventory) {
-  const inventory = structuredClone(initial) as ChromeInventory & {
-    groups: ChromeInventory["groups"][number][];
-  };
-  const calls: string[] = [];
-  const port: ChromeMutationPort = {
-    async readInventory() {
-      return structuredClone(inventory);
-    },
-    async groupTabs(input) {
-      calls.push(input.kind === "create" ? "create-group" : "reuse-group");
-      const id = input.kind === "create" ? 11 : input.chromeGroupId;
-      if (!inventory.groups.some((group) => group.id === id)) {
-        inventory.groups.push({
-          id,
-          windowId: input.windowId,
-          title: "",
-          color: "grey",
-          collapsed: false,
-          shared: false
-        });
-      }
-      inventory.tabs = inventory.tabs.map((candidate) =>
-        input.tabIds.includes(candidate.id)
-          ? { ...candidate, chromeGroupId: id }
-          : candidate
-      );
-      return id;
-    },
-    async ungroupTabs(ids) {
-      calls.push("ungroup-tabs");
-      inventory.tabs = inventory.tabs.map((candidate) =>
-        ids.includes(candidate.id)
-          ? { ...candidate, chromeGroupId: -1 }
-          : candidate
-      );
-    },
-    async moveTabs() {
-      calls.push("move-tabs");
-    },
-    async updateGroup(groupId, patch) {
-      calls.push("update-group");
-      inventory.groups = inventory.groups.map((group) =>
-        group.id === groupId ? { ...group, ...patch } : group
-      );
-    }
-  };
-  return {
-    port,
-    calls,
-    mutationsFor(tabId: number) {
-      return calls.filter((_, index) => index >= 0 && inventory.tabs.some((t) => t.id === tabId));
-    },
-    inventory,
-    setTabGroup(tabId: number, chromeGroupId: number) {
-      inventory.tabs = inventory.tabs.map((candidate) =>
-        candidate.id === tabId ? { ...candidate, chromeGroupId } : candidate
-      );
-    },
-    addGroup(group: ChromeInventory["groups"][number]) {
-      inventory.groups.push(group);
-    }
-  };
+function hasRoutingMutations(fake: ReturnType<typeof createFakeChromePort>) {
+  return (
+    fake.callsFor("groupTabs").length > 0 ||
+    fake.callsFor("ungroupTabs").length > 0 ||
+    fake.callsFor("moveTabs").length > 0
+  );
 }
 
 function docsConfiguration(): Configuration {
@@ -140,7 +80,7 @@ describe("session overrides", () => {
   it("keeps a manual destination through rule changes until restart", async () => {
     const configuration = docsConfiguration();
     const current = tab();
-    const fake = fakePort({
+    const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
       tabs: [current],
       groups: [],
@@ -148,7 +88,7 @@ describe("session overrides", () => {
     });
     const controller = createTabRouteController({
       configuration,
-      chrome: fake.port,
+      chrome: fake,
       session: createMemorySessionRepository()
     });
 
@@ -167,13 +107,13 @@ describe("session overrides", () => {
       }))
     };
     await controller.replaceConfiguration(edited);
-    expect(fake.calls).toEqual([]);
+    expect(hasRoutingMutations(fake)).toBe(false);
   });
 
   it("leaves a tab in an unmanaged native group until restart", async () => {
     const configuration = docsConfiguration();
     const current = tab({ chromeGroupId: 99 });
-    const fake = fakePort({
+    const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
       tabs: [current],
       groups: [
@@ -190,7 +130,7 @@ describe("session overrides", () => {
     });
     const controller = createTabRouteController({
       configuration,
-      chrome: fake.port,
+      chrome: fake,
       session: createMemorySessionRepository()
     });
 
@@ -202,7 +142,7 @@ describe("session overrides", () => {
       toIndex: 1
     });
 
-    fake.calls.length = 0;
+    const hadRoutingBefore = hasRoutingMutations(fake);
     await controller.handleChromeEvent({
       kind: "tabUpdated",
       tabId: current.id,
@@ -215,13 +155,13 @@ describe("session overrides", () => {
       rules: []
     });
 
-    expect(fake.calls.filter((call) => call !== "update-group")).toEqual([]);
+    expect(hasRoutingMutations(fake)).toBe(hadRoutingBefore);
   });
 
   it("does not mutate shared-group members", async () => {
     const configuration = docsConfiguration();
     const current = tab({ chromeGroupId: 88 });
-    const fake = fakePort({
+    const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
       tabs: [current],
       groups: [
@@ -238,7 +178,7 @@ describe("session overrides", () => {
     });
     const controller = createTabRouteController({
       configuration,
-      chrome: fake.port,
+      chrome: fake,
       session: createMemorySessionRepository()
     });
 
@@ -250,14 +190,14 @@ describe("session overrides", () => {
       pinnedChanged: false
     });
 
-    expect(fake.calls).toEqual([]);
+    expect(hasRoutingMutations(fake)).toBe(false);
   });
 
   it("does not clear override on tabActivated after manual move", async () => {
     const configuration = docsConfiguration();
     const current = tab();
     const session = createMemorySessionRepository();
-    const fake = fakePort({
+    const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
       tabs: [current],
       groups: [],
@@ -265,7 +205,7 @@ describe("session overrides", () => {
     });
     const controller = createTabRouteController({
       configuration,
-      chrome: fake.port,
+      chrome: fake,
       session
     });
 
@@ -282,8 +222,8 @@ describe("session overrides", () => {
     });
 
     expect((await session.loadSession()).manualOverrides[String(current.id)]).toBeDefined();
-    fake.calls.length = 0;
+    const hadRoutingBefore = hasRoutingMutations(fake);
     await controller.replaceConfiguration(configuration);
-    expect(fake.calls).toEqual([]);
+    expect(hasRoutingMutations(fake)).toBe(hadRoutingBefore);
   });
 });

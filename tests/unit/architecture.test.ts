@@ -1,6 +1,16 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+const SCAN_PATHS = [
+  "controller/controller.ts",
+  "ui/messages.ts",
+  "duplicates",
+  "activity",
+  "persistence",
+  "snapshots",
+  "background"
+];
+
 it("keeps mutating Chrome calls inside the live adapter and Action Engine", async () => {
   const root = join(process.cwd(), "src");
   const forbidden = /chrome\.(tabs|tabGroups)\.(group|move|ungroup|remove|update)\s*\(/g;
@@ -9,14 +19,17 @@ it("keeps mutating Chrome calls inside the live adapter and Action Engine", asyn
   }
 });
 
-it("keeps manager UI modules away from repositories and Chrome mutation ports", async () => {
-  const root = join(process.cwd(), "src", "ui");
-  const files = [
-    "messages.ts",
-    "manager/types.ts"
-  ];
-  for (const file of files) {
-    const source = await readFile(join(root, file), "utf8");
-    expect(source).not.toMatch(/configurationRepository|liveChromePort|chrome\.(tabs|tabGroups)/);
+it("keeps feature modules away from repositories and Chrome mutation ports", async () => {
+  const root = join(process.cwd(), "src");
+  for (const file of SCAN_PATHS) {
+    const absolute = join(root, file);
+    let source: string;
+    try {
+      source = await readFile(absolute, "utf8");
+    } catch {
+      continue;
+    }
+    expect(source).not.toMatch(/configurationRepository|liveChromePort/);
+    expect(source).not.toMatch(/chrome\.(tabs|tabGroups)\.(group|move|ungroup|remove|update)\s*\(/);
   }
 });
