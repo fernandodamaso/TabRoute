@@ -5,9 +5,11 @@ import type { ActionPlan, PlannedAction } from "../actions/types";
 import type {
   ActionId,
   BrowserSessionId,
+  ChromeAssociation,
   ChromeInventory,
   Configuration,
   RuntimeSession,
+  TabSnapshot,
   UndoPayload,
   UndoPlacement,
   UndoRecord
@@ -50,6 +52,38 @@ type ResolvedUndoPlacement =
       index: number;
       degraded: boolean;
     };
+
+export function deriveUndoPlacementFromTab(
+  tab: Pick<TabSnapshot, "windowId" | "index" | "chromeGroupId">,
+  inventory: ChromeInventory,
+  associations: readonly ChromeAssociation[]
+): UndoPlacement {
+  if (tab.chromeGroupId < 0) {
+    return { kind: "ungrouped", windowIdHint: tab.windowId, index: tab.index };
+  }
+  const group = inventory.groups.find(
+    (candidate) => candidate.id === tab.chromeGroupId
+  );
+  const association = associations.find(
+    (candidate) =>
+      candidate.chromeGroupId === tab.chromeGroupId &&
+      candidate.chromeWindowId === tab.windowId
+  );
+  if (association && !group?.shared) {
+    return {
+      kind: "managedGroup",
+      managedGroupId: association.managedGroupId,
+      windowIdHint: tab.windowId,
+      index: tab.index
+    };
+  }
+  return {
+    kind: "unmanagedGroup",
+    chromeGroupIdHint: tab.chromeGroupId,
+    windowIdHint: tab.windowId,
+    index: tab.index
+  };
+}
 
 export function resolveUndoPlacement(
   placement: UndoPlacement,

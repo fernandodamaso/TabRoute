@@ -3,6 +3,11 @@ import type {
   ConfigurationRepository,
   SyncChangeResult
 } from "./configurationRepository";
+import type { LocalRepository } from "./localRepository";
+import {
+  recordSyncRevisionActivity,
+  type SyncRevisionActivityResult
+} from "../activity/activityRepository";
 
 export const CONFIGURATION_SYNC_RETRY_ALARM = "config:v1:sync-retry";
 
@@ -20,12 +25,32 @@ export function createConfigurationSyncCoordinator(input: {
     "applySyncChange" | "markControllerRevisionApplied"
   >;
   callbacks: ConfigurationSyncApplyCallbacks;
+  recordSyncActivity?: {
+    local: LocalRepository;
+    now: () => number;
+  };
 }) {
+  async function maybeRecordSyncActivity(result: SyncChangeResult): Promise<void> {
+    if (!input.recordSyncActivity) return;
+    let activityResult: SyncRevisionActivityResult | undefined;
+    if (result.kind === "applied") activityResult = { kind: "applied" };
+    else if (result.kind === "invalid")
+      activityResult = { kind: "invalid", reason: result.reason };
+    else if (result.kind === "pending") activityResult = { kind: "pending" };
+    if (!activityResult) return;
+    await recordSyncRevisionActivity(
+      input.recordSyncActivity.local,
+      activityResult,
+      input.recordSyncActivity.now()
+    );
+  }
+
   return {
     async applySyncChange(
       changedKeys: readonly string[] = []
     ): Promise<SyncChangeResult> {
       const result = await input.repository.applySyncChange(changedKeys);
+      await maybeRecordSyncActivity(result);
       if (result.kind === "pending") {
         await input.callbacks.scheduleRetry();
         return result;

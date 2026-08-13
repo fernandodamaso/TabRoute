@@ -171,7 +171,8 @@ export default defineBackground(() => {
             delayInMinutes: 1
           });
         }
-      }
+      },
+      recordSyncActivity: { local, now: () => Date.now() }
     });
     configurationSyncRef.current = configurationSync;
     const startupSync = intake.markReady();

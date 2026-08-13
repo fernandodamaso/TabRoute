@@ -22,7 +22,7 @@ import { createActivityEntry, type LocalRepository } from "../state/localReposit
 import { observeInventory } from "../duplicates/observations";
 import { planDuplicateClose } from "../duplicates/planDuplicateClose";
 import { resolveDuplicate } from "../duplicates/resolveDuplicate";
-import { planUndoRestore } from "../activity/undoPlanner";
+import { planUndoRestore, deriveUndoPlacementFromTab } from "../activity/undoPlanner";
 
 function duplicateContext(input: {
   inventory: ChromeInventory;
@@ -98,6 +98,8 @@ async function recordClosedDuplicate(input: {
   local: LocalRepository;
   configuration: Configuration;
   runtime: RuntimeSession;
+  inventory: ChromeInventory;
+  associations: readonly ChromeAssociation[];
   now: number;
 }): Promise<UUID> {
   const undoId = createUuid();
@@ -105,17 +107,18 @@ async function recordClosedDuplicate(input: {
     input.duplicate.routing.kind === "routable"
       ? input.duplicate.routing.url
       : "";
+  const placement = deriveUndoPlacementFromTab(
+    input.duplicate,
+    input.inventory,
+    input.associations
+  );
   const undoRecord = planUndoRestore({
     payload: {
       kind: "restoreClosedTab",
       sessionId: input.sessionId ?? undefined,
       url,
       title: input.duplicate.title,
-      placement: {
-        kind: "ungrouped",
-        windowIdHint: input.duplicate.windowId,
-        index: input.duplicate.index
-      }
+      placement
     },
     session: input.runtime,
     now: input.now,
@@ -230,6 +233,8 @@ export async function attemptDuplicateClose(input: {
       local: input.local,
       configuration: input.configuration,
       runtime: observed.session,
+      inventory: input.inventory,
+      associations: input.associations,
       now: at
     });
   }

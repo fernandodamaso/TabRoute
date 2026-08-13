@@ -6,6 +6,7 @@ import {
   LOCAL_SOFT_BUDGET_BYTES,
   createActivityEntry
 } from "../../src/state/localRepository";
+import { createConfigurationSyncCoordinator } from "../../src/state/configurationSyncCoordinator";
 
 describe("storage repositories", () => {
   it("prunes expired undo before automatic snapshots and activity", async () => {
@@ -133,5 +134,39 @@ describe("storage repositories", () => {
     const entries = await local.listActivity(undefined, 10);
     expect(entries).toHaveLength(1);
     expect(entries[0]?.result).toBe("success");
+  });
+
+  it("records invalid remote sync as a local activity failure via coordinator", async () => {
+    const local = createMemoryLocalRepository();
+    const configuration = createDefaultConfiguration(
+      () => "00000000-0000-4000-8000-000000000099"
+    );
+    const coordinator = createConfigurationSyncCoordinator({
+      repository: {
+        async applySyncChange() {
+          return {
+            kind: "invalid" as const,
+            configuration,
+            reason: "checksum mismatch"
+          };
+        },
+        async markControllerRevisionApplied() {}
+      },
+      callbacks: {
+        async replaceConfiguration() {},
+        async refreshMenus() {},
+        async refreshAlarms() {},
+        async refreshViews() {},
+        async scheduleRetry() {}
+      },
+      recordSyncActivity: { local, now: () => 1000 }
+    });
+
+    await coordinator.applySyncChange(["config:v1:head"]);
+
+    const entries = await local.listActivity(undefined, 10);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.result).toBe("failure");
+    expect(entries[0]?.errorCode).toBe("checksum mismatch");
   });
 });
