@@ -1,4 +1,4 @@
-import { createManagerMessageRouter, createFixtureActivityManagerPort, createFixtureSnapshotManagerPort } from "../background/managerMessageRouter";
+import { createManagerMessageRouter, createFixtureActivityManagerPort, createFixtureDiagnosticsManagerPort, createFixtureSnapshotManagerPort } from "../background/managerMessageRouter";
 import { validateConfiguration } from "../domain/schemas";
 import type { Configuration } from "../domain/types";
 import type {
@@ -100,6 +100,13 @@ export function createFixtureManagerTransport(input: FixtureOptions): FixtureMan
       },
       getConfiguration: () => target.configuration
     });
+    const diagnostics = createFixtureDiagnosticsManagerPort({
+      getViewFixture: () => target.viewFixture,
+      setViewFixture: (next) => {
+        target.viewFixture = next;
+      },
+      getConfiguration: () => target.configuration
+    });
     return createManagerMessageRouter({
       repository: {
         async save(next) {
@@ -116,6 +123,7 @@ export function createFixtureManagerTransport(input: FixtureOptions): FixtureMan
       },
       activity,
       snapshots,
+      diagnostics,
       randomUuid: () => {
         target.identifierSequence += 1;
         return runtimeUuid(target.identifierSequence);

@@ -38,9 +38,12 @@ it("canonicalizes encoded deep links and persistent failure scope", () => {
 });
 
 it("accepts every approved route and fixture scenario", () => {
-  expect(SCENARIO_IDS).toHaveLength(15);
+  expect(SCENARIO_IDS).toHaveLength(17);
   for (const definition of SCENARIO_DEFINITIONS) {
-    const deepLink = definition.deepLink === "none" || definition.deepLink === "new-rule"
+    const deepLink = definition.deepLink === "none"
+      || definition.deepLink === "new-rule"
+      || definition.deepLink === "snapshots"
+      || definition.deepLink === "diagnostics"
       ? definition.deepLink
       : `${definition.deepLink.kind}:${definition.deepLink.ruleId}`;
     const state = parseWorkbenchSearch(

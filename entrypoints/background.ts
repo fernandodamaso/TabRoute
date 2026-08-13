@@ -6,6 +6,7 @@ import { createChromeLocalRepository } from "../src/state/localRepository";
 import { createConfigurationRepository } from "../src/state/configurationRepository";
 import {
   createActivityManagerPort,
+  createDiagnosticsManagerPort,
   createManagerMessageRouter,
   createSnapshotManagerPort
 } from "../src/background/managerMessageRouter";
@@ -228,11 +229,23 @@ export default defineBackground(() => {
       getConfiguration: () => controller!.getConfiguration(),
       readInventory: () => controller!.actionDeps().reads.readInventory()
     });
+    const diagnostics = createDiagnosticsManagerPort({
+      local,
+      session,
+      getConfiguration: () => controller!.getConfiguration(),
+      applySyncChange: async () =>
+        (await configurationSyncRef.current?.applySyncChange()) ?? { kind: "ignored" },
+      reconcileAll: async () => {
+        const current = controller!.getConfiguration();
+        await controller!.replaceConfiguration(current);
+      }
+    });
     managerRouter = createManagerMessageRouter({
       repository,
       controller,
       activity,
       snapshots,
+      diagnostics,
       inventory: {
         readInventory: () => controller!.actionDeps().reads.readInventory(),
         loadPreferredWindowId: async () => {

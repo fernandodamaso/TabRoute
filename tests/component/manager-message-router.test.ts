@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { createDefaultConfiguration, createManagedGroup } from "../../src/domain/defaults";
 import { createManagerMessageRouter } from "../../src/background/managerMessageRouter";
-import type { ActivityManagerPort, SnapshotManagerPort } from "../../src/background/managerMessageRouter";
+import type { ActivityManagerPort, DiagnosticsManagerPort, SnapshotManagerPort } from "../../src/background/managerMessageRouter";
 import type { ChromeInventory } from "../../src/domain/types";
 import type {
   ManagerCommand,
@@ -49,6 +49,38 @@ function snapshotsPort(): SnapshotManagerPort {
   };
 }
 
+function diagnosticsPort(): DiagnosticsManagerPort {
+  return {
+    async query() {
+      return { persistentTabsByGroup: {}, diagnostics: { storage: {
+        syncBytes: 0,
+        syncQuotaBytes: 102400,
+        syncLargestItemBytes: 0,
+        syncQuotaBytesPerItem: 8192,
+        syncItemCount: 0,
+        syncMaxItems: 512,
+        localBytes: 0,
+        localSoftBudgetBytes: 9437184,
+        localQuotaBytes: 10485760,
+        sessionBytes: 0,
+        sessionQuotaBytes: 10485760
+      }, warnings: [] } };
+    },
+    async recheck() {
+      return this.query();
+    },
+    async retryPendingSync() {
+      return this.query();
+    },
+    async reconcileAll() {
+      return undefined;
+    },
+    async exportActivityLog() {
+      return { persistentTabsByGroup: {}, activityLogExport: "[]" };
+    }
+  };
+}
+
 function setup() {
   const initial = createManagedGroup(
     createDefaultConfiguration(() => fallbackId),
@@ -67,6 +99,7 @@ function setup() {
     },
     activity: activityPort(),
     snapshots: snapshotsPort(),
+    diagnostics: diagnosticsPort(),
     randomUuid: () => "00000000-0000-4000-8000-000000000003",
     now: () => 3
   });
@@ -124,6 +157,7 @@ it("returns the last valid configuration after a persistence failure", async () 
     controller: { getConfiguration: () => configuration, replaceConfiguration },
     activity: activityPort(),
     snapshots: snapshotsPort(),
+    diagnostics: diagnosticsPort(),
     now: () => 4
   });
 
@@ -152,6 +186,7 @@ it("keeps a durable mutation accepted when post-save reconciliation throws", asy
     controller: { getConfiguration: () => configuration, replaceConfiguration },
     activity: activityPort(),
     snapshots: snapshotsPort(),
+    diagnostics: diagnosticsPort(),
     now: () => 5
   });
 
@@ -191,6 +226,7 @@ it("serializes concurrent mutations against the latest persisted configuration",
     controller: { getConfiguration: () => configuration, replaceConfiguration },
     activity: activityPort(),
     snapshots: snapshotsPort(),
+    diagnostics: diagnosticsPort(),
     randomUuid: () => "00000000-0000-4000-8000-000000000003",
     now: () => 3
   });
@@ -252,6 +288,7 @@ it("pins a group from live inventory members instead of stale configuration URLs
     },
     activity: activityPort(),
     snapshots: snapshotsPort(),
+    diagnostics: diagnosticsPort(),
     inventory: {
       readInventory: async () => inventory,
       loadPreferredWindowId: async () => 1,

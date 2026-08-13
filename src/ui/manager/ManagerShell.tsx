@@ -29,6 +29,6 @@ export function ManagerShell({ route, onRouteChange, children, status, settingsP
     <nav className="manager-primary-nav" aria-label="Primary">
       {navigation.map(({ route: destination, label }) => <button key={destination} type="button" data-route-focus={destination} aria-current={route === destination ? "page" : undefined} onClick={() => onRouteChange(destination)}>{label}</button>)}
     </nav>
-    <main ref={pageRef} className={`manager-page-scroll route-${route}${route === "settings" && settingsPanel === "snapshots" ? " route-settings-snapshots" : ""}`} tabIndex={-1} data-route-focus={route} aria-label={`${route} page`}>{children}</main>
+    <main ref={pageRef} className={`manager-page-scroll route-${route}${route === "settings" && settingsPanel === "snapshots" ? " route-settings-snapshots" : ""}${route === "settings" && settingsPanel === "diagnostics" ? " route-settings-diagnostics" : ""}${route === "settings" && settingsPanel === "root" ? " route-settings-root" : ""}`} tabIndex={-1} data-route-focus={route} aria-label={`${route} page`}>{children}</main>
   </div>;
 }

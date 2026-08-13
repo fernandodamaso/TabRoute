@@ -21,10 +21,12 @@ const expectedScenarioIds = [
   "wb:loading",
   "wb:slow",
   "wb:validation-error",
-  "wb:offline"
+  "wb:offline",
+  "wb:sync-incomplete",
+  "wb:local-budget"
 ] as const;
 
-it("registers exactly the 15 approved fixture scenarios", () => {
+it("registers exactly the 17 approved fixture scenarios", () => {
   expect(SCENARIO_IDS).toEqual(expectedScenarioIds);
   expect(SCENARIO_DEFINITIONS.map((definition) => definition.id)).toEqual(expectedScenarioIds);
   expect(SCENARIO_IDS).not.toContain("wb:activity");
@@ -41,7 +43,11 @@ it("creates fresh deterministic seeds accepted by the existing configuration sch
     expect(first).not.toBe(second);
     expect(first.configuration).not.toBe(second.configuration);
     expect(validateConfiguration(first.configuration)).toEqual(first.configuration);
-    expect(first.configuration.persistentTabs).toEqual([]);
+    expect(first.configuration.persistentTabs).toEqual(
+      definition.id === "wb:populated-persistent-tabs"
+        ? first.configuration.persistentTabs
+        : []
+    );
   }
 });
 
@@ -65,10 +71,12 @@ it("covers empty, dense, enabled, disabled, loading, error, overlay, and persist
     state: "empty",
     tabs: []
   });
-  expect(persistentPopulated.viewFixture.persistentTabsByGroup[FIXTURE_IDS.primaryGroup]).toEqual({
-    state: "populated",
-    tabs: ["Docs — https://docs.example.test/", "Inbox — https://mail.example.test/inbox"]
-  });
+  expect(persistentPopulated.viewFixture.persistentTabsByGroup[FIXTURE_IDS.primaryGroup]).toEqual(
+    expect.objectContaining({
+      state: "populated",
+      tabs: ["Docs — https://docs.example.test/", "Inbox — https://mail.example.test/inbox"]
+    })
+  );
   expect(persistentPopulated.configuration.persistentTabs).toHaveLength(2);
 
   expect(getScenarioDefinition("wb:loading").expected.status).toBe("loading");

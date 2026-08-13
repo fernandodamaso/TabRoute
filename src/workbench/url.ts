@@ -21,7 +21,9 @@ function fail(message: string): never {
 }
 
 function parseDeepLink(value: string): ManagerDeepLink {
-  if (value === "none" || value === "new-rule") return value;
+  if (value === "none" || value === "new-rule" || value === "snapshots" || value === "diagnostics") {
+    return value;
+  }
   const match = /^(edit-rule|confirm-delete):(.+)$/.exec(value);
   if (!match) return fail("invalid deep-link");
   const ruleId = match[2]!;

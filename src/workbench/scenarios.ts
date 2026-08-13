@@ -120,7 +120,9 @@ export const SCENARIO_IDS = [
   "wb:loading",
   "wb:slow",
   "wb:validation-error",
-  "wb:offline"
+  "wb:offline",
+  "wb:sync-incomplete",
+  "wb:local-budget"
 ] as const;
 
 type ScenarioId = (typeof SCENARIO_IDS)[number];
@@ -132,10 +134,46 @@ const PRIMARY_GROUP_FIRST_SCENARIOS: ReadonlySet<ScenarioId> = new Set([
   "wb:populated-persistent-tabs"
 ]);
 
+function diagnosticsFixture(warnings: import("../settings/diagnosticsState").DiagnosticsWarningCode[]): ManagerViewFixture {
+  return {
+    persistentTabsByGroup: {},
+    diagnostics: {
+      storage: {
+        syncBytes: warnings.includes("SYNC_QUOTA") ? 102401 : 1200,
+        syncQuotaBytes: 102400,
+        syncLargestItemBytes: 400,
+        syncQuotaBytesPerItem: 8192,
+        syncItemCount: 2,
+        syncMaxItems: 512,
+        localBytes: warnings.includes("LOCAL_BUDGET") ? 9437185 : 5000,
+        localSoftBudgetBytes: 9437184,
+        localQuotaBytes: 10485760,
+        sessionBytes: 200,
+        sessionQuotaBytes: 10485760
+      },
+      warnings
+    }
+  };
+}
+
 function createSeedFor(id: ScenarioId): {
   configuration: Configuration;
   viewFixture: ManagerViewFixture;
 } {
+  if (id === "wb:sync-incomplete") {
+    return {
+      configuration: defaultConfiguration(),
+      viewFixture: diagnosticsFixture(["SYNC_INCOMPLETE"])
+    };
+  }
+
+  if (id === "wb:local-budget") {
+    return {
+      configuration: defaultConfiguration(),
+      viewFixture: diagnosticsFixture(["LOCAL_BUDGET"])
+    };
+  }
+
   if (id === "wb:empty-groups") {
     return {
       configuration: createDefaultConfiguration(
@@ -409,6 +447,26 @@ export const SCENARIO_DEFINITIONS: readonly ScenarioDefinition[] = [
       description: "Injected offline failure"
     },
     { failure: { mode: "offline", scope: "persistent" } }
+  ),
+  definition(
+    "wb:sync-incomplete",
+    "settings",
+    "diagnostics",
+    {
+      heading: "Diagnostics",
+      status: "ready",
+      description: "Pending sync revision diagnostics"
+    }
+  ),
+  definition(
+    "wb:local-budget",
+    "settings",
+    "diagnostics",
+    {
+      heading: "Diagnostics",
+      status: "ready",
+      description: "Local storage soft-budget warning"
+    }
   )
 ];
 

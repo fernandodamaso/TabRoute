@@ -123,6 +123,10 @@ export function WorkbenchHost({ state, fixture, real: _real, records, children, 
       update({ deepLink: { kind: value, ruleId: currentId } });
       return;
     }
+    if (value === "snapshots" || value === "diagnostics") {
+      update({ route: "settings", deepLink: value });
+      return;
+    }
     update({ deepLink: value as WorkbenchUrlState["deepLink"] });
   }
 
@@ -154,7 +158,7 @@ export function WorkbenchHost({ state, fixture, real: _real, records, children, 
       <label>Mode<select aria-label="Mode" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "mode" }} value={state.mode} onChange={(event) => changeMode(event.target.value as WorkbenchUrlState["mode"])}><option value="fixture">Fixture</option><option value="real">Real</option></select></label>
       <label>Scenario<select aria-label="Scenario" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "scenario" }} value={state.scenarioId} onChange={(event) => changeScenario(event.target.value)}>{SCENARIO_DEFINITIONS.map((scenario) => <option key={scenario.id} value={scenario.id}>{scenario.id}</option>)}</select></label>
       <label>Route<select aria-label="Route" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "route" }} value={state.route} onChange={(event) => update({ route: event.target.value as WorkbenchUrlState["route"] })}><option value="groups">Groups</option><option value="rules">Rules</option><option value="activity">Activity</option><option value="settings">Settings</option></select></label>
-      <label>Deep link<select aria-label="Deep link" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "deep-link" }} value={deepLinkValue(state)} onChange={(event) => changeDeepLink(event.target.value)}><option value="none">None</option><option value="new-rule">New rule</option><option value="edit-rule">Edit rule</option><option value="confirm-delete">Confirm delete</option></select></label>
+      <label>Deep link<select aria-label="Deep link" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "deep-link" }} value={deepLinkValue(state)} onChange={(event) => changeDeepLink(event.target.value)}><option value="none">None</option><option value="new-rule">New rule</option><option value="edit-rule">Edit rule</option><option value="confirm-delete">Confirm delete</option><option value="snapshots">Snapshots</option><option value="diagnostics">Diagnostics</option></select></label>
       {typeof state.deepLink === "object" && <label>Deep-link UUID<input aria-label="Deep-link UUID" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "deep-link-uuid" }} value={deepLinkDraft} onChange={(event) => setDeepLinkDraft(event.target.value)} onBlur={commitDeepLinkDraft} onKeyDown={(event) => { if (event.key === "Enter") commitDeepLinkDraft(); }} /></label>}
       {fixtureMode && <>
         <label>Latency (ms)<input type="number" min="0" max="5000" aria-label="Latency" {...{ [WORKBENCH_CONTROL_ATTRIBUTE]: "latency" }} value={state.latencyMs} onChange={(event) => { const value = Number(event.target.value); if (Number.isInteger(value) && value >= 0 && value <= 5000) { fixture.controls.setLatency(value); update({ latencyMs: value }); } }} /></label>

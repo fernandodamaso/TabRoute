@@ -12,10 +12,12 @@ export interface ManagerViewMetadata {
 }
 
 import type { ActivityEntry, Snapshot, UndoRecord } from "../../domain/types";
+import type { DiagnosticsViewState } from "../../settings/diagnosticsState";
 
 export type ManagerQuery = { kind: "manager-query"; };
 export type ActivityQuery = { kind: "activity-query"; before?: number; limit: number };
 export type SnapshotsQuery = { kind: "snapshots-query" };
+export type DiagnosticsQuery = { kind: "diagnostics-query" };
 
 export type ManagedGroupPatch = Partial<Pick<ManagedGroup,
   "name" | "emoji" | "color" | "enabled" | "isPersistent" |
@@ -49,7 +51,16 @@ export type ManagerCommandPayload =
   | { kind: "restoreSnapshot"; snapshotId: UUID }
   | { kind: "updateSnapshot"; snapshotId: UUID }
   | { kind: "renameSnapshot"; snapshotId: UUID; name: string }
-  | { kind: "deleteSnapshot"; snapshotId: UUID };
+  | { kind: "deleteSnapshot"; snapshotId: UUID }
+  | { kind: "setAutomationEnabled"; enabled: boolean }
+  | { kind: "setDuplicateSettings"; settings: import("../../domain/types").DuplicateSettings }
+  | { kind: "setSnapshotIntervalMinutes"; minutes: number }
+  | { kind: "importConfiguration"; json: string }
+  | { kind: "exportConfiguration" }
+  | { kind: "diagnosticsRecheck" }
+  | { kind: "retryPendingSync" }
+  | { kind: "reconcileAll" }
+  | { kind: "exportActivityLog" };
 
 export type PersistentTabDraft = Omit<
   import("../../domain/types").PersistentTab,
@@ -61,11 +72,18 @@ export interface ManagerCommand {
   command: ManagerCommandPayload;
 }
 
-export type ManagerMessage = ManagerQuery | ActivityQuery | SnapshotsQuery | ManagerCommand;
+export type ManagerMessage =
+  | ManagerQuery
+  | ActivityQuery
+  | SnapshotsQuery
+  | DiagnosticsQuery
+  | ManagerCommand;
 
 export type ManagerDeepLink =
   | "none"
   | "new-rule"
+  | "snapshots"
+  | "diagnostics"
   | { kind: "edit-rule" | "confirm-delete"; ruleId: UUID };
 
 export interface PersistentTabsViewFixture {
@@ -79,9 +97,11 @@ export interface ManagerViewFixture {
   activity?: readonly ActivityEntry[];
   availableUndo?: UndoRecord;
   snapshots?: readonly Snapshot[];
+  diagnostics?: DiagnosticsViewState;
+  activityLogExport?: string;
 }
 
-export type SettingsPanel = "root" | "snapshots";
+export type SettingsPanel = "root" | "snapshots" | "diagnostics";
 
 export interface ManagerSuccess {
   ok: true;

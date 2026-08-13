@@ -5,17 +5,29 @@ import {
 } from "../activity/activityRepository";
 import { executeUndo } from "../activity/executeUndo";
 import type { ActionEngineDeps } from "../actions/executeActionPlan";
-import { reconstructAssociations } from "../chrome/reconstructAssociations";
 import { createManagedGroup, removeManagedGroup, updateManagedGroup } from "../domain/defaults";
 import { validateConfiguration } from "../domain/schemas";
-import type { Configuration, PersistentTab, UUID, ChromeInventory } from "../domain/types";
+import type { Configuration, UUID, ChromeInventory } from "../domain/types";
+import {
+  setAutomationEnabled,
+  setDuplicateSettings,
+  setRestorePersistentGroups,
+  setSnapshotIntervalMinutes
+} from "../settings/settingsCommands";
+import {
+  exportPortableConfiguration,
+  parsePortableConfigurationImport
+} from "../settings/portableConfiguration";
+import {
+  buildDiagnosticsWarnings,
+  type DiagnosticsViewState
+} from "../settings/diagnosticsState";
 import {
   makePersistentDefinition,
   pinGroupDefinitions,
   removePersistent,
   reorderPersistentTabs,
   savePersistentTab,
-  setRestorePersistentGroups,
   type PersistentTabDraft
 } from "../persistence/persistentCommands";
 import { collectLiveMemberUrls } from "../persistence/requirements";
@@ -30,7 +42,8 @@ import type {
   ManagerSuccess,
   ManagerViewFixture,
   RuleDraft,
-  SnapshotsQuery
+  SnapshotsQuery,
+  DiagnosticsQuery
 } from "../ui/manager/types";
 import {
   buildSnapshotContext,
@@ -358,6 +371,128 @@ export function createFixtureSnapshotManagerPort(input: {
   };
 }
 
+export interface DiagnosticsManagerPort {
+  query(): Promise<ManagerViewFixture>;
+  recheck(): Promise<ManagerViewFixture>;
+  retryPendingSync(): Promise<ManagerViewFixture>;
+  reconcileAll(): Promise<void>;
+  exportActivityLog(): Promise<ManagerViewFixture>;
+}
+
+export function createDiagnosticsManagerPort(input: {
+  local: LocalRepository;
+  session: SessionRepository;
+  getConfiguration: () => Configuration;
+  applySyncChange?: () => Promise<{ kind: string; reason?: string }>;
+  reconcileAll?: () => Promise<void>;
+  offline?: () => boolean;
+}): DiagnosticsManagerPort {
+  async function buildFixture(): Promise<ManagerViewFixture> {
+    const runtime = await input.session.loadRuntime();
+    const storage = await input.local.getStorageDiagnostics();
+    const pendingSyncRevision =
+      typeof runtime.pendingSyncRevision === "string"
+        ? runtime.pendingSyncRevision
+        : undefined;
+    const syncInvalid = runtime.lastSyncInvalid === true;
+    const diagnostics: DiagnosticsViewState = {
+      storage,
+      warnings: buildDiagnosticsWarnings({
+        storage,
+        pendingSyncRevision,
+        syncInvalid,
+        offline: input.offline?.() ?? false
+      })
+    };
+    return { persistentTabsByGroup: {}, diagnostics };
+  }
+  return {
+    async query() {
+      return buildFixture();
+    },
+    async recheck() {
+      return buildFixture();
+    },
+    async retryPendingSync() {
+      if (input.applySyncChange) await input.applySyncChange();
+      return buildFixture();
+    },
+    async reconcileAll() {
+      await input.reconcileAll?.();
+    },
+    async exportActivityLog() {
+      const activity = await listActivityEntries(input.local, undefined, 500);
+      return {
+        persistentTabsByGroup: {},
+        ...(await buildFixture()).diagnostics
+          ? { diagnostics: (await buildFixture()).diagnostics }
+          : {},
+        activityLogExport: JSON.stringify(activity, null, 2)
+      };
+    }
+  };
+}
+
+export function createFixtureDiagnosticsManagerPort(input: {
+  getViewFixture: () => ManagerViewFixture;
+  setViewFixture: (next: ManagerViewFixture) => void;
+  getConfiguration: () => Configuration;
+  local?: LocalRepository;
+}): DiagnosticsManagerPort {
+  const fallbackDiagnostics = (): DiagnosticsViewState => ({
+    storage: {
+      syncBytes: 0,
+      syncQuotaBytes: 102400,
+      syncLargestItemBytes: 0,
+      syncQuotaBytesPerItem: 8192,
+      syncItemCount: 0,
+      syncMaxItems: 512,
+      localBytes: 0,
+      localSoftBudgetBytes: 9437184,
+      localQuotaBytes: 10485760,
+      sessionBytes: 0,
+      sessionQuotaBytes: 10485760
+    },
+    warnings: []
+  });
+  return {
+    async query() {
+      const current = input.getViewFixture();
+      return {
+        ...current,
+        diagnostics: current.diagnostics ?? fallbackDiagnostics()
+      };
+    },
+    async recheck() {
+      return this.query();
+    },
+    async retryPendingSync() {
+      const current = input.getViewFixture();
+      const diagnostics = current.diagnostics ?? fallbackDiagnostics();
+      input.setViewFixture({
+        ...current,
+        diagnostics: {
+          ...diagnostics,
+          warnings: diagnostics.warnings.filter((warning) => warning !== "SYNC_INCOMPLETE")
+        }
+      });
+      return input.getViewFixture();
+    },
+    async reconcileAll() {
+      return undefined;
+    },
+    async exportActivityLog() {
+      const current = input.getViewFixture();
+      const activity = current.activity ?? [];
+      return {
+        ...current,
+        diagnostics: current.diagnostics ?? fallbackDiagnostics(),
+        activityLogExport: JSON.stringify(activity, null, 2)
+      };
+    }
+  };
+}
+
 function isUuid(value: string): value is UUID {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
@@ -486,6 +621,22 @@ function applyCommand(
       return makePersistentDefinition(current, command.managedGroupId, command.url, now, randomUuid);
     case "setRestorePersistentGroups":
       return setRestorePersistentGroups(current, command.enabled, now);
+    case "setAutomationEnabled":
+      return setAutomationEnabled(current, command.enabled, now);
+    case "setDuplicateSettings":
+      return setDuplicateSettings(current, command.settings, now);
+    case "setSnapshotIntervalMinutes":
+      return setSnapshotIntervalMinutes(current, command.minutes, now);
+    case "importConfiguration": {
+      const parsed = parsePortableConfigurationImport(JSON.parse(command.json));
+      if (!parsed.ok) throw new Error(parsed.message);
+      return parsed.configuration;
+    }
+    case "exportConfiguration":
+    case "diagnosticsRecheck":
+    case "retryPendingSync":
+    case "reconcileAll":
+    case "exportActivityLog":
     case "saveSnapshot":
     case "restoreSnapshot":
     case "updateSnapshot":
@@ -502,6 +653,7 @@ export function createManagerMessageRouter(input: {
   controller: ManagerController;
   activity: ActivityManagerPort;
   snapshots: SnapshotManagerPort;
+  diagnostics: DiagnosticsManagerPort;
   inventory?: ManagerInventoryPort;
   randomUuid?: () => string;
   now?: () => number;
@@ -510,7 +662,7 @@ export function createManagerMessageRouter(input: {
   const now = input.now ?? Date.now;
   let mutationTail: Promise<void> = Promise.resolve();
   return {
-    handle(message: ManagerMessage | ActivityQuery | SnapshotsQuery): Promise<ManagerResponse> {
+    handle(message: ManagerMessage | ActivityQuery | SnapshotsQuery | DiagnosticsQuery): Promise<ManagerResponse> {
       const run = async (): Promise<ManagerResponse> => {
         let current: Configuration;
         try {
@@ -522,6 +674,10 @@ export function createManagerMessageRouter(input: {
           }
           if (message.kind === "snapshots-query") {
             const viewFixture = await input.snapshots.query();
+            return success(current, viewFixture);
+          }
+          if (message.kind === "diagnostics-query") {
+            const viewFixture = await input.diagnostics.query();
             return success(current, viewFixture);
           }
         } catch (error) {
@@ -558,6 +714,29 @@ export function createManagerMessageRouter(input: {
           if (message.command.kind === "deleteSnapshot") {
             if (!isUuid(message.command.snapshotId)) throw new Error("snapshot id must be a UUID");
             return input.snapshots.delete(message.command.snapshotId);
+          }
+          if (message.command.kind === "diagnosticsRecheck") {
+            const viewFixture = await input.diagnostics.recheck();
+            return success(current, viewFixture);
+          }
+          if (message.command.kind === "retryPendingSync") {
+            const viewFixture = await input.diagnostics.retryPendingSync();
+            return success(input.controller.getConfiguration(), viewFixture);
+          }
+          if (message.command.kind === "reconcileAll") {
+            await input.diagnostics.reconcileAll();
+            const viewFixture = await input.diagnostics.query();
+            return success(current, viewFixture);
+          }
+          if (message.command.kind === "exportActivityLog") {
+            const viewFixture = await input.diagnostics.exportActivityLog();
+            return success(current, viewFixture);
+          }
+          if (message.command.kind === "exportConfiguration") {
+            return success(current, {
+              persistentTabsByGroup: {},
+              activityLogExport: exportPortableConfiguration(current)
+            });
           }
         }
 
@@ -610,7 +789,8 @@ export function createManagerMessageRouter(input: {
       if (
         message.kind === "manager-query" ||
         message.kind === "activity-query" ||
-        message.kind === "snapshots-query"
+        message.kind === "snapshots-query" ||
+        message.kind === "diagnostics-query"
       )
         return run();
       const queued = mutationTail.then(run, run);

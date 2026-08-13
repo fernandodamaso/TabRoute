@@ -78,6 +78,19 @@ export function useManagerState(transport: ManagerTransport = browserManagerTran
     }
   }, [transport]);
 
+  const queryDiagnostics = useCallback(async (): Promise<ManagerResponse> => {
+    try {
+      const result = await transport.request({ kind: "diagnostics-query" });
+      if (result.ok) {
+        setConfiguration(result.configuration);
+        if (result.viewFixture) setViewFixture(result.viewFixture);
+      }
+      return result;
+    } catch (error) {
+      return thrownTransportFailure(error);
+    }
+  }, [transport]);
+
   useEffect(() => { void query(); }, [query]);
 
   const command = useCallback(async (message: ManagerMessage): Promise<ManagerResponse> => {
@@ -107,6 +120,7 @@ export function useManagerState(transport: ManagerTransport = browserManagerTran
     query,
     queryActivity,
     querySnapshots,
+    queryDiagnostics,
     command,
     runCommand
   };
