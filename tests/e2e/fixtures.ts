@@ -1,4 +1,5 @@
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { expect, test as base } from "@playwright/test";
@@ -14,6 +15,10 @@ import {
   settleManagerQuery,
   WORKER_DISCOVERY_TIMEOUT_MS
 } from "../../scripts/workbench/readiness";
+
+const require = createRequire(import.meta.url);
+
+export const CANONICAL_MAX_DIFF_PIXEL_RATIO = 0.02;
 
 export const MANAGER_SETTLE_TIMEOUT_MS = Math.max(
   MANAGER_QUERY_TIMEOUT_MS,
@@ -343,15 +348,59 @@ export async function assertCanonicalEvidencePresent(): Promise<void> {
   }
 }
 
+type PngComparator = (
+  actual: Buffer,
+  expected: Buffer,
+  options?: { maxDiffPixelRatio?: number; threshold?: number }
+) => null | { errorMessage: string; diff?: Buffer };
+
+function loadPngComparator(): PngComparator {
+  const { utils } = require("playwright-core/lib/coreBundle") as {
+    utils: { getComparator: (mimeType: string) => PngComparator };
+  };
+  return utils.getComparator("image/png");
+}
+
+export function comparePngBuffers(
+  actual: Buffer,
+  expected: Buffer,
+  maxDiffPixelRatio = CANONICAL_MAX_DIFF_PIXEL_RATIO
+): { ok: true } | { ok: false; errorMessage: string } {
+  const comparator = loadPngComparator();
+  const result = comparator(actual, expected, { maxDiffPixelRatio });
+  if (result) return { ok: false, errorMessage: result.errorMessage };
+  return { ok: true };
+}
+
 export async function compareCanonicalPngOnLinux(
   page: Page,
   frame: CanonicalFrame
 ): Promise<void> {
   if (process.platform !== "linux") return;
-  await expect(page.locator(".manager-shell")).toHaveScreenshot(
-    `${frame.stem}.png`,
-    {
-      maxDiffPixelRatio: 0.02
-    }
+  const expectedPath = path.join(CANONICAL_FRAMES_DIR, `${frame.stem}.png`);
+  const expected = await readFile(expectedPath);
+  const actual = Buffer.from(
+    await page.locator(".manager-shell").screenshot({ type: "png" })
   );
+  const comparison = comparePngBuffers(actual, expected);
+  expect(
+    comparison,
+    comparison.ok
+      ? `canonical frame ${frame.stem}`
+      : `canonical frame ${frame.stem}: ${comparison.errorMessage}`
+  ).toEqual({ ok: true });
+}
+
+export async function assertFrameContract(
+  page: Page,
+  frame: CanonicalFrame,
+  updateFrames: boolean,
+  extras: Record<string, unknown> = {}
+): Promise<void> {
+  if (updateFrames) {
+    await captureCanonicalFrame(page, frame, extras);
+    return;
+  }
+  await assertManagerStructure(page);
+  await compareCanonicalPngOnLinux(page, frame);
 }

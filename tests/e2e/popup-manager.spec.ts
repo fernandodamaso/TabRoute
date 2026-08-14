@@ -1,6 +1,8 @@
 import {
   assertHistoricalSurfacesAbsent,
   assertManagerStructure,
+  CANONICAL_FRAMES,
+  compareCanonicalPngOnLinux,
   expect,
   openPopup,
   test
@@ -33,4 +35,9 @@ test("popup opens Groups at 520x600 without clipping or historical surfaces", as
   await expect(
     production.page.getByRole("heading", { name: "Persistent tabs" })
   ).toBeVisible();
+  const groupsFrame = CANONICAL_FRAMES.find(
+    (frame) => frame.stem === "39-2-groups"
+  );
+  expect(groupsFrame).toBeTruthy();
+  await compareCanonicalPngOnLinux(production.page, groupsFrame!);
 });

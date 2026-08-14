@@ -1,12 +1,9 @@
-import path from "node:path";
-import { readFile } from "node:fs/promises";
 import {
   assertCanonicalEvidencePresent,
+  assertFrameContract,
   assertHistoricalSurfacesAbsent,
   assertManagerStructure,
   CANONICAL_FRAMES,
-  CANONICAL_FRAMES_DIR,
-  captureCanonicalFrame,
   ensureSavedRule,
   expect,
   openOptions,
@@ -81,20 +78,15 @@ test("canonical frames capture structural evidence for all ten nodes", async ({
   await expect(
     page.getByRole("heading", { name: "Persistent tabs" })
   ).toBeVisible();
-  if (updateFrames) await captureCanonicalFrame(page, byStem["39-2-groups"]!);
-  else await assertManagerStructure(page);
+  await assertFrameContract(page, byStem["39-2-groups"]!, updateFrames);
 
   await primaryNavButton(page, "Rules").click();
   await expect(page.getByRole("heading", { name: "Rules" })).toBeVisible();
-  if (updateFrames)
-    await captureCanonicalFrame(page, byStem["42-2-rules-overview"]!);
-  else await assertManagerStructure(page);
+  await assertFrameContract(page, byStem["42-2-rules-overview"]!, updateFrames);
 
   await page.getByRole("button", { name: "Add rule" }).click();
   await expect(page.getByRole("heading", { name: "New rule" })).toBeVisible();
-  if (updateFrames)
-    await captureCanonicalFrame(page, byStem["42-3-rule-editor"]!);
-  else await assertManagerStructure(page);
+  await assertFrameContract(page, byStem["42-3-rule-editor"]!, updateFrames);
 
   await page
     .locator("section")
@@ -112,9 +104,11 @@ test("canonical frames capture structural evidence for all ten nodes", async ({
   await expect(
     page.getByRole("heading", { name: "NOT", exact: true })
   ).toBeVisible();
-  if (updateFrames)
-    await captureCanonicalFrame(page, byStem["42-4-expanded-editor"]!);
-  else await assertManagerStructure(page);
+  await assertFrameContract(
+    page,
+    byStem["42-4-expanded-editor"]!,
+    updateFrames
+  );
 
   await page.getByRole("button", { name: "Save rule" }).click();
   await expect(page.getByRole("heading", { name: "Rules" })).toBeVisible();
@@ -122,9 +116,11 @@ test("canonical frames capture structural evidence for all ten nodes", async ({
   const actions = page.getByRole("button", { name: /Rule actions/ }).first();
   await actions.click();
   await expect(page.getByRole("menu", { name: "Rule actions" })).toBeVisible();
-  if (updateFrames)
-    await captureCanonicalFrame(page, byStem["90-312-rule-actions-menu"]!);
-  else await assertManagerStructure(page);
+  await assertFrameContract(
+    page,
+    byStem["90-312-rule-actions-menu"]!,
+    updateFrames
+  );
 
   await page.getByRole("menuitem", { name: "Delete" }).click();
   const dialog = page.getByRole("dialog", { name: "Delete rule?" });
@@ -133,23 +129,22 @@ test("canonical frames capture structural evidence for all ten nodes", async ({
   expect(dialogBox).toBeTruthy();
   expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(520.5);
   expect(dialogBox!.y + dialogBox!.height).toBeLessThanOrEqual(600.5);
-  if (updateFrames)
-    await captureCanonicalFrame(page, byStem["91-348-delete-confirmation"]!);
-  else await assertManagerStructure(page);
+  await assertFrameContract(
+    page,
+    byStem["91-348-delete-confirmation"]!,
+    updateFrames
+  );
   await page.getByRole("button", { name: "Cancel" }).click();
 
   await primaryNavButton(page, "Activity").click();
   await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
   await expect(page.getByPlaceholder("Search")).toBeVisible();
-  if (updateFrames) await captureCanonicalFrame(page, byStem["42-6-activity"]!);
-  else await assertManagerStructure(page);
+  await assertFrameContract(page, byStem["42-6-activity"]!, updateFrames);
 
   await primaryNavButton(page, "Settings").click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(page.getByLabel("Restore persistent groups")).toBeVisible();
-  if (updateFrames)
-    await captureCanonicalFrame(page, byStem["214-1303-settings"]!);
-  else await assertManagerStructure(page);
+  await assertFrameContract(page, byStem["214-1303-settings"]!, updateFrames);
 
   await page.getByRole("button", { name: "Snapshots" }).click();
   await expect(page.getByRole("heading", { name: "Snapshots" })).toBeVisible();
@@ -157,9 +152,7 @@ test("canonical frames capture structural evidence for all ten nodes", async ({
     "aria-current",
     "page"
   );
-  if (updateFrames)
-    await captureCanonicalFrame(page, byStem["42-8-snapshots"]!);
-  else await assertManagerStructure(page);
+  await assertFrameContract(page, byStem["42-8-snapshots"]!, updateFrames);
   await page.getByRole("button", { name: "Back to Settings" }).click();
 
   await page.getByRole("button", { name: "Diagnostics" }).click();
@@ -170,20 +163,9 @@ test("canonical frames capture structural evidence for all ten nodes", async ({
     "aria-current",
     "page"
   );
-  if (updateFrames)
-    await captureCanonicalFrame(page, byStem["42-11-diagnostics"]!);
-  else await assertManagerStructure(page);
+  await assertFrameContract(page, byStem["42-11-diagnostics"]!, updateFrames);
 
   await assertCanonicalEvidencePresent();
-
-  if (process.platform === "linux") {
-    for (const frame of CANONICAL_FRAMES) {
-      const expected = await readFile(
-        path.join(CANONICAL_FRAMES_DIR, `${frame.stem}.png`)
-      );
-      expect(expected.byteLength).toBeGreaterThan(1000);
-    }
-  }
 });
 
 test("options hash opens settings subpanels with shell contract", async ({
