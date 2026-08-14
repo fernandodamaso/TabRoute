@@ -8,6 +8,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      update_canonical_frames:
+        description: "Regenerate committed canonical frames on Ubuntu"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -63,7 +69,16 @@ jobs:
         run: npm run test:workbench
 
       - name: Production extension gate
+        env:
+          TABROUTE_UPDATE_CANONICAL_FRAMES: ${{ inputs.update_canonical_frames == true && '1' || '0' }}
         run: npm run test:extension
+      - name: Upload regenerated canonical frames
+        if: ${{ inputs.update_canonical_frames == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: canonical-frames-linux-${{ github.run_id }}
+          path: tests/e2e/canonical-frames
+          if-no-files-found: error
 
       - name: Popup smoke
         run: npm run smoke:popup
