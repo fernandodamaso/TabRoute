@@ -1,0 +1,24 @@
+{
+  "nodeId": "39:2",
+  "stem": "39-2-groups",
+  "route": "groups",
+  "heading": "Groups",
+  "settingsPanel": "root",
+  "scrollerSelector": ".groups-inspector",
+  "viewport": {
+    "width": 520,
+    "height": 600
+  },
+  "headerHeight": 52,
+  "navigationHeight": 42,
+  "bodyHeight": 506,
+  "measured": {
+    "viewport": {
+      "width": 520,
+      "height": 600
+    },
+    "headerHeight": 52,
+    "navigationHeight": 42,
+    "bodyHeight": 506
+  }
+}

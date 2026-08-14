@@ -58,7 +58,8 @@ describe("production build scan", () => {
     const result = await scanProductionBuild("C:/build", {
       readManifest: async () => JSON.stringify(validManifest()),
       listFiles: async () => ["options.html"],
-      readFile: async () => new TextEncoder().encode("TABROUTE_DEV_WORKBENCH_V1")
+      readFile: async () =>
+        new TextEncoder().encode("TABROUTE_DEV_WORKBENCH_V1")
     });
     expect(result.ok).toBe(false);
     expect(result.errors.join(" ")).toContain("marker");
@@ -66,8 +67,7 @@ describe("production build scan", () => {
 
   it("rejects empty commands object", async () => {
     const result = await scanProductionBuild("C:/build", {
-      readManifest: async () =>
-        JSON.stringify(validManifest({ commands: {} })),
+      readManifest: async () => JSON.stringify(validManifest({ commands: {} })),
       listFiles: async () => [],
       readFile: async () => new Uint8Array()
     });
@@ -133,7 +133,15 @@ describe("production build scan", () => {
     ["removed", ["tabs", "storage"]],
     [
       "duplicate",
-      ["tabs", "tabs", "tabGroups", "storage", "contextMenus", "sessions", "alarms"]
+      [
+        "tabs",
+        "tabs",
+        "tabGroups",
+        "storage",
+        "contextMenus",
+        "sessions",
+        "alarms"
+      ]
     ],
     [
       "wrong order",
@@ -141,8 +149,7 @@ describe("production build scan", () => {
     ]
   ])("rejects %s permission mutations", async (_name, permissions) => {
     const result = await scanProductionBuild("C:/build", {
-      readManifest: async () =>
-        JSON.stringify(validManifest({ permissions })),
+      readManifest: async () => JSON.stringify(validManifest({ permissions })),
       listFiles: async () => [],
       readFile: async () => new Uint8Array()
     });
@@ -185,5 +192,50 @@ describe("production build scan", () => {
       });
       expect(result.ok).toBe(false);
     }
+  });
+
+  it("rejects host_permissions even when the permissions array is exact", async () => {
+    const result = await scanProductionBuild("C:/build", {
+      readManifest: async () =>
+        JSON.stringify(
+          validManifest({ host_permissions: ["https://example.com/*"] })
+        ),
+      listFiles: async () => [],
+      readFile: async () => new Uint8Array()
+    });
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(" ")).toContain("host_permissions");
+  });
+
+  it("rejects notifications and unlimitedStorage permission surface", async () => {
+    const withNotifications = await scanProductionBuild("C:/build", {
+      readManifest: async () =>
+        JSON.stringify(
+          validManifest({
+            permissions: [...APPROVED_PERMISSIONS, "notifications"]
+          })
+        ),
+      listFiles: async () => [],
+      readFile: async () => new Uint8Array()
+    });
+    expect(withNotifications.ok).toBe(false);
+    expect(withNotifications.errors.join(" ")).toMatch(
+      /notifications|permissions/
+    );
+
+    const withUnlimited = await scanProductionBuild("C:/build", {
+      readManifest: async () =>
+        JSON.stringify(
+          validManifest({
+            permissions: [...APPROVED_PERMISSIONS, "unlimitedStorage"]
+          })
+        ),
+      listFiles: async () => [],
+      readFile: async () => new Uint8Array()
+    });
+    expect(withUnlimited.ok).toBe(false);
+    expect(withUnlimited.errors.join(" ")).toMatch(
+      /unlimitedStorage|permissions/
+    );
   });
 });

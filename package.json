@@ -12,6 +12,7 @@
     "dev": "wxt",
     "build": "wxt build -b chrome",
     "zip": "wxt zip -b chrome",
+    "verify:zip": "tsx scripts/workbench/verify-zip.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && npm run lint:architecture",
     "lint:architecture": "tsx scripts/check-chrome-mutations.ts",

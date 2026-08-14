@@ -20,7 +20,7 @@ jobs:
   verify:
     name: Verify
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -38,6 +38,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
       - name: Validate Chrome reference docs
         run: npm run docs:chrome:validate
 
@@ -47,8 +50,29 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Test
-        run: npm test
+      - name: Format check
+        run: npm run format:check
+
+      - name: Unit and component tests
+        run: npm test -- --run
+
+      - name: Coverage
+        run: npm run test:coverage
+
+      - name: Workbench fixture e2e
+        run: npm run test:workbench
+
+      - name: Production extension gate
+        run: npm run test:extension
+
+      - name: Popup smoke
+        run: npm run smoke:popup
 
       - name: Build Chrome extension
         run: npm run build
+
+      - name: Zip Chrome package
+        run: npm run zip
+
+      - name: Scan production zip tree
+        run: npm run verify:zip

@@ -1,5 +1,17 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile
+} from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 export interface ProductionScanFs {
   readManifest?: () => Promise<string>;
@@ -115,6 +127,10 @@ export async function scanProductionBuild(
     errors.push("manifest_version must be 3");
   if (manifest.incognito !== "not_allowed")
     errors.push('incognito must be "not_allowed"');
+  if ("host_permissions" in manifest)
+    errors.push("manifest must not declare host_permissions");
+  if ("optional_host_permissions" in manifest)
+    errors.push("manifest must not declare optional_host_permissions");
   const commands = manifest.commands;
   if (
     commands === undefined ||
@@ -154,16 +170,16 @@ export async function scanProductionBuild(
           Array.isArray(suggested) ||
           (suggested as { default?: unknown }).default !== expectedKey
         ) {
-          errors.push(
-            `manifest command ${name} has an invalid suggested_key`
-          );
+          errors.push(`manifest command ${name} has an invalid suggested_key`);
         }
       } else if (name in APPROVED_SUGGESTED_KEYS) {
         errors.push(`manifest command ${name} is missing suggested_key`);
       }
     }
     if (suggestedCount !== 4) {
-      errors.push("manifest commands must declare exactly four suggested_key values");
+      errors.push(
+        "manifest commands must declare exactly four suggested_key values"
+      );
     }
   }
   const permissions = manifest.permissions;
@@ -183,6 +199,10 @@ export async function scanProductionBuild(
       errors.push("manifest permissions do not match the approved set");
     if (values.includes("commands"))
       errors.push('manifest permissions must not include "commands"');
+    if (values.includes("notifications"))
+      errors.push('manifest permissions must not include "notifications"');
+    if (values.includes("unlimitedStorage"))
+      errors.push('manifest permissions must not include "unlimitedStorage"');
   }
   const inspectManifest = (value: unknown, keyPath: string): void => {
     if (value && typeof value === "object")
@@ -323,6 +343,37 @@ export async function readProductionGateResult(
   if (parsed.graph !== "production" || parsed.productionScan.ok !== true)
     throw new Error("WORKBENCH_ARGUMENT: invalid production gate result");
   return parsed;
+}
+
+export async function extractZipArchive(
+  zipPath: string,
+  destination: string
+): Promise<void> {
+  await mkdir(destination, { recursive: true });
+  await execFileAsync("tar", ["-xf", path.resolve(zipPath), "-C", destination]);
+}
+
+export async function scanProductionZip(
+  zipPath: string
+): Promise<ProductionScanResult> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-zip-scan-"));
+  try {
+    await extractZipArchive(zipPath, root);
+    return await scanProductionBuild(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+export async function findChromeZip(outputRoot = ".output"): Promise<string> {
+  const absolute = path.resolve(outputRoot);
+  const entries = await readdir(absolute);
+  const match = entries
+    .filter((name) => /^tabroute-.*-chrome\.zip$/i.test(name))
+    .sort()
+    .at(-1);
+  if (!match) throw new Error(`Chrome zip not found under ${absolute}`);
+  return path.join(absolute, match);
 }
 
 export const scanProduction = scanProductionBuild;

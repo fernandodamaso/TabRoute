@@ -71,7 +71,9 @@ export const PRODUCTION_GATE_SPECS = [
   "tests/e2e/extension.spec.ts",
   "tests/e2e/lifecycle.spec.ts",
   "tests/e2e/menus-commands.spec.ts",
-  "tests/e2e/startup.spec.ts"
+  "tests/e2e/startup.spec.ts",
+  "tests/e2e/popup-manager.spec.ts",
+  "tests/e2e/manager-navigation.spec.ts"
 ] as const;
 
 async function runPlaywright(

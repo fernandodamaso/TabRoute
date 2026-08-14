@@ -8,7 +8,9 @@ it("opens the popup on Groups and removes the old placeholder", () => {
   render(<PopupApp />);
   expect(screen.getByRole("heading", { name: "Groups" })).toBeTruthy();
   expect(screen.queryByText("Automation is ready.")).toBeNull();
-  expect(document.documentElement.getAttribute("data-manager-viewport")).toBe("520x600");
+  expect(document.documentElement.getAttribute("data-manager-viewport")).toBe(
+    "520x600"
+  );
 });
 
 it("keeps header and primary navigation outside the page scroller", () => {
@@ -26,12 +28,32 @@ it("exposes the four primary destinations", () => {
     expect(screen.getByRole("button", { name: label })).toBeTruthy();
 });
 
+it("rejects historical Quick Actions, Templates, Suggestions, and fifth nav", () => {
+  render(<PopupApp />);
+  const nav = screen.getByRole("navigation", { name: "Primary" });
+  expect(nav.querySelectorAll("button")).toHaveLength(4);
+  expect(screen.queryByRole("button", { name: "Quick Actions" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Templates" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Suggestions" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Persistent tabs" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Quick Actions" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Templates" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Suggestions" })).toBeNull();
+  expect(document.body.textContent).not.toMatch(
+    /Quick Actions|Templates|Suggestions/
+  );
+});
+
 it("changes the active route, heading, title, and focus target", async () => {
   const user = userEvent.setup();
   render(<PopupApp />);
   await user.click(screen.getByRole("button", { name: "Rules" }));
   expect(screen.getByRole("heading", { name: "Rules" })).toBeTruthy();
   expect(document.title).toBe("TabRoute — Rules");
-  expect(screen.getByRole("button", { name: "Rules" }).getAttribute("aria-current")).toBe("page");
-  expect(document.activeElement?.getAttribute("data-route-focus")).toBe("rules");
+  expect(
+    screen.getByRole("button", { name: "Rules" }).getAttribute("aria-current")
+  ).toBe("page");
+  expect(document.activeElement?.getAttribute("data-route-focus")).toBe(
+    "rules"
+  );
 });

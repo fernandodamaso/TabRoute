@@ -185,7 +185,10 @@ export function ManagerApp({
 
     setConfirmDeleteRuleId(initialDeleteRule(initialDeepLink));
 
-    if (route === "settings") {
+    if (
+      route === "settings" &&
+      (initialDeepLink === "snapshots" || initialDeepLink === "diagnostics")
+    ) {
       setSettingsPanel(settingsPanelFromDeepLink(initialDeepLink));
     }
   }, [initialDeepLink, route, state.status]);
