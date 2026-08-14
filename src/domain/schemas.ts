@@ -178,11 +178,20 @@ function collectRegexes(node: ConditionNode): string[] {
   return [];
 }
 
+const httpUrl = z.string().url().refine((value) => {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}, "persistent canonical URL must use HTTP(S)");
+
 const persistentTab = z.strictObject({
   schemaVersion: z.literal(1),
   id: uuid,
   managedGroupId: uuid,
-  canonicalUrl: z.string().url(),
+  canonicalUrl: httpUrl,
   acceptedPatterns: z.array(z.string()),
   order: z.number().int(),
   createdAt: z.number(),
