@@ -473,20 +473,21 @@ export function planUndoActions(input: {
   }
 
   if (input.payload.kind === "restorePlacement") {
+    const payload = input.payload;
     const tab = input.inventory.tabs.find(
-      (candidate) => candidate.id === input.payload.tabId
+      (candidate) => candidate.id === payload.tabId
     );
     if (
       !tab ||
       tab.incognito ||
       !tab.url ||
       !isRoutableUrl(tab.url) ||
-      tab.url !== input.payload.expectedUrl
+      tab.url !== payload.expectedUrl
     ) {
       return { status: "unavailable" };
     }
     const resolved = resolveUndoPlacement(
-      input.payload.placement,
+      payload.placement,
       input.windowId,
       input.configuration,
       input.inventory,
