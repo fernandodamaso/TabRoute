@@ -38,23 +38,6 @@ function outputRef(actionIdValue: ActionId): TabRef {
   return { kind: "actionOutput", actionId: actionIdValue };
 }
 
-function snapshotRecordTab(member: TabSnapshotRecord): TabSnapshot {
-  return {
-    id: -1,
-    windowId: -1,
-    index: 0,
-    chromeGroupId: -1,
-    url: member.url,
-    status: "complete",
-    title: member.title,
-    pinned: false,
-    active: false,
-    incognito: false,
-    lastAccessed: 0,
-    routing: { kind: "routable", url: member.url }
-  };
-}
-
 function tabMatchesSnapshotMember(
   tab: TabSnapshot,
   member: TabSnapshotRecord,
@@ -123,7 +106,6 @@ export function planSnapshotRestore(
   const claimed = new Set<number>();
   const reusedTabIds: number[] = [];
   const actions: PlannedAction[] = [];
-  const plannedByKey = new Map<string, TabRef>();
   const sortedGroups = [...snapshot.groups].sort(
     (left, right) => left.order - right.order
   );
@@ -146,20 +128,6 @@ export function planSnapshotRestore(
         true,
         member.url
       );
-    const keyForMember = (
-      member: TabSnapshotRecord,
-      policy: DuplicatePolicy
-    ): string | null => {
-      if (policy.kind === "allow") return null;
-      return (
-        member.duplicateKey ??
-        buildDuplicateKey(
-          snapshotRecordTab(member),
-          policy,
-          context.configuration.duplicateSettings
-        )
-      );
-    };
 
     const acceptableMemberTabIds = inventory.tabs
       .filter(
@@ -188,13 +156,6 @@ export function planSnapshotRestore(
     const preAssignDependencies: ActionId[] = [];
     for (const member of memberTabs) {
       const policy = policyForMember(member);
-      const key = keyForMember(member, policy);
-      const planned = key ? plannedByKey.get(key) : undefined;
-      if (planned) {
-        tabRefs.push(planned);
-        continue;
-      }
-
       const reusable = findReusableTab(
         member,
         policy,
@@ -220,7 +181,6 @@ export function planSnapshotRestore(
           preAssignDependencies.push(moveId);
         }
         tabRefs.push(ref);
-        if (key) plannedByKey.set(key, ref);
         continue;
       }
 
@@ -231,9 +191,7 @@ export function planSnapshotRestore(
         kind: "createTab",
         input: { url: member.url, windowId, active: false }
       });
-      const ref = outputRef(createId);
-      tabRefs.push(ref);
-      if (key) plannedByKey.set(key, ref);
+      tabRefs.push(outputRef(createId));
     }
 
     if (tabRefs.length === 0) continue;
