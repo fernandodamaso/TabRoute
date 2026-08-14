@@ -140,8 +140,11 @@ function leaf(
           : node.operator === "pattern"
             ? matchesPattern(tab.openerUrl ?? "", node.value)
             : !!opener &&
-              (opener.href === node.value ||
-                opener.hostname.endsWith(node.value));
+              (() => {
+                const actual = opener.hostname.toLowerCase();
+                const expected = node.value.toLowerCase();
+                return actual === expected || actual.endsWith(`.${expected}`);
+              })();
       specificityClass = node.operator === "pattern" ? 1 : 3;
       break;
     case "openerHost":
