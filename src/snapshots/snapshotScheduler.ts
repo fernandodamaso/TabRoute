@@ -1,4 +1,5 @@
 import type { AlarmScheduler } from "../background/alarmScheduler";
+import { appendActivityEntry } from "../activity/activityRepository";
 import { captureSnapshot, createCheckpointSnapshotId } from "./captureSnapshot";
 import {
   buildSnapshotContext,
@@ -6,7 +7,10 @@ import {
 } from "./snapshotService";
 import type { Configuration, ShutdownCheckpoint } from "../domain/types";
 import type { ChromeEventHint } from "../domain/types";
-import type { LocalRepository } from "../state/localRepository";
+import {
+  createActivityEntry,
+  type LocalRepository
+} from "../state/localRepository";
 import { observeInventory } from "../duplicates/observations";
 import type { SessionRepository } from "../state/sessionRepository";
 import type { ChromeReadPort } from "../chrome/types";
@@ -119,12 +123,29 @@ export async function handleSnapshotAlarm(
       local: deps.local,
       inventory: raw
     });
-    await captureAutomaticSnapshot({
+    const result = await captureAutomaticSnapshot({
       local: deps.local,
       inventory,
       context,
       now: deps.now
     });
+    if (!result.ok) {
+      try {
+        await appendActivityEntry(
+          deps.local,
+          createActivityEntry({
+            action: "Automatic snapshot",
+            result: "failure",
+            affectedManagedGroupIds: [],
+            affectedUrls: [],
+            errorCode: result.code,
+            createdAt: deps.now?.() ?? Date.now()
+          })
+        );
+      } catch {
+        // Snapshot failure remains non-fatal even if Activity storage is unavailable.
+      }
+    }
     return;
   }
   if (name !== SNAPSHOT_ALARMS.checkpoint) return;
