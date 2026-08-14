@@ -70,7 +70,9 @@ export function planDuplicateClose(
       dependsOn: dependsOn(),
       kind: "closeDuplicate",
       duplicate: { kind: "live", tabId: duplicate.id },
-      survivor: { kind: "live", tabId: decision.survivor.id }
+      survivor: { kind: "live", tabId: decision.survivor.id },
+      duplicatePolicy: decision.duplicatePolicy,
+      expectedDuplicateKey: decision.expectedDuplicateKey
     });
   }
 
