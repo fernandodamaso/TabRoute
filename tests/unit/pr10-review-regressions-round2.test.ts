@@ -416,9 +416,7 @@ describe("PR 10 remaining backend review regressions", () => {
       () => fallbackId,
       () => 1
     );
-    const raw = inventory([
-      rawTab(42, { url: "https://example.com/shared" })
-    ]);
+    const raw = inventory([rawTab(42, { url: "https://example.com/shared" })]);
     const runtime = await createMemorySessionRepository().loadSession();
     const { inventory: browserInventory } = observeInventory(raw, runtime);
     const snapshot: Snapshot = {
