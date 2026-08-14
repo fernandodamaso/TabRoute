@@ -50,9 +50,6 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Print PR 10 regression formatting
-        run: npx prettier tests/unit/pr10-review-regressions.test.ts
-
       - name: Format check
         run: npm run format:check
 
