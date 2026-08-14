@@ -120,6 +120,8 @@ export type PlannedAction =
       kind: "closeDuplicate";
       duplicate: TabRef;
       survivor: TabRef;
+      duplicatePolicy: import("../domain/types").DuplicatePolicy;
+      expectedDuplicateKey: string;
     });
 
 export type ActionPlanSource =
