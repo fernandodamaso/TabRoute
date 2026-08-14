@@ -77,20 +77,24 @@ async function recordRouteActivity(
   undoId?: UUID
 ): Promise<void> {
   if (!deps.local) return;
-  await appendActivityEntry(
-    deps.local,
-    createActivityEntry({
-      action: `Automatic ${plan.kind} route`,
-      result,
-      affectedManagedGroupIds:
-        plan.kind === "ungroup" ? [] : [plan.managedGroupId],
-      affectedUrls: plan.tab.url ? [plan.tab.url] : [],
-      source: "reconcile",
-      ...(errorCode ? { errorCode } : {}),
-      ...(undoId ? { undoId } : {}),
-      createdAt: deps.now?.() ?? Date.now()
-    })
-  );
+  try {
+    await appendActivityEntry(
+      deps.local,
+      createActivityEntry({
+        action: `Automatic ${plan.kind} route`,
+        result,
+        affectedManagedGroupIds:
+          plan.kind === "ungroup" ? [] : [plan.managedGroupId],
+        affectedUrls: plan.tab.url ? [plan.tab.url] : [],
+        source: "reconcile",
+        ...(errorCode ? { errorCode } : {}),
+        ...(undoId ? { undoId } : {}),
+        createdAt: deps.now?.() ?? Date.now()
+      })
+    );
+  } catch {
+    // Activity is diagnostic evidence and must never change a verified mutation.
+  }
 }
 
 async function persistRouteUndo(
