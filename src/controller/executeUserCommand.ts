@@ -9,6 +9,7 @@ import { findTab, isRoutableUrl } from "../chrome/types";
 import { reconstructAssociations } from "../chrome/reconstructAssociations";
 import { createUuid } from "../domain/ids";
 import { renderGroupTitle } from "../groups/displayTitle";
+import { matchesAcceptedUrl } from "../persistence/acceptedUrl";
 import {
   makePersistentDefinition,
   pinGroupDefinitions,
@@ -517,6 +518,7 @@ export function findPersistentTabId(
   if (!tabUrl || !managedGroupId) return undefined;
   return configuration.persistentTabs.find(
     (tab) =>
-      tab.managedGroupId === managedGroupId && tab.canonicalUrl === tabUrl
+      tab.managedGroupId === managedGroupId &&
+      matchesAcceptedUrl(tabUrl, tab.canonicalUrl, tab.acceptedPatterns)
   )?.id;
 }
