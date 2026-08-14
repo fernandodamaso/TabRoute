@@ -287,6 +287,8 @@ export default defineBackground(() => {
         loadAssociations: async (configuration, inventory) =>
           reconstructAssociations(inventory, configuration)
       },
+      refreshAlarms: (nextConfiguration) =>
+        ensureSnapshotAlarms(nextConfiguration, chromeAlarmScheduler),
       consumePendingRuleDraft: async () => {
         const draft = await readPendingRuleDraft(session);
         if (!draft) return undefined;
