@@ -405,7 +405,10 @@ describe("controller duplicates", () => {
 
     expect(fake.getInventory().tabs.map((tab) => tab.id)).toEqual([2]);
     const activity = await local.listActivity(undefined, 10);
-    const undoId = activity.find((entry) => entry.undoId)?.undoId;
+    const duplicateActivity = activity.find(
+      (entry) => entry.action === "Closed duplicate"
+    );
+    const undoId = duplicateActivity?.undoId;
     expect(undoId).toBeTruthy();
     const undo = (await local.listUndo()).find(
       (record) => record.id === undoId
