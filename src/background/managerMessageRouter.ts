@@ -3,7 +3,10 @@ import {
   getAvailableUndo,
   listActivityEntries
 } from "../activity/activityRepository";
-import { executeUndo } from "../activity/executeUndo";
+import {
+  executeUndo,
+  type UndoExecutionResult
+} from "../activity/executeUndo";
 import type { ActionEngineDeps } from "../actions/executeActionPlan";
 import {
   createManagedGroup,
@@ -88,7 +91,7 @@ interface ManagerInventoryPort {
 
 export interface ActivityManagerPort {
   query(before: number | undefined, limit: number): Promise<ManagerViewFixture>;
-  undo(undoId: UUID): Promise<void>;
+  undo(undoId: UUID): Promise<UndoExecutionResult>;
   clear(): Promise<void>;
 }
 
@@ -116,7 +119,7 @@ export function createActivityManagerPort(input: {
       };
     },
     async undo(undoId) {
-      await executeUndo({
+      return executeUndo({
         undoId,
         local: input.local,
         session: input.session,
@@ -140,7 +143,7 @@ export function createFixtureActivityManagerPort(input: {
       return input.getViewFixture();
     },
     async undo(_undoId) {
-      return undefined;
+      return "success";
     },
     async clear() {
       const current = input.getViewFixture();
@@ -526,11 +529,16 @@ function success(
 }
 
 type ManagerFailureKind = "validation" | "reference" | "persistence";
-function failure(kind: ManagerFailureKind, error: unknown): ManagerResponse {
+function failure(
+  kind: ManagerFailureKind,
+  error: unknown,
+  code?: string
+): ManagerResponse {
   return {
     ok: false,
     error: {
       kind,
+      ...(code ? { code } : {}),
       message: error instanceof Error ? error.message : "manager command failed"
     }
   };
@@ -543,6 +551,13 @@ function domainFailure(error: unknown): ManagerResponse {
       ? "reference"
       : "validation";
   return failure(kind, error);
+}
+
+function undoFailure(result: Exclude<UndoExecutionResult, "success">): ManagerResponse {
+  const kind: ManagerFailureKind =
+    result === "degraded" ? "persistence" : "reference";
+  const code = `UNDO_${result.toUpperCase()}`;
+  return failure(kind, new Error(`Undo ${result}`), code);
 }
 
 function ruleFromDraft(
@@ -753,6 +768,7 @@ export function createManagerMessageRouter(input: {
   snapshots: SnapshotManagerPort;
   diagnostics: DiagnosticsManagerPort;
   inventory?: ManagerInventoryPort;
+  refreshAlarms?: (configuration: Configuration) => Promise<void>;
   consumePendingRuleDraft?: () => Promise<
     { host: string; url: string } | undefined
   >;
@@ -803,7 +819,8 @@ export function createManagerMessageRouter(input: {
           if (message.command.kind === "undo") {
             if (!isUuid(message.command.undoId))
               throw new Error("undo id must be a UUID");
-            await input.activity.undo(message.command.undoId);
+            const undoResult = await input.activity.undo(message.command.undoId);
+            if (undoResult !== "success") return undoFailure(undoResult);
             const viewFixture = await input.activity.query(undefined, 50);
             return success(current, viewFixture);
           }
@@ -866,6 +883,9 @@ export function createManagerMessageRouter(input: {
           }
         }
 
+        const commandPayload = (
+          message as Extract<ManagerMessage, { kind: "manager-command" }>
+        ).command;
         let next: Configuration;
         try {
           let inventoryContext:
@@ -875,9 +895,6 @@ export function createManagerMessageRouter(input: {
                 preferredWindowId?: number;
               }
             | undefined;
-          const commandPayload = (
-            message as Extract<ManagerMessage, { kind: "manager-command" }>
-          ).command;
           if (commandPayload.kind === "pinGroup") {
             if (!input.inventory) throw new Error("inventory unavailable");
             const chromeInventory = await input.inventory.readInventory();
@@ -916,6 +933,13 @@ export function createManagerMessageRouter(input: {
           // Persistence is authoritative. The concrete controller installs the
           // accepted configuration before reconciliation, so a later Chrome
           // reconciliation failure must not make a durable command retryable.
+        }
+        if (commandPayload.kind === "setSnapshotIntervalMinutes") {
+          try {
+            await input.refreshAlarms?.(next);
+          } catch {
+            // The setting is already durable; alarm refresh will retry on wake.
+          }
         }
         return success(next);
       };
