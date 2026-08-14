@@ -7,6 +7,7 @@ import type {
   WindowOwnershipDescriptor
 } from "../domain/types";
 import type { UUID } from "../domain/types";
+import { persistentTabsForGroup } from "./requirements";
 
 export function resolveHomeWindow(
   descriptor: WindowOwnershipDescriptor | undefined,
@@ -145,7 +146,10 @@ export function persistentManagedGroupsInWindow(
       const group = configuration.groups.find(
         (candidate) => candidate.id === managedGroupId
       );
-      return group?.isPersistent === true;
+      return Boolean(
+        group?.isPersistent ||
+          persistentTabsForGroup(configuration, managedGroupId).length > 0
+      );
     }
   );
 }
