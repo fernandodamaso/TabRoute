@@ -1,14 +1,12 @@
 import {
-  assertFrameContract,
   assertHistoricalSurfacesAbsent,
   assertManagerStructure,
   CANONICAL_FRAMES,
+  compareCanonicalPngOnLinux,
   expect,
   openPopup,
   test
 } from "./fixtures";
-
-const updateFrames = process.env.TABROUTE_UPDATE_CANONICAL_FRAMES === "1";
 
 test("popup opens Groups at 520x600 without clipping or historical surfaces", async ({
   production
@@ -41,5 +39,5 @@ test("popup opens Groups at 520x600 without clipping or historical surfaces", as
     (frame) => frame.stem === "39-2-groups"
   );
   expect(groupsFrame).toBeTruthy();
-  await assertFrameContract(production.page, groupsFrame!, updateFrames);
+  await compareCanonicalPngOnLinux(production.page, groupsFrame!);
 });
