@@ -33,9 +33,12 @@ export function normalizeUrl(
 
 export function buildDuplicateKey(
   tab: TabSnapshot,
-  policy: DuplicatePolicy,
+  policy: DuplicatePolicy | undefined,
   settings: DuplicateSettings
-): string | null {
+): string | null | undefined {
+  // Production duplicate plans always carry a policy. Undefined is retained only
+  // for legacy low-level action fixtures, where no equivalence contract existed.
+  if (!policy) return undefined;
   if (tab.routing.kind !== "routable") return null;
   const url = tab.routing.url;
   if (!url) return null;
