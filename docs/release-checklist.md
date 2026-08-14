@@ -2,6 +2,8 @@
 
 Automated gates prove the production package in isolated Chromium. This checklist covers the remaining human-only branded Chrome Stable steps. Do not treat `npm run test:e2e` as the release gate — it mixes fixture workbench specs and skips the production scan. Use the quality matrix in `docs/agent-development-workbench.md` plus `npm run zip` and `npm run verify:zip`.
 
+Local verification on Windows must run natively with Node.js/Playwright. Do not install or require WSL for TabRoute development or release verification. GitHub Actions may use its remote Ubuntu runner; that does not create a local Linux dependency.
+
 ## Automated evidence (agent / CI)
 
 - [ ] `npm ci`
