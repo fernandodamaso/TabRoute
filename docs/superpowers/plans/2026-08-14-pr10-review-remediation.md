@@ -21,6 +21,7 @@
 ### Task 1: Persistent/startup correctness
 
 **Files:**
+
 - Modify: `src/persistence/startupRestore.ts`
 - Modify: `src/persistence/windowOwnership.ts`
 - Modify: `src/controller/persistentRepairRunner.ts`
@@ -36,6 +37,7 @@
 ### Task 2: Snapshot correctness and failure reporting
 
 **Files:**
+
 - Modify: `src/snapshots/restoreSnapshot.ts`
 - Modify: `src/snapshots/captureSnapshot.ts`
 - Modify: `src/snapshots/snapshotService.ts`
@@ -51,6 +53,7 @@
 ### Task 3: Duplicate and rule safety
 
 **Files:**
+
 - Modify: `src/duplicates/resolveDuplicate.ts`
 - Modify: `src/duplicates/planDuplicateClose.ts`
 - Modify: `src/actions/types.ts`
@@ -66,6 +69,7 @@
 ### Task 4: Undo and Activity reliability
 
 **Files:**
+
 - Modify: `src/actions/executeRoutePlan.ts`
 - Modify: `src/background/managerMessageRouter.ts`
 - Modify: `src/ui/manager/ActivityPage.tsx`
@@ -81,6 +85,7 @@
 ### Task 5: Settings, snapshot scope, alarm refresh, and validation
 
 **Files:**
+
 - Modify: `src/background/managerMessageRouter.ts`
 - Modify: `entrypoints/background.ts`
 - Modify: `src/ui/manager/pages/SettingsPage.tsx`
@@ -101,6 +106,7 @@
 ### Task 6: Verification and review cleanup
 
 **Files:**
+
 - No production changes unless verification exposes a regression.
 
 - [ ] Run the complete GitHub CI workflow and require all gates to pass.
