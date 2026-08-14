@@ -1,13 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
-import { buildActionPlan } from "../../src/actions/buildActionPlan";
+import { describe, expect, it } from "vitest";
 import { executeActionPlan } from "../../src/actions/executeActionPlan";
 import { executeRoutePlan } from "../../src/actions/executeRoutePlan";
 import type { RoutePlan } from "../../src/actions/types";
 import { createDefaultConfiguration, createManagedGroup } from "../../src/domain/defaults";
-import { createUuid } from "../../src/domain/ids";
 import { validateConfiguration } from "../../src/domain/schemas";
 import type {
-  ActionId,
   ChromeInventory,
   Configuration,
   Snapshot,
@@ -356,7 +353,6 @@ describe("PR 10 remaining backend review regressions", () => {
   });
 
   it("does not let opener URL suffix matching cross hostname boundaries", () => {
-    const configuration = createDefaultConfiguration(() => fallbackId, () => 1);
     const tab = rawTab(7, {
       openerUrl: "https://notexample.com/from-here"
     });
