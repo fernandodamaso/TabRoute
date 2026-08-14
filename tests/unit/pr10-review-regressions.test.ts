@@ -25,7 +25,10 @@ const managedGroupId = "00000000-0000-4000-8000-000000000002" as UUID;
 const persistentId = "00000000-0000-4000-8000-000000000010" as UUID;
 
 function persistentConfiguration(): Configuration {
-  const base = createDefaultConfiguration(() => fallbackId, () => 1);
+  const base = createDefaultConfiguration(
+    () => fallbackId,
+    () => 1
+  );
   const group = {
     ...base.groups[0]!,
     id: managedGroupId,
@@ -151,7 +154,10 @@ describe("PR 10 review regressions", () => {
   });
 
   it("moves reused snapshot tabs into the selected home before group assignment", async () => {
-    const configuration = createDefaultConfiguration(() => fallbackId, () => 1);
+    const configuration = createDefaultConfiguration(
+      () => fallbackId,
+      () => 1
+    );
     const raw: ChromeInventory = {
       windows: [
         { id: 1, focused: true, incognito: false, type: "normal" },
@@ -235,7 +241,10 @@ describe("PR 10 review regressions", () => {
   });
 
   it("plans restorePlacement undo for a live routed tab", () => {
-    const configuration = createDefaultConfiguration(() => fallbackId, () => 1);
+    const configuration = createDefaultConfiguration(
+      () => fallbackId,
+      () => 1
+    );
     const inventory: ChromeInventory = {
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
       tabs: [
@@ -279,7 +288,10 @@ describe("PR 10 review regressions", () => {
   });
 
   it("records an Undo entry for a successful automatic placement route", async () => {
-    const configuration = createDefaultConfiguration(() => fallbackId, () => 1);
+    const configuration = createDefaultConfiguration(
+      () => fallbackId,
+      () => 1
+    );
     const local = createMemoryLocalRepository();
     const session = createMemorySessionRepository();
     const fake = createFakeChromePort({
