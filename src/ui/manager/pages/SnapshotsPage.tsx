@@ -1,10 +1,11 @@
 import { useState } from "react";
-import type { Snapshot, UUID } from "../../../domain/types";
+import type { ManagedGroup, Snapshot, UUID } from "../../../domain/types";
 import type { ManagerCommandPayload, ManagerResponse } from "../types";
 import { ConfirmationDialog } from "../components/ConfirmationDialog";
 
 export interface SnapshotsPageProps {
   snapshots: readonly Snapshot[];
+  groups: readonly ManagedGroup[];
   command: (payload: ManagerCommandPayload) => Promise<ManagerResponse>;
   onBack: () => void;
 }
@@ -16,10 +17,12 @@ type PendingAction =
 
 export function SnapshotsPage({
   snapshots,
+  groups,
   command,
   onBack
 }: SnapshotsPageProps) {
   const [name, setName] = useState("");
+  const [scope, setScope] = useState<"browser" | UUID>("browser");
   const [renameId, setRenameId] = useState<UUID | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [pending, setPending] = useState<PendingAction | null>(null);
@@ -50,6 +53,24 @@ export function SnapshotsPage({
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
+        <select
+          aria-label="Snapshot scope"
+          value={scope}
+          onChange={(event) =>
+            setScope(
+              event.target.value === "browser"
+                ? "browser"
+                : (event.target.value as UUID)
+            )
+          }
+        >
+          <option value="browser">Entire browser</option>
+          {groups.map((group) => (
+            <option key={group.id} value={group.id}>
+              {group.name}
+            </option>
+          ))}
+        </select>
         <button
           type="button"
           className="primary-button"
@@ -57,7 +78,10 @@ export function SnapshotsPage({
             void run({
               kind: "saveSnapshot",
               name,
-              scope: { kind: "browser" }
+              scope:
+                scope === "browser"
+                  ? { kind: "browser" }
+                  : { kind: "group", managedGroupId: scope }
             }).then((result) => {
               if (result.ok) setName("");
             });
