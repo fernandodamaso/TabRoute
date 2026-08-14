@@ -63,6 +63,19 @@ The runner and artifact layer expose exactly six stable failure codes:
 - Each run uses a fresh persistent profile under the OS temp directory, a run-scoped build under `.workbench/tmp/<run-id>/`, derived extension ids, leases, and bounded artifacts under `.workbench/artifacts/<run-id>/`.
 - `test:extension` builds **both** graphs, scans production, writes `ProductionGateResult`, then runs real assertions only against the production build path recorded in `.workbench/tmp/last-production-gate-result-path`.
 
+## Canonical frame evidence
+
+The committed canonical PNG/JSON files are release evidence for the manager's
+520×600 structural contract. `npm run test:extension` validates the structure
+on every platform; it does not require a local Linux installation. Pixel-level
+comparison is an opt-in diagnostic for a matching rendering environment:
+
+```text
+TABROUTE_COMPARE_CANONICAL_FRAMES=1 npm run test:extension
+```
+
+Do not install WSL or Linux tooling solely to run the local extension gate.
+
 ## Future UI issue checklist
 
 When changing manager UI behavior, ship evidence in this order:
