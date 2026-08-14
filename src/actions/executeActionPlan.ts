@@ -5,6 +5,7 @@ import type {
   GroupTabsInput
 } from "../chrome/types";
 import { findTab, isRoutableUrl } from "../chrome/types";
+import { buildDuplicateKey } from "../duplicates/normalizeUrl";
 import { createUuid } from "../domain/ids";
 import type {
   BrowserInventory,
@@ -14,6 +15,7 @@ import type {
   OperationGuard,
   TabSnapshot
 } from "../domain/types";
+import { tabSnapshotFromChrome } from "../persistence/windowOwnership";
 import type { SessionRepository } from "../state/sessionRepository";
 import type { LocalRepository } from "../state/localRepository";
 import {
@@ -787,8 +789,27 @@ async function executePlannedAction(
       if (duplicateGroup?.shared) {
         return { status: "success" };
       }
+      if (!duplicate.url || !isRoutableUrl(duplicate.url)) {
+        return { status: "success" };
+      }
       if (!survivor.url || !isRoutableUrl(survivor.url)) {
-        return { status: "failure", errorCode: "SURVIVOR_INVALID" };
+        return { status: "success" };
+      }
+      const duplicateKey = buildDuplicateKey(
+        tabSnapshotFromChrome(duplicate),
+        action.duplicatePolicy,
+        deps.configuration.duplicateSettings
+      );
+      const survivorKey = buildDuplicateKey(
+        tabSnapshotFromChrome(survivor),
+        action.duplicatePolicy,
+        deps.configuration.duplicateSettings
+      );
+      if (
+        duplicateKey !== action.expectedDuplicateKey ||
+        survivorKey !== action.expectedDuplicateKey
+      ) {
+        return { status: "success" };
       }
       try {
         await executeWithRetry(
