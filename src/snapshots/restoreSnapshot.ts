@@ -185,6 +185,7 @@ export function planSnapshotRestore(
     if (windowId === null) continue;
 
     const tabRefs: TabRef[] = [];
+    const preAssignDependencies: ActionId[] = [];
     for (const member of memberTabs) {
       const policy = policyForMember(member);
       const key = keyForMember(member, policy);
@@ -206,6 +207,18 @@ export function planSnapshotRestore(
         claimed.add(reusable.id);
         reusedTabIds.push(reusable.id);
         const ref = tabRef(reusable.id);
+        if (reusable.windowId !== windowId) {
+          const moveId = actionId();
+          actions.push({
+            id: moveId,
+            dependsOn: [],
+            kind: "moveTabs",
+            tabs: [ref],
+            windowId,
+            index: -1
+          });
+          preAssignDependencies.push(moveId);
+        }
         tabRefs.push(ref);
         if (key) plannedByKey.set(key, ref);
         continue;
@@ -226,12 +239,15 @@ export function planSnapshotRestore(
     if (tabRefs.length === 0) continue;
 
     const assignId = actionId();
-    const assignDependsOn = tabRefs
-      .filter(
-        (ref): ref is { kind: "actionOutput"; actionId: ActionId } =>
-          ref.kind === "actionOutput"
-      )
-      .map((ref) => ref.actionId);
+    const assignDependsOn = [
+      ...preAssignDependencies,
+      ...tabRefs
+        .filter(
+          (ref): ref is { kind: "actionOutput"; actionId: ActionId } =>
+            ref.kind === "actionOutput"
+        )
+        .map((ref) => ref.actionId)
+    ];
     actions.push({
       id: assignId,
       dependsOn: assignDependsOn,
