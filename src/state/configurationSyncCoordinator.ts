@@ -30,7 +30,9 @@ export function createConfigurationSyncCoordinator(input: {
     now: () => number;
   };
 }) {
-  async function maybeRecordSyncActivity(result: SyncChangeResult): Promise<void> {
+  async function maybeRecordSyncActivity(
+    result: SyncChangeResult
+  ): Promise<void> {
     if (!input.recordSyncActivity) return;
     let activityResult: SyncRevisionActivityResult | undefined;
     if (result.kind === "applied") activityResult = { kind: "applied" };
@@ -75,7 +77,9 @@ export function createConfigurationSyncCoordinator(input: {
 
 export function registerConfigurationSyncIntake(input: {
   storageOnChanged: {
-    addListener(listener: (changes: Record<string, unknown>, areaName: string) => void): void;
+    addListener(
+      listener: (changes: Record<string, unknown>, areaName: string) => void
+    ): void;
   };
   alarmsOnAlarm: {
     addListener(listener: (alarm: { name: string }) => void): void;

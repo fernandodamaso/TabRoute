@@ -18,7 +18,8 @@ export function createControllerPersistence(input?: {
   local?: LocalRepository;
 }) {
   const configuration =
-    input?.configuration ?? createDefaultConfiguration(() => crypto.randomUUID());
+    input?.configuration ??
+    createDefaultConfiguration(() => crypto.randomUUID());
   const local = input?.local ?? createMemoryLocalRepository();
   const session = input?.session ?? createMemorySessionRepository();
   const checkpoints = createPreMutationCheckpointService({

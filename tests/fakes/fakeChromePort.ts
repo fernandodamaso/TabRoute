@@ -214,9 +214,7 @@ export function createFakeChromePort(
         (candidate) => candidate.sessionId === sessionId
       );
       const windowId =
-        storage.lastFocusedWindowId ??
-        storage.inventory.windows[0]?.id ??
-        1;
+        storage.lastFocusedWindowId ?? storage.inventory.windows[0]?.id ?? 1;
       return port.createTab({
         url: entry?.url ?? "about:blank",
         windowId,

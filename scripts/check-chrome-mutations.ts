@@ -47,7 +47,9 @@ export function scanChromeMutations(root = ROOT): string[] {
       const source = readFileSync(absolute, "utf8");
       for (const pattern of FORBIDDEN_PATTERNS) {
         if (!pattern.test(source)) continue;
-        const allowed = ALLOWED_PATTERNS.some((candidate) => candidate.test(source));
+        const allowed = ALLOWED_PATTERNS.some((candidate) =>
+          candidate.test(source)
+        );
         if (!allowed) {
           violations.push(`${relativePath}: ${pattern}`);
         }

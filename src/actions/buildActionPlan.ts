@@ -1,10 +1,6 @@
 import { createUuid } from "../domain/ids";
 import type { ActionId } from "../domain/types";
-import type {
-  ActionPlan,
-  ActionPlanSource,
-  PlannedAction
-} from "./types";
+import type { ActionPlan, ActionPlanSource, PlannedAction } from "./types";
 
 export function isDestructiveAction(action: PlannedAction): boolean {
   return action.kind === "closeDuplicate" || action.kind === "ungroupTabs";
@@ -16,13 +12,20 @@ export function validateActionPlan(
   const ids = new Set<ActionId>();
   for (const action of plan.actions) {
     if (ids.has(action.id)) {
-      return { ok: false, code: "DUPLICATE_ACTION_ID", message: "duplicate action id" };
+      return {
+        ok: false,
+        code: "DUPLICATE_ACTION_ID",
+        message: "duplicate action id"
+      };
     }
     ids.add(action.id);
   }
   for (const action of plan.actions) {
     for (const dependency of action.dependsOn) {
-      if (!ids.has(dependency) && !plan.actions.some((candidate) => candidate.id === dependency)) {
+      if (
+        !ids.has(dependency) &&
+        !plan.actions.some((candidate) => candidate.id === dependency)
+      ) {
         return {
           ok: false,
           code: "MISSING_DEPENDENCY",
@@ -48,13 +51,19 @@ export function validateActionPlan(
   }
   for (const action of plan.actions) {
     if (!visit(action.id)) {
-      return { ok: false, code: "CYCLIC_DEPENDENCY", message: "cyclic dependsOn" };
+      return {
+        ok: false,
+        code: "CYCLIC_DEPENDENCY",
+        message: "cyclic dependsOn"
+      };
     }
   }
   for (const action of plan.actions) {
     for (const ref of tabRefs(action)) {
       if (ref.kind !== "actionOutput") continue;
-      const producer = plan.actions.find((candidate) => candidate.id === ref.actionId);
+      const producer = plan.actions.find(
+        (candidate) => candidate.id === ref.actionId
+      );
       if (
         !producer ||
         (producer.kind !== "createTab" && producer.kind !== "restoreClosedTab")
@@ -80,7 +89,11 @@ export function validateActionPlan(
   return { ok: true };
 }
 
-function tabRefs(action: PlannedAction): Array<{ kind: "live"; tabId: number } | { kind: "actionOutput"; actionId: ActionId }> {
+function tabRefs(
+  action: PlannedAction
+): Array<
+  { kind: "live"; tabId: number } | { kind: "actionOutput"; actionId: ActionId }
+> {
   switch (action.kind) {
     case "moveTabs":
     case "ungroupTabs":

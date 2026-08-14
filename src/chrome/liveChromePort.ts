@@ -5,11 +5,7 @@ import type {
   RecentlyClosedTab,
   WindowSnapshot
 } from "../domain/types";
-import type {
-  CreateTabInput,
-  GroupTabsInput,
-  LiveChromePort
-} from "./types";
+import type { CreateTabInput, GroupTabsInput, LiveChromePort } from "./types";
 
 function toTabSnapshot(tab: chrome.tabs.Tab): ChromeTabSnapshot | undefined {
   if (tab.id === undefined || tab.windowId === undefined || tab.incognito)
@@ -40,9 +36,7 @@ async function readInventoryFromChrome(): Promise<ChromeInventory> {
   const normalWindows: WindowSnapshot[] = windows
     .filter(
       (window): window is chrome.windows.Window & { id: number } =>
-        window.id !== undefined &&
-        window.type === "normal" &&
-        !window.incognito
+        window.id !== undefined && window.type === "normal" && !window.incognito
     )
     .map((window) => ({
       id: window.id,
@@ -171,7 +165,8 @@ export function createLiveChromePort(): LiveChromePort {
       if (!sessionId) throw new Error("restoreClosedTab requires sessionId");
       const restored = await chrome.sessions.restore(sessionId);
       const tabId = restored.tab?.id;
-      if (tabId === undefined) throw new Error("restoreClosedTab returned no tab");
+      if (tabId === undefined)
+        throw new Error("restoreClosedTab returned no tab");
       return tabId;
     }
   };

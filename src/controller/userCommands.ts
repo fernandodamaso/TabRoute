@@ -7,9 +7,7 @@ import type {
 } from "../domain/types";
 
 export type PauseTarget =
-  | { kind: "global" }
-  | { kind: "group"; id: UUID }
-  | { kind: "rule"; id: UUID };
+  { kind: "global" } | { kind: "group"; id: UUID } | { kind: "rule"; id: UUID };
 
 export type PauseDuration =
   | { kind: "until"; timestamp: number }

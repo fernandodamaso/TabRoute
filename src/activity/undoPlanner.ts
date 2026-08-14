@@ -377,7 +377,9 @@ export function planUndoActions(input: {
       resolved,
       input.configuration
     );
-    return buildActionPlan("undo", placed.actions, { requireCheckpoint: false });
+    return buildActionPlan("undo", placed.actions, {
+      requireCheckpoint: false
+    });
   }
 
   if (input.payload.kind === "restorePlacement") {
@@ -394,7 +396,10 @@ export function undoPlanIsDegraded(
   inventory: ChromeInventory,
   associations: readonly ChromeAssociation[] = []
 ): boolean {
-  if (payload.kind !== "restoreClosedTab" && payload.kind !== "restorePlacement") {
+  if (
+    payload.kind !== "restoreClosedTab" &&
+    payload.kind !== "restorePlacement"
+  ) {
     return false;
   }
   return resolveUndoPlacement(

@@ -12,27 +12,34 @@ export default defineConfig({
     define: {
       __TABROUTE_WORKBENCH__: JSON.stringify(workbenchBuild)
     },
-    plugins: workbenchBuild ? [] : [{
-      name: "tabroute-production-workbench-exclusion",
-      enforce: "pre" as const,
-      resolveId(source: string, importer?: string) {
-        const normalizedImporter = importer?.replaceAll("\\", "/");
-        const normalizedSource = source.replaceAll("\\", "/");
-        if (normalizedSource.includes("workbench/WorkbenchOptionsApp") &&
-          normalizedImporter?.includes("/entrypoints/options/App"))
-          return productionWorkbenchStub;
-        return undefined;
-      },
-      load(id: string) {
-        return id === productionWorkbenchStub
-          ? "export function WorkbenchOptionsApp() { return null; }"
-          : undefined;
-      }
-    }]
+    plugins: workbenchBuild
+      ? []
+      : [
+          {
+            name: "tabroute-production-workbench-exclusion",
+            enforce: "pre" as const,
+            resolveId(source: string, importer?: string) {
+              const normalizedImporter = importer?.replaceAll("\\", "/");
+              const normalizedSource = source.replaceAll("\\", "/");
+              if (
+                normalizedSource.includes("workbench/WorkbenchOptionsApp") &&
+                normalizedImporter?.includes("/entrypoints/options/App")
+              )
+                return productionWorkbenchStub;
+              return undefined;
+            },
+            load(id: string) {
+              return id === productionWorkbenchStub
+                ? "export function WorkbenchOptionsApp() { return null; }"
+                : undefined;
+            }
+          }
+        ]
   }),
   manifest: {
     name: "TabRoute",
-    description: "Automatically route, preserve, and restore Chrome tab groups.",
+    description:
+      "Automatically route, preserve, and restore Chrome tab groups.",
     minimum_chrome_version: "121",
     incognito: "not_allowed",
     permissions: [

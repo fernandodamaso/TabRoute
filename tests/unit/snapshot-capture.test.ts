@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createUuid } from "../../src/domain/ids";
 import { captureSnapshot } from "../../src/snapshots/captureSnapshot";
-import { createDefaultConfiguration, createManagedGroup } from "../../src/domain/defaults";
+import {
+  createDefaultConfiguration,
+  createManagedGroup
+} from "../../src/domain/defaults";
 import { observeInventory } from "../../src/duplicates/observations";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
 import { reconstructAssociations } from "../../src/chrome/reconstructAssociations";
@@ -9,11 +12,16 @@ import type { UUID } from "../../src/domain/types";
 
 describe("snapshot capture", () => {
   it("captures durable identity without Chrome runtime IDs", async () => {
-    const configuration = createDefaultConfiguration(() =>
-      createUuid()
-    );
+    const configuration = createDefaultConfiguration(() => createUuid());
     const raw = {
-      windows: [{ id: 1, focused: true, incognito: false as const, type: "normal" as const }],
+      windows: [
+        {
+          id: 1,
+          focused: true,
+          incognito: false as const,
+          type: "normal" as const
+        }
+      ],
       tabs: [
         {
           id: 7,
@@ -40,10 +48,14 @@ describe("snapshot capture", () => {
       { configuration, ownership: {}, associations },
       { id: createUuid(), name: "Before action", kind: "checkpoint", now: 1 }
     );
-    expect(snapshot.groups[0]?.managedGroupId).toBe(configuration.fallbackGroupId);
+    expect(snapshot.groups[0]?.managedGroupId).toBe(
+      configuration.fallbackGroupId
+    );
     expect(snapshot.groups[0]?.tabs).toEqual([]);
     expect(JSON.stringify(snapshot)).not.toMatch(/chrome(Tab|Group|Window)Id/);
-    expect(JSON.stringify(snapshot)).not.toMatch(/\b(tabId|groupId|windowId)\b/);
+    expect(JSON.stringify(snapshot)).not.toMatch(
+      /\b(tabId|groupId|windowId)\b/
+    );
   });
 
   it("captures only the scoped group's tabs in a multi-group browser", async () => {
@@ -55,7 +67,14 @@ describe("snapshot capture", () => {
       () => workId
     );
     const raw = {
-      windows: [{ id: 1, focused: true, incognito: false as const, type: "normal" as const }],
+      windows: [
+        {
+          id: 1,
+          focused: true,
+          incognito: false as const,
+          type: "normal" as const
+        }
+      ],
       tabs: [
         {
           id: 1,
@@ -130,7 +149,11 @@ describe("snapshot capture", () => {
     const otherGroup = browserSnapshot.groups.find(
       (group) => group.managedGroupId === fallbackId
     );
-    expect(workGroup?.tabs.map((tab) => tab.url)).toEqual(["https://work.example/"]);
-    expect(otherGroup?.tabs.map((tab) => tab.url)).toEqual(["https://other.example/"]);
+    expect(workGroup?.tabs.map((tab) => tab.url)).toEqual([
+      "https://work.example/"
+    ]);
+    expect(otherGroup?.tabs.map((tab) => tab.url)).toEqual([
+      "https://other.example/"
+    ]);
   });
 });

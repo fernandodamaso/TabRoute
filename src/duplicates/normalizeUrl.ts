@@ -59,6 +59,9 @@ export function buildDuplicateKey(
   }
 }
 
-export function matchesExclusion(url: string, exclusions: readonly string[]): boolean {
+export function matchesExclusion(
+  url: string,
+  exclusions: readonly string[]
+): boolean {
   return exclusions.some((pattern) => url.includes(pattern));
 }

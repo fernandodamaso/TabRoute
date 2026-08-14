@@ -7,17 +7,27 @@ import { WorkbenchHost } from "./WorkbenchHost";
 import { parseWorkbenchSearch } from "./url";
 
 export function WorkbenchOptionsApp() {
-  const [state, setState] = useState(() => parseWorkbenchSearch(window.location.search));
+  const [state, setState] = useState(() =>
+    parseWorkbenchSearch(window.location.search)
+  );
   const [revision, setRevision] = useState(0);
   const [realRecords, setRealRecords] = useState<ManagerTransportRecord[]>([]);
-  const fixture = useMemo(() => createFixtureManagerTransport({
-    scenarioId: state.scenarioId,
-    latencyMs: state.latencyMs,
-    failure: state.failure
-  }), [state.scenarioId]);
-  const real = useMemo(() => createChromeManagerTransport({
-    onRecord: (record) => setRealRecords((current) => [...current, record])
-  }), []);
+  const fixture = useMemo(
+    () =>
+      createFixtureManagerTransport({
+        scenarioId: state.scenarioId,
+        latencyMs: state.latencyMs,
+        failure: state.failure
+      }),
+    [state.scenarioId]
+  );
+  const real = useMemo(
+    () =>
+      createChromeManagerTransport({
+        onRecord: (record) => setRealRecords((current) => [...current, record])
+      }),
+    []
+  );
   const [fixtureTick, setFixtureTick] = useState(0);
 
   useEffect(() => {
@@ -26,7 +36,10 @@ export function WorkbenchOptionsApp() {
   }, [fixture, state.failure, state.latencyMs]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setFixtureTick((value) => value + 1), 10);
+    const timer = window.setInterval(
+      () => setFixtureTick((value) => value + 1),
+      10
+    );
     return () => window.clearInterval(timer);
   }, []);
 
@@ -35,27 +48,34 @@ export function WorkbenchOptionsApp() {
 
   function change(next: typeof state): void {
     setState(next);
-    const deepLinkChanged = JSON.stringify(next.deepLink) !== JSON.stringify(state.deepLink);
-    const requiresRemount = next.mode !== state.mode || next.scenarioId !== state.scenarioId || deepLinkChanged || (
-      next.route === state.route && next.latencyMs === state.latencyMs && JSON.stringify(next.failure) === JSON.stringify(state.failure)
-    );
+    const deepLinkChanged =
+      JSON.stringify(next.deepLink) !== JSON.stringify(state.deepLink);
+    const requiresRemount =
+      next.mode !== state.mode ||
+      next.scenarioId !== state.scenarioId ||
+      deepLinkChanged ||
+      (next.route === state.route &&
+        next.latencyMs === state.latencyMs &&
+        JSON.stringify(next.failure) === JSON.stringify(state.failure));
     if (requiresRemount) setRevision((value) => value + 1);
   }
 
-  return <WorkbenchHost
-    key={`${state.mode}:${state.scenarioId}:${revision}`}
-    state={state}
-    fixture={state.mode === "fixture" ? fixture : undefined}
-    real={real}
-    records={records}
-    onStateChange={change}
-    onFixtureReset={() => setRevision((value) => value + 1)}
-  >
-    <ManagerApp
+  return (
+    <WorkbenchHost
       key={`${state.mode}:${state.scenarioId}:${revision}`}
-      transport={state.mode === "fixture" ? fixture.transport : real}
-      initialRoute={state.route}
-      initialDeepLink={state.deepLink}
-    />
-  </WorkbenchHost>;
+      state={state}
+      fixture={state.mode === "fixture" ? fixture : undefined}
+      real={real}
+      records={records}
+      onStateChange={change}
+      onFixtureReset={() => setRevision((value) => value + 1)}
+    >
+      <ManagerApp
+        key={`${state.mode}:${state.scenarioId}:${revision}`}
+        transport={state.mode === "fixture" ? fixture.transport : real}
+        initialRoute={state.route}
+        initialDeepLink={state.deepLink}
+      />
+    </WorkbenchHost>
+  );
 }

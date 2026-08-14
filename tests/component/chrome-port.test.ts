@@ -10,7 +10,11 @@ describe("fakeChromePort", () => {
       capturedAt: 1
     });
     await expect(
-      fake.createTab({ url: "https://example.com/", windowId: 2, active: false })
+      fake.createTab({
+        url: "https://example.com/",
+        windowId: 2,
+        active: false
+      })
     ).rejects.toThrow(/incognito/);
   });
 });

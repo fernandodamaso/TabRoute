@@ -14,7 +14,11 @@ type PendingAction =
   | { kind: "update"; snapshot: Snapshot }
   | { kind: "delete"; snapshot: Snapshot };
 
-export function SnapshotsPage({ snapshots, command, onBack }: SnapshotsPageProps) {
+export function SnapshotsPage({
+  snapshots,
+  command,
+  onBack
+}: SnapshotsPageProps) {
   const [name, setName] = useState("");
   const [renameId, setRenameId] = useState<UUID | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -37,7 +41,11 @@ export function SnapshotsPage({ snapshots, command, onBack }: SnapshotsPageProps
           type="button"
           className="primary-button"
           onClick={() => {
-            void command({ kind: "saveSnapshot", name, scope: { kind: "browser" } });
+            void command({
+              kind: "saveSnapshot",
+              name,
+              scope: { kind: "browser" }
+            });
             setName("");
           }}
         >

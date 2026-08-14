@@ -1,7 +1,10 @@
 import { captureSnapshot } from "./captureSnapshot";
 import { planSnapshotRestore } from "./restoreSnapshot";
 import { buildActionPlan } from "../actions/buildActionPlan";
-import { executeActionPlan, type ActionEngineDeps } from "../actions/executeActionPlan";
+import {
+  executeActionPlan,
+  type ActionEngineDeps
+} from "../actions/executeActionPlan";
 import { reconstructAssociations } from "../chrome/reconstructAssociations";
 import { createUuid } from "../domain/ids";
 import type {
@@ -24,7 +27,9 @@ export type SnapshotCommandResult =
 
 export function listUserSnapshots(snapshots: readonly Snapshot[]): Snapshot[] {
   return snapshots
-    .filter((snapshot) => snapshot.kind === "named" || snapshot.kind === "automatic")
+    .filter(
+      (snapshot) => snapshot.kind === "named" || snapshot.kind === "automatic"
+    )
     .sort((left, right) => right.updatedAt - left.updatedAt);
 }
 
@@ -39,14 +44,23 @@ export async function saveNamedSnapshot(input: {
 }): Promise<SnapshotCommandResult> {
   const now = input.now ?? Date.now;
   const timestamp = now();
-  const snapshot = captureSnapshot(input.scope, input.inventory, input.context, {
-    id: input.id ?? createUuid(),
-    name: input.name.trim(),
-    kind: "named",
-    now: timestamp
-  });
+  const snapshot = captureSnapshot(
+    input.scope,
+    input.inventory,
+    input.context,
+    {
+      id: input.id ?? createUuid(),
+      name: input.name.trim(),
+      kind: "named",
+      now: timestamp
+    }
+  );
   if (!snapshot.name) {
-    return { ok: false, code: "VALIDATION", message: "snapshot name is required" };
+    return {
+      ok: false,
+      code: "VALIDATION",
+      message: "snapshot name is required"
+    };
   }
   const result = await input.local.saveSnapshot(snapshot);
   if (!result.ok) {
@@ -63,7 +77,10 @@ export async function captureAutomaticSnapshot(input: {
 }): Promise<SnapshotCommandResult> {
   const snapshots = await input.local.listSnapshots();
   const userSnapshots = listUserSnapshots(snapshots);
-  if (userSnapshots.length >= 50 && !userSnapshots.some((snapshot) => snapshot.kind === "automatic")) {
+  if (
+    userSnapshots.length >= 50 &&
+    !userSnapshots.some((snapshot) => snapshot.kind === "automatic")
+  ) {
     return { ok: false, code: "SNAPSHOT_LIMIT" };
   }
   const now = input.now ?? Date.now;
@@ -99,12 +116,17 @@ export async function updateSnapshotFromInventory(input: {
   }
   const now = input.now ?? Date.now;
   const timestamp = now();
-  const snapshot = captureSnapshot(existing.scope, input.inventory, input.context, {
-    id: existing.id,
-    name: existing.name,
-    kind: existing.kind,
-    now: timestamp
-  });
+  const snapshot = captureSnapshot(
+    existing.scope,
+    input.inventory,
+    input.context,
+    {
+      id: existing.id,
+      name: existing.name,
+      kind: existing.kind,
+      now: timestamp
+    }
+  );
   snapshot.createdAt = existing.createdAt;
   snapshot.updatedAt = timestamp;
   const result = await input.local.saveSnapshot(snapshot);
@@ -126,7 +148,11 @@ export async function renameSnapshotRecord(input: {
   }
   const trimmed = input.name.trim();
   if (!trimmed) {
-    return { ok: false, code: "VALIDATION", message: "snapshot name is required" };
+    return {
+      ok: false,
+      code: "VALIDATION",
+      message: "snapshot name is required"
+    };
   }
   const snapshot: Snapshot = {
     ...existing,
@@ -166,7 +192,10 @@ export async function restoreSnapshotFromRecord(input: {
   const inventory = await input.actionDeps.reads.readInventory();
   const runtime = await input.session.loadSession();
   const { inventory: browserInventory } = observeInventory(inventory, runtime);
-  const associations = reconstructAssociations(inventory, input.actionDeps.configuration);
+  const associations = reconstructAssociations(
+    inventory,
+    input.actionDeps.configuration
+  );
   const context = await buildRestoreContext({
     configuration: input.actionDeps.configuration,
     inventory,

@@ -25,7 +25,9 @@ function collectSourceFiles(root: string, relativePath: string): string[] {
     return [];
   }
   if (stats.isFile()) {
-    return absolute.endsWith(".ts") || absolute.endsWith(".tsx") ? [absolute] : [];
+    return absolute.endsWith(".ts") || absolute.endsWith(".tsx")
+      ? [absolute]
+      : [];
   }
   const files: string[] = [];
   for (const entry of readdirSync(absolute)) {
@@ -36,7 +38,8 @@ function collectSourceFiles(root: string, relativePath: string): string[] {
 
 it("keeps mutating Chrome calls inside the live adapter and Action Engine", async () => {
   const root = join(process.cwd(), "src");
-  const forbidden = /chrome\.(tabs|tabGroups)\.(group|move|ungroup|remove|update)\s*\(/g;
+  const forbidden =
+    /chrome\.(tabs|tabGroups)\.(group|move|ungroup|remove|update)\s*\(/g;
   for (const file of ["controller/controller.ts", "ui/messages.ts"]) {
     expect(readFileSync(join(root, file), "utf8")).not.toMatch(forbidden);
   }
@@ -49,7 +52,9 @@ it("keeps feature modules away from repositories and Chrome mutation ports", asy
   for (const absolute of files) {
     const source = readFileSync(absolute, "utf8");
     expect(source).not.toMatch(/configurationRepository|liveChromePort/);
-    expect(source).not.toMatch(/chrome\.(tabs|tabGroups)\.(group|move|ungroup|remove|update)\s*\(/);
+    expect(source).not.toMatch(
+      /chrome\.(tabs|tabGroups)\.(group|move|ungroup|remove|update)\s*\(/
+    );
   }
 });
 
@@ -59,7 +64,9 @@ it("keeps duplicates pure without Chrome or executeActionPlan imports", () => {
   expect(files.length).toBeGreaterThan(0);
   for (const absolute of files) {
     const source = readFileSync(absolute, "utf8");
-    expect(source).not.toMatch(/executeActionPlan|liveChromePort|from "\.\.\/chrome\//);
+    expect(source).not.toMatch(
+      /executeActionPlan|liveChromePort|from "\.\.\/chrome\//
+    );
     expect(source).not.toMatch(/\bchrome\./);
   }
 });

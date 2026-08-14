@@ -13,7 +13,9 @@ import type { UUID } from "../../src/domain/types";
 
 describe("undo planner", () => {
   it("identifyClosedSession returns null for 0 and N matches", () => {
-    const before = [{ sessionId: "a", url: "https://x.test/", title: "X", lastAccessed: 1 }];
+    const before = [
+      { sessionId: "a", url: "https://x.test/", title: "X", lastAccessed: 1 }
+    ];
     expect(
       identifyClosedSession(before, before, {
         url: "https://x.test/",
@@ -57,7 +59,9 @@ describe("undo planner", () => {
   it("derives managed, unmanaged, and ungrouped undo placement from tab inventory", () => {
     const workId = "00000000-0000-4000-8000-000000000002" as UUID;
     const inventory = {
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      windows: [
+        { id: 1, focused: true, incognito: false, type: "normal" as const }
+      ],
       tabs: [],
       groups: [
         {
@@ -211,7 +215,10 @@ describe("undo planner", () => {
       createdAt: 1,
       updatedAt: 1
     };
-    const config = { ...configuration, groups: [...configuration.groups, workGroup] };
+    const config = {
+      ...configuration,
+      groups: [...configuration.groups, workGroup]
+    };
     const inventory = {
       windows: [
         { id: 1, focused: false, incognito: false, type: "normal" as const },
@@ -278,7 +285,10 @@ describe("undo planner", () => {
       createdAt: 1,
       updatedAt: 1
     };
-    const config = { ...configuration, groups: [...configuration.groups, workGroup] };
+    const config = {
+      ...configuration,
+      groups: [...configuration.groups, workGroup]
+    };
     const resolved = resolveUndoPlacement(
       {
         kind: "managedGroup",

@@ -45,8 +45,13 @@ function tabMatchesSnapshotMember(
   if (tab.incognito || tab.routing.kind !== "routable") return false;
   if (isTabInSharedGroup(tab, inventory)) return false;
   const policy = configuration.duplicateSettings.globalPolicy;
-  const liveKey = buildDuplicateKey(tab, policy, configuration.duplicateSettings);
-  if (member.duplicateKey && liveKey && liveKey === member.duplicateKey) return true;
+  const liveKey = buildDuplicateKey(
+    tab,
+    policy,
+    configuration.duplicateSettings
+  );
+  if (member.duplicateKey && liveKey && liveKey === member.duplicateKey)
+    return true;
   return tab.routing.url === member.url;
 }
 
@@ -92,10 +97,14 @@ export function planSnapshotRestore(
   const claimed = new Set<number>();
   const reusedTabIds: number[] = [];
   const actions: PlannedAction[] = [];
-  const sortedGroups = [...snapshot.groups].sort((left, right) => left.order - right.order);
+  const sortedGroups = [...snapshot.groups].sort(
+    (left, right) => left.order - right.order
+  );
 
   for (const group of sortedGroups) {
-    const memberTabs = [...group.tabs].sort((left, right) => left.order - right.order);
+    const memberTabs = [...group.tabs].sort(
+      (left, right) => left.order - right.order
+    );
     if (memberTabs.length === 0) continue;
 
     const acceptableMemberTabIds = inventory.tabs
@@ -138,7 +147,10 @@ export function planSnapshotRestore(
 
     const assignId = actionId();
     const assignDependsOn = tabRefs
-      .filter((ref): ref is { kind: "actionOutput"; actionId: ActionId } => ref.kind === "actionOutput")
+      .filter(
+        (ref): ref is { kind: "actionOutput"; actionId: ActionId } =>
+          ref.kind === "actionOutput"
+      )
       .map((ref) => ref.actionId);
     actions.push({
       id: assignId,

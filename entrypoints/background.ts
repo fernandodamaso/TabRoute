@@ -41,7 +41,11 @@ import {
   type MenuCommandHost
 } from "../src/background/registerMenus";
 import { registerCommands } from "../src/background/registerCommands";
-import { executeUserCommand, clearPendingRuleDraft, readPendingRuleDraft } from "../src/controller/executeUserCommand";
+import {
+  executeUserCommand,
+  clearPendingRuleDraft,
+  readPendingRuleDraft
+} from "../src/controller/executeUserCommand";
 import { getAvailableUndo } from "../src/activity/activityRepository";
 import type { UserCommand } from "../src/controller/userCommands";
 
@@ -130,7 +134,8 @@ export default defineBackground(() => {
       ...loaded.pendingGroupRemovals.map((pending) => pending.settleAfter),
       ...loaded.operationGuards
         .filter(
-          (guard) => guard.phase === "settling" && guard.settleAfter !== undefined
+          (guard) =>
+            guard.phase === "settling" && guard.settleAfter !== undefined
         )
         .map((guard) => guard.settleAfter!)
     ];
@@ -143,9 +148,11 @@ export default defineBackground(() => {
 
   async function processLifecycleEvent(event: ChromeEventHint) {
     if (!controller) return;
-    await controller.handleChromeEvent(event).catch((error: unknown) =>
-      console.error("TabRoute lifecycle event failed", error)
-    );
+    await controller
+      .handleChromeEvent(event)
+      .catch((error: unknown) =>
+        console.error("TabRoute lifecycle event failed", error)
+      );
     await scheduleGroupSettlementFromSession();
     await scheduleWindowSettlementFromSession();
     if (localRef.current && sessionRef.current) {
@@ -161,7 +168,8 @@ export default defineBackground(() => {
     }
   }
 
-  const localRef: { current?: ReturnType<typeof createChromeLocalRepository> } = {};
+  const localRef: { current?: ReturnType<typeof createChromeLocalRepository> } =
+    {};
   const sessionRef = { current: session };
   const chromeAlarmScheduler = {
     schedulePeriodic: async (name: string, periodInMinutes: number) => {
@@ -221,7 +229,8 @@ export default defineBackground(() => {
       session,
       local,
       checkpoints,
-      persistConfiguration: (nextConfiguration) => repository.save(nextConfiguration),
+      persistConfiguration: (nextConfiguration) =>
+        repository.save(nextConfiguration),
       alarms: chrome.alarms?.create
         ? {
             scheduleOneShot: async (name, when) => {
@@ -231,7 +240,10 @@ export default defineBackground(() => {
         : undefined
     });
     await controller.onWorkerWake();
-    await ensureSnapshotAlarms(controller.getConfiguration(), chromeAlarmScheduler);
+    await ensureSnapshotAlarms(
+      controller.getConfiguration(),
+      chromeAlarmScheduler
+    );
     const activity = createActivityManagerPort({
       local,
       session,
@@ -250,12 +262,15 @@ export default defineBackground(() => {
       session,
       getConfiguration: () => controller!.getConfiguration(),
       applySyncChange: async () =>
-        (await configurationSyncRef.current?.applySyncChange()) ?? { kind: "ignored" },
+        (await configurationSyncRef.current?.applySyncChange()) ?? {
+          kind: "ignored"
+        },
       reconcileAll: async () => {
         const current = controller!.getConfiguration();
         await controller!.replaceConfiguration(current);
       },
-      offline: () => typeof navigator !== "undefined" && navigator.onLine === false
+      offline: () =>
+        typeof navigator !== "undefined" && navigator.onLine === false
     });
     managerRouter = createManagerMessageRouter({
       repository,
@@ -283,7 +298,8 @@ export default defineBackground(() => {
       async executeUserCommand(command: UserCommand) {
         const result = await executeUserCommand(command, {
           getConfiguration: () => controller!.getConfiguration(),
-          replaceConfiguration: (next) => controller!.replaceConfiguration(next),
+          replaceConfiguration: (next) =>
+            controller!.replaceConfiguration(next),
           persistConfiguration: (next) => repository.save(next),
           actionDeps: () => controller!.actionDeps(),
           local,
@@ -498,7 +514,8 @@ export default defineBackground(() => {
       );
       if (!association) {
         const snapshot = toGroupSnapshot(group);
-        if (snapshot) enqueueLifecycleEvent({ kind: "groupUpdated", group: snapshot });
+        if (snapshot)
+          enqueueLifecycleEvent({ kind: "groupUpdated", group: snapshot });
         return;
       }
       const current = controller.getConfiguration();
@@ -510,7 +527,8 @@ export default defineBackground(() => {
       );
       if (JSON.stringify(next) === JSON.stringify(current)) {
         const snapshot = toGroupSnapshot(group);
-        if (snapshot) enqueueLifecycleEvent({ kind: "groupUpdated", group: snapshot });
+        if (snapshot)
+          enqueueLifecycleEvent({ kind: "groupUpdated", group: snapshot });
         return;
       }
       await repository.save(next);

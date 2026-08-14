@@ -16,7 +16,11 @@ const RUNTIME_ID_KEYS = new Set([
 const NON_PORTABLE_BAG_KEYS = new Set(["snapshots", "activity", "undo"]);
 
 function isNonPortableKey(key: string): boolean {
-  return key.startsWith("config:v1:") || key === "shutdown-latest" || NON_PORTABLE_BAG_KEYS.has(key);
+  return (
+    key.startsWith("config:v1:") ||
+    key === "shutdown-latest" ||
+    NON_PORTABLE_BAG_KEYS.has(key)
+  );
 }
 
 function hasRuntimeIdKeys(value: unknown): boolean {
@@ -40,7 +44,9 @@ function hasRuntimeIdKeys(value: unknown): boolean {
   return false;
 }
 
-export function exportPortableConfiguration(configuration: Configuration): string {
+export function exportPortableConfiguration(
+  configuration: Configuration
+): string {
   return JSON.stringify(validateConfiguration(configuration), null, 2);
 }
 
@@ -48,7 +54,11 @@ export function parsePortableConfigurationImport(
   payload: unknown
 ): PortableImportResult {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return { ok: false, code: "IMPORT_INVALID", message: "Import must be a configuration object" };
+    return {
+      ok: false,
+      code: "IMPORT_INVALID",
+      message: "Import must be a configuration object"
+    };
   }
   const record = payload as Record<string, unknown>;
   for (const key of Object.keys(record)) {

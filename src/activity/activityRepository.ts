@@ -1,4 +1,8 @@
-import type { ActivityEntry, BrowserSessionId, UndoRecord } from "../domain/types";
+import type {
+  ActivityEntry,
+  BrowserSessionId,
+  UndoRecord
+} from "../domain/types";
 import type { LocalRepository } from "../state/localRepository";
 import { createActivityEntry } from "../state/localRepository";
 

@@ -1,4 +1,8 @@
-import type { ActionId, BrowserInventory, ShutdownCheckpoint } from "../domain/types";
+import type {
+  ActionId,
+  BrowserInventory,
+  ShutdownCheckpoint
+} from "../domain/types";
 import type { LocalRepository } from "../state/localRepository";
 import type { ActionPlan } from "../actions/types";
 import { captureSnapshot, createCheckpointSnapshotId } from "./captureSnapshot";

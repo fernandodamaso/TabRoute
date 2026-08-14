@@ -33,7 +33,11 @@ export function setSnapshotIntervalMinutes(
   if (!Number.isFinite(minutes) || minutes <= 0) {
     throw new Error("snapshot interval must be positive");
   }
-  return { ...configuration, snapshotIntervalMinutes: minutes, updatedAt: now() };
+  return {
+    ...configuration,
+    snapshotIntervalMinutes: minutes,
+    updatedAt: now()
+  };
 }
 
 export { setRestorePersistentGroups };

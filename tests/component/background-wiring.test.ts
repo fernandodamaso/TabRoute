@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createDefaultConfiguration, createManagedGroup } from "../../src/domain/defaults";
+import {
+  createDefaultConfiguration,
+  createManagedGroup
+} from "../../src/domain/defaults";
 import type { Configuration, UUID } from "../../src/domain/types";
 import {
   registerCommands,
@@ -65,7 +68,8 @@ function createFakeBrowser(input?: {
   checkpointInFlight?: boolean;
 }) {
   const configuration =
-    input?.configuration ?? createDefaultConfiguration(() => "11111111-1111-4111-8111-111111111111");
+    input?.configuration ??
+    createDefaultConfiguration(() => "11111111-1111-4111-8111-111111111111");
   const creates: MenuCreateProps[] = [];
   const removes: string[] = [];
   let removeAllCount = 0;
@@ -79,9 +83,8 @@ function createFakeBrowser(input?: {
     sessionsRestore: vi.fn()
   };
   const commands = createEventTarget<[string, chrome.tabs.Tab?]>();
-  const clicked = createEventTarget<
-    [chrome.contextMenus.OnClickData, chrome.tabs.Tab?]
-  >();
+  const clicked =
+    createEventTarget<[chrome.contextMenus.OnClickData, chrome.tabs.Tab?]>();
   const openOptionsPage = vi.fn(async () => undefined);
   const executed: UserCommand[] = [];
 
@@ -96,29 +99,25 @@ function createFakeBrowser(input?: {
     );
   }
 
-  const tabs =
-    input?.inventoryTabs ??
-    [
-      {
-        id: 10,
-        windowId: 1,
-        url: "https://example.com/",
-        incognito: false,
-        groupId: -1,
-        active: true
-      }
-    ];
-  const groups =
-    input?.inventoryGroups ??
-    [
-      {
-        id: 5,
-        windowId: 1,
-        shared: false,
-        title: "Work",
-        collapsed: false
-      }
-    ];
+  const tabs = input?.inventoryTabs ?? [
+    {
+      id: 10,
+      windowId: 1,
+      url: "https://example.com/",
+      incognito: false,
+      groupId: -1,
+      active: true
+    }
+  ];
+  const groups = input?.inventoryGroups ?? [
+    {
+      id: 5,
+      windowId: 1,
+      shared: false,
+      title: "Work",
+      collapsed: false
+    }
+  ];
 
   const browser = {
     contextMenus: {
@@ -163,7 +162,11 @@ function createFakeBrowser(input?: {
     },
     windows: {
       WINDOW_ID_NONE: -1,
-      getLastFocused: vi.fn(async () => ({ id: 1, incognito: false, type: "normal" }))
+      getLastFocused: vi.fn(async () => ({
+        id: 1,
+        incognito: false,
+        type: "normal"
+      }))
     },
     sessions: {
       restore: mutationSpies.sessionsRestore
@@ -182,7 +185,9 @@ function createFakeBrowser(input?: {
         configuration: config,
         inventory: {
           capturedAt: 1,
-          windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+          windows: [
+            { id: 1, focused: true, incognito: false, type: "normal" as const }
+          ],
           tabs: tabs.map((tab) => ({
             id: tab.id,
             windowId: tab.windowId,
@@ -439,7 +444,9 @@ describe("background menus and commands wiring", () => {
     );
     expect(byId["tabroute:save-snapshot"]?.enabled).toBe(false);
     await fake.clicked.emit(
-      { menuItemId: "tabroute:save-snapshot" } as chrome.contextMenus.OnClickData,
+      {
+        menuItemId: "tabroute:save-snapshot"
+      } as chrome.contextMenus.OnClickData,
       {
         id: 10,
         windowId: 1,
@@ -477,12 +484,10 @@ describe("background menus and commands wiring", () => {
         incognito: false
       } as chrome.tabs.Tab
     );
-    expect(fake.executed()).toEqual([
-      { kind: "createRuleFromTab", tabId: 10 }
-    ]);
-    expect(
-      fake.executed().some((command) => command.kind === "saveRule")
-    ).toBe(false);
+    expect(fake.executed()).toEqual([{ kind: "createRuleFromTab", tabId: 10 }]);
+    expect(fake.executed().some((command) => command.kind === "saveRule")).toBe(
+      false
+    );
   });
 
   it("routes approved command names and ignores unknown names", async () => {

@@ -25,18 +25,31 @@ export function printRetainedResultPath(resultPath: string): void {
 
 export interface ResultWriter {
   write(result: RunResult): Promise<string>;
-  writeArtifact(relativePath: string, bytes: Uint8Array, kind: ArtifactKind): Promise<void>;
-  appendLog(event: { source: string; name: string; details?: Record<string, string | number | boolean> }): Promise<void>;
+  writeArtifact(
+    relativePath: string,
+    bytes: Uint8Array,
+    kind: ArtifactKind
+  ): Promise<void>;
+  appendLog(event: {
+    source: string;
+    name: string;
+    details?: Record<string, string | number | boolean>;
+  }): Promise<void>;
   finalize(status: "completed" | "failed" | "abandoned"): Promise<void>;
 }
 
-export function createResultWriter(artifactPath: string, runId: string): ResultWriter {
+export function createResultWriter(
+  artifactPath: string,
+  runId: string
+): ResultWriter {
   const store = createArtifactStore({ root: artifactPath, runId });
   const resultPath = path.join(artifactPath, "results.json");
   const logLines: string[] = [];
   return {
     async write(result) {
-      await store.writeRequiredResult(result as ArtifactLimitSource & RunResult);
+      await store.writeRequiredResult(
+        result as ArtifactLimitSource & RunResult
+      );
       return resultPath;
     },
     async writeArtifact(relativePath, bytes, kind) {
@@ -44,8 +57,14 @@ export function createResultWriter(artifactPath: string, runId: string): ResultW
     },
     async appendLog(event) {
       const details = event.details ? JSON.stringify(event.details) : "";
-      logLines.push(`${new Date().toISOString()} ${event.source} ${event.name} ${details}`.trimEnd());
-      await store.write("runner.log", encodeUtf8(`${logLines.join("\n")}\n`), "log");
+      logLines.push(
+        `${new Date().toISOString()} ${event.source} ${event.name} ${details}`.trimEnd()
+      );
+      await store.write(
+        "runner.log",
+        encodeUtf8(`${logLines.join("\n")}\n`),
+        "log"
+      );
     },
     async finalize(status) {
       await store.finalize(status);
@@ -54,7 +73,10 @@ export function createResultWriter(artifactPath: string, runId: string): ResultW
 }
 
 export function workerTimeoutFailure(
-  metadata: Omit<WorkerTimeoutFailure, "ok" | "status" | "code" | "phase" | "error">,
+  metadata: Omit<
+    WorkerTimeoutFailure,
+    "ok" | "status" | "code" | "phase" | "error"
+  >,
   message = "extension service worker was not discovered before the deadline"
 ): WorkerTimeoutFailure {
   return {
@@ -68,7 +90,10 @@ export function workerTimeoutFailure(
 }
 
 export function managerTimeoutFailure(
-  metadata: Omit<ManagerTimeoutFailure, "ok" | "status" | "code" | "phase" | "error">,
+  metadata: Omit<
+    ManagerTimeoutFailure,
+    "ok" | "status" | "code" | "phase" | "error"
+  >,
   message = "first manager query did not settle before the deadline"
 ): ManagerTimeoutFailure {
   return {
@@ -92,9 +117,10 @@ export function restartFailure(
     code: "WORKBENCH_WORKER_TIMEOUT",
     phase,
     error: boundedError({
-      message: phase === "restart-termination"
-        ? "extension service worker did not terminate before the deadline"
-        : "extension service worker did not wake before the deadline"
+      message:
+        phase === "restart-termination"
+          ? "extension service worker did not terminate before the deadline"
+          : "extension service worker did not wake before the deadline"
     })
   };
 }
@@ -113,11 +139,16 @@ export function cleanupFailure(
     cleanup: { profileRemoved: false, retainedPath },
     error: boundedError({ message: errorMessage })
   };
-  if (metadata.extensionId !== undefined) result.extensionId = metadata.extensionId;
+  if (metadata.extensionId !== undefined)
+    result.extensionId = metadata.extensionId;
   return result;
 }
 
-export function argumentFailure(runId: string, worktreePath: string, message: string): import("./contracts").ArgumentFailure {
+export function argumentFailure(
+  runId: string,
+  worktreePath: string,
+  message: string
+): import("./contracts").ArgumentFailure {
   return {
     ok: false,
     status: "failed",
@@ -129,7 +160,11 @@ export function argumentFailure(runId: string, worktreePath: string, message: st
   };
 }
 
-export function capacityFailure(runId: string, worktreePath: string, message: string): CapacityFailure {
+export function capacityFailure(
+  runId: string,
+  worktreePath: string,
+  message: string
+): CapacityFailure {
   return {
     ok: false,
     status: "failed",
@@ -169,7 +204,10 @@ export function emptyStartedMetadata(input: {
   };
 }
 
-export function previewAssertion(passed: boolean, details?: RunAssertion["details"]): RunAssertion {
+export function previewAssertion(
+  passed: boolean,
+  details?: RunAssertion["details"]
+): RunAssertion {
   return {
     name: "workbench-preview-dimensions",
     passed,

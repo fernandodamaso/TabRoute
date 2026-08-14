@@ -221,7 +221,9 @@ describe("session overrides", () => {
       windowId: 1
     });
 
-    expect((await session.loadSession()).manualOverrides[String(current.id)]).toBeDefined();
+    expect(
+      (await session.loadSession()).manualOverrides[String(current.id)]
+    ).toBeDefined();
     const hadRoutingBefore = hasRoutingMutations(fake);
     await controller.replaceConfiguration(configuration);
     expect(hasRoutingMutations(fake)).toBe(hadRoutingBefore);

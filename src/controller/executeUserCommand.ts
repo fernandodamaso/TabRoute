@@ -21,7 +21,13 @@ import {
   saveNamedSnapshot
 } from "../snapshots/snapshotService";
 import { observeInventory } from "../duplicates/observations";
-import type { ActionId, ChromeAssociation, ChromeInventory, Configuration, UUID } from "../domain/types";
+import type {
+  ActionId,
+  ChromeAssociation,
+  ChromeInventory,
+  Configuration,
+  UUID
+} from "../domain/types";
 import type { LocalRepository } from "../state/localRepository";
 import type { SessionRepository } from "../state/sessionRepository";
 import type { CommandResult, UserCommand } from "./userCommands";
@@ -117,7 +123,11 @@ export async function executeUserCommand(
     case "toggleAutomation": {
       await persist(
         deps,
-        setAutomationEnabled(configuration, !configuration.automationEnabled, now)
+        setAutomationEnabled(
+          configuration,
+          !configuration.automationEnabled,
+          now
+        )
       );
       return { ok: true };
     }
@@ -258,7 +268,9 @@ export async function executeUserCommand(
           message: "tab is not eligible"
         };
       }
-      const exclusions = new Set(configuration.duplicateSettings.globalExclusions);
+      const exclusions = new Set(
+        configuration.duplicateSettings.globalExclusions
+      );
       exclusions.add(tab.url);
       await persist(deps, {
         ...configuration,
@@ -279,7 +291,11 @@ export async function executeUserCommand(
             ? "restart"
             : command.duration.timestamp;
       if (command.target.kind === "global") {
-        next = { ...configuration, globalPausedUntil: pausedUntil, updatedAt: now() };
+        next = {
+          ...configuration,
+          globalPausedUntil: pausedUntil,
+          updatedAt: now()
+        };
       } else if (command.target.kind === "group") {
         const targetId = command.target.id;
         next = {
@@ -309,7 +325,9 @@ export async function executeUserCommand(
     case "saveSnapshot": {
       const inventory = await actionDeps.reads.readInventory();
       const session = await deps.session.loadSession();
-      if (session.operationGuards.some((guard) => guard.phase === "executing")) {
+      if (
+        session.operationGuards.some((guard) => guard.phase === "executing")
+      ) {
         return {
           ok: false,
           code: "CHECKPOINT_IN_FLIGHT",

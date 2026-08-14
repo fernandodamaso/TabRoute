@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { createTestController } from "../helpers/controllerPersistence";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
-import { GUARD_HARD_MS, GUARD_QUIET_MS } from "../../src/actions/operationGuards";
+import {
+  GUARD_HARD_MS,
+  GUARD_QUIET_MS
+} from "../../src/actions/operationGuards";
 import { createFakeChromePort } from "../fakes/fakeChromePort";
 import type { ChromeTabSnapshot } from "../../src/chrome/types";
 import type { OperationGuard, UUID } from "../../src/domain/types";
@@ -127,7 +130,9 @@ describe("controller lifecycle", () => {
       pinnedChanged: false
     });
 
-    expect(Object.keys((await session.loadSession()).manualOverrides)).toEqual([]);
+    expect(Object.keys((await session.loadSession()).manualOverrides)).toEqual(
+      []
+    );
   });
 
   it("writes a manual override when user drags during settling without compensating", async () => {
@@ -137,7 +142,8 @@ describe("controller lifecycle", () => {
     const guard: OperationGuard = {
       id: "00000000-0000-4000-8000-000000000010" as UUID,
       browserSessionId: sessionId,
-      actionId: "00000000-0000-4000-8000-000000000011" as OperationGuard["actionId"],
+      actionId:
+        "00000000-0000-4000-8000-000000000011" as OperationGuard["actionId"],
       operation: "assignTabsToManagedGroup",
       phase: "settling",
       tabIds: [42],
@@ -206,7 +212,8 @@ describe("controller lifecycle", () => {
         {
           id: "00000000-0000-4000-8000-000000000010" as UUID,
           browserSessionId: sessionId,
-          actionId: "00000000-0000-4000-8000-000000000011" as OperationGuard["actionId"],
+          actionId:
+            "00000000-0000-4000-8000-000000000011" as OperationGuard["actionId"],
           operation: "assignTabsToManagedGroup",
           phase: "executing",
           tabIds: [42],
@@ -277,7 +284,9 @@ describe("controller lifecycle", () => {
       now: () => 1000
     });
 
-    await controller.handleTabUpdated(tab({ url: undefined, status: "loading" }));
+    await controller.handleTabUpdated(
+      tab({ url: undefined, status: "loading" })
+    );
     expect(fake.callsFor("groupTabs").length).toBe(0);
 
     fake.getStorage().inventory.tabs = [tab()];
@@ -300,63 +309,66 @@ describe("controller lifecycle", () => {
     expect(fake.callsFor("groupTabs").length).toBe(1);
   });
 });
-  it("persists a rule-driven target definition exactly once before routing", async () => {
-    const base = createDefaultConfiguration(
-      () => "00000000-0000-4000-8000-000000000001"
-    );
-    const targetGroup = base.groups.find((group) => group.isFallback)!;
-    const configuration = {
-      ...base,
-      duplicateSettings: {
-        ...base.duplicateSettings,
-        trackingParameters: ["utm_source"]
-      },
-      rules: [
-        {
-          schemaVersion: 1 as const,
-          id: "00000000-0000-4000-8000-000000000010" as UUID,
-          targetGroupId: targetGroup.id,
-          priority: 10,
-          positive: {
-            kind: "host" as const,
-            operator: "exact" as const,
-            value: "docs.example"
-          },
-          negative: [],
-          actions: [{ kind: "group" as const }, { kind: "makePersistent" as const }],
-          enabled: true,
-          createdAt: 1,
-          updatedAt: 1
-        }
-      ]
-    };
-    const currentTab = tab({
-      url: "https://docs.example/guide#section?utm_source=x"
-    });
-    const fake = createFakeChromePort({
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
-      tabs: [currentTab],
-      groups: [],
-      capturedAt: 1
-    });
-    const persisted: typeof configuration[] = [];
-    const controller = createTestController({
-      configuration,
-      chrome: fake,
-      now: () => 1000,
-      persistConfiguration: async (next) => {
-        persisted.push(next as typeof configuration);
+it("persists a rule-driven target definition exactly once before routing", async () => {
+  const base = createDefaultConfiguration(
+    () => "00000000-0000-4000-8000-000000000001"
+  );
+  const targetGroup = base.groups.find((group) => group.isFallback)!;
+  const configuration = {
+    ...base,
+    duplicateSettings: {
+      ...base.duplicateSettings,
+      trackingParameters: ["utm_source"]
+    },
+    rules: [
+      {
+        schemaVersion: 1 as const,
+        id: "00000000-0000-4000-8000-000000000010" as UUID,
+        targetGroupId: targetGroup.id,
+        priority: 10,
+        positive: {
+          kind: "host" as const,
+          operator: "exact" as const,
+          value: "docs.example"
+        },
+        negative: [],
+        actions: [
+          { kind: "group" as const },
+          { kind: "makePersistent" as const }
+        ],
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1
       }
-    });
-    await controller.handleTabUpdated(currentTab);
-    await controller.handleTabUpdated(currentTab);
-    expect(persisted).toHaveLength(1);
-    expect(
-      persisted[0]!.persistentTabs.filter(
-        (persistent) => persistent.managedGroupId === targetGroup.id
-      )
-    ).toHaveLength(1);
-    expect(persisted[0]!.persistentTabs[0]?.canonicalUrl).toBe(
-      "https://docs.example/guide"
-    );
+    ]
+  };
+  const currentTab = tab({
+    url: "https://docs.example/guide#section?utm_source=x"
   });
+  const fake = createFakeChromePort({
+    windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+    tabs: [currentTab],
+    groups: [],
+    capturedAt: 1
+  });
+  const persisted: (typeof configuration)[] = [];
+  const controller = createTestController({
+    configuration,
+    chrome: fake,
+    now: () => 1000,
+    persistConfiguration: async (next) => {
+      persisted.push(next as typeof configuration);
+    }
+  });
+  await controller.handleTabUpdated(currentTab);
+  await controller.handleTabUpdated(currentTab);
+  expect(persisted).toHaveLength(1);
+  expect(
+    persisted[0]!.persistentTabs.filter(
+      (persistent) => persistent.managedGroupId === targetGroup.id
+    )
+  ).toHaveLength(1);
+  expect(persisted[0]!.persistentTabs[0]?.canonicalUrl).toBe(
+    "https://docs.example/guide"
+  );
+});

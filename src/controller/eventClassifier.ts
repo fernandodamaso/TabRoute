@@ -8,10 +8,7 @@ import type {
   RuntimeSession,
   ChromeAssociation
 } from "../domain/types";
-import {
-  purgeClosedTab,
-  transferReplacedTab
-} from "../state/runtimeSession";
+import { purgeClosedTab, transferReplacedTab } from "../state/runtimeSession";
 import {
   settlePendingGroupRemovals,
   startPendingGroupRemoval
@@ -51,7 +48,6 @@ function tabIdFromEvent(event: ChromeEventHint): number | undefined {
       return undefined;
   }
 }
-
 
 function isIncognitoSubject(
   event: ChromeEventHint,
@@ -242,7 +238,12 @@ export function classifyChromeEvent(
 
   if (event.kind === "windowFocusChanged") {
     if (event.focus.kind === "none") {
-      return { guarded: false, deferred: false, requests: [], session: current };
+      return {
+        guarded: false,
+        deferred: false,
+        requests: [],
+        session: current
+      };
     }
     const focus = event.focus;
     if (focus.kind === "normal") {
@@ -266,9 +267,7 @@ export function classifyChromeEvent(
     return {
       guarded: false,
       deferred: false,
-      requests: [
-        placementRequest(event.addedTabId, "tab-replaced")
-      ],
+      requests: [placementRequest(event.addedTabId, "tab-replaced")],
       session: current
     };
   }
@@ -307,7 +306,12 @@ export function classifyChromeEvent(
     const tabId = tabIdFromEvent(event);
     if (tabId !== undefined) {
       if (isPendingGroupMoveAttach(current, tabId, inventory)) {
-        return { guarded: false, deferred: false, requests: [], session: current };
+        return {
+          guarded: false,
+          deferred: false,
+          requests: [],
+          session: current
+        };
       }
       if (isSharedGroupMember(inventory, tabId)) {
         current = writeManualOverride(
@@ -347,11 +351,21 @@ export function classifyChromeEvent(
     case "tabUpdated": {
       const tab = tabFromInventory(inventory, event.tabId);
       if (!tab) {
-        return { guarded: false, deferred: false, requests: [], session: current };
+        return {
+          guarded: false,
+          deferred: false,
+          requests: [],
+          session: current
+        };
       }
       current = recordObservation(current, tab.id, tab.url, now);
       if (!isRoutableUrl(tab.url)) {
-        return { guarded: false, deferred: false, requests: [], session: current };
+        return {
+          guarded: false,
+          deferred: false,
+          requests: [],
+          session: current
+        };
       }
       if (
         event.kind === "tabUpdated" &&
@@ -359,10 +373,20 @@ export function classifyChromeEvent(
         !event.groupChanged &&
         !event.pinnedChanged
       ) {
-        return { guarded: false, deferred: false, requests: [], session: current };
+        return {
+          guarded: false,
+          deferred: false,
+          requests: [],
+          session: current
+        };
       }
       if (isSharedGroupMember(inventory, tab.id)) {
-        return { guarded: false, deferred: false, requests: [], session: current };
+        return {
+          guarded: false,
+          deferred: false,
+          requests: [],
+          session: current
+        };
       }
       return {
         guarded: false,
@@ -376,17 +400,32 @@ export function classifyChromeEvent(
       if (tab) {
         current = recordObservation(current, tab.id, tab.url, now);
       }
-      return { guarded: false, deferred: false, requests: [], session: current };
+      return {
+        guarded: false,
+        deferred: false,
+        requests: [],
+        session: current
+      };
     }
     case "tabMoved":
     case "tabAttached":
     case "tabDetached": {
       const tab = tabFromInventory(inventory, event.tabId);
       if (!tab || !isRoutableUrl(tab.url)) {
-        return { guarded: false, deferred: false, requests: [], session: current };
+        return {
+          guarded: false,
+          deferred: false,
+          requests: [],
+          session: current
+        };
       }
       if (isSharedGroupMember(inventory, tab.id)) {
-        return { guarded: false, deferred: false, requests: [], session: current };
+        return {
+          guarded: false,
+          deferred: false,
+          requests: [],
+          session: current
+        };
       }
       return {
         guarded: false,
@@ -468,6 +507,11 @@ export function classifyChromeEvent(
         session: current
       };
     default:
-      return { guarded: false, deferred: false, requests: [], session: current };
+      return {
+        guarded: false,
+        deferred: false,
+        requests: [],
+        session: current
+      };
   }
 }

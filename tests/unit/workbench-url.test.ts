@@ -3,7 +3,10 @@ import {
   SCENARIO_IDS,
   getScenarioDefinition
 } from "../../src/workbench/scenarios";
-import { parseWorkbenchSearch, serializeWorkbenchUrl } from "../../src/workbench/url";
+import {
+  parseWorkbenchSearch,
+  serializeWorkbenchUrl
+} from "../../src/workbench/url";
 
 const canonicalDefault =
   "?workbench=1&mode=fixture&route=groups&scenario=wb%3Adefault&deep-link=none&latency=0&failure=none";
@@ -40,12 +43,13 @@ it("canonicalizes encoded deep links and persistent failure scope", () => {
 it("accepts every approved route and fixture scenario", () => {
   expect(SCENARIO_IDS).toHaveLength(17);
   for (const definition of SCENARIO_DEFINITIONS) {
-    const deepLink = definition.deepLink === "none"
-      || definition.deepLink === "new-rule"
-      || definition.deepLink === "snapshots"
-      || definition.deepLink === "diagnostics"
-      ? definition.deepLink
-      : `${definition.deepLink.kind}:${definition.deepLink.ruleId}`;
+    const deepLink =
+      definition.deepLink === "none" ||
+      definition.deepLink === "new-rule" ||
+      definition.deepLink === "snapshots" ||
+      definition.deepLink === "diagnostics"
+        ? definition.deepLink
+        : `${definition.deepLink.kind}:${definition.deepLink.ruleId}`;
     const state = parseWorkbenchSearch(
       `?workbench=1&mode=fixture&route=${definition.route}&scenario=${encodeURIComponent(definition.id)}&deep-link=${encodeURIComponent(deepLink)}&latency=5000&failure=command%3Aonce`
     );
@@ -63,28 +67,33 @@ it("serializes scenario transport defaults as explicit canonical URL parameters"
       id: "wb:slow",
       latencyMs: 250,
       failure: { mode: "none" } as const,
-      expected: "?workbench=1&mode=fixture&route=groups&scenario=wb%3Aslow&deep-link=none&latency=250&failure=none"
+      expected:
+        "?workbench=1&mode=fixture&route=groups&scenario=wb%3Aslow&deep-link=none&latency=250&failure=none"
     },
     {
       id: "wb:validation-error",
       latencyMs: 0,
       failure: { mode: "validation", scope: "persistent" } as const,
-      expected: "?workbench=1&mode=fixture&route=rules&scenario=wb%3Avalidation-error&deep-link=new-rule&latency=0&failure=validation"
+      expected:
+        "?workbench=1&mode=fixture&route=rules&scenario=wb%3Avalidation-error&deep-link=new-rule&latency=0&failure=validation"
     },
     {
       id: "wb:offline",
       latencyMs: 0,
       failure: { mode: "offline", scope: "persistent" } as const,
-      expected: "?workbench=1&mode=fixture&route=groups&scenario=wb%3Aoffline&deep-link=none&latency=0&failure=offline"
+      expected:
+        "?workbench=1&mode=fixture&route=groups&scenario=wb%3Aoffline&deep-link=none&latency=0&failure=offline"
     }
   ] as const;
 
   for (const scenarioCase of cases) {
     const definition = getScenarioDefinition(scenarioCase.id);
-    expect(definition).toEqual(expect.objectContaining({
-      latencyMs: scenarioCase.latencyMs,
-      failure: scenarioCase.failure
-    }));
+    expect(definition).toEqual(
+      expect.objectContaining({
+        latencyMs: scenarioCase.latencyMs,
+        failure: scenarioCase.failure
+      })
+    );
     const url = serializeWorkbenchUrl({
       workbench: true,
       mode: "fixture",

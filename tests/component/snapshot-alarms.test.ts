@@ -29,7 +29,14 @@ describe("snapshot alarms component", () => {
     const configuration = createDefaultConfiguration(() => crypto.randomUUID());
     const reads = {
       readInventory: async () => ({
-        windows: [{ id: 1, focused: true, incognito: false as const, type: "normal" as const }],
+        windows: [
+          {
+            id: 1,
+            focused: true,
+            incognito: false as const,
+            type: "normal" as const
+          }
+        ],
         tabs: [
           {
             id: 1,
@@ -60,9 +67,11 @@ describe("snapshot alarms component", () => {
     };
     await handleSnapshotAlarm(SNAPSHOT_ALARMS.interval, deps);
     await handleSnapshotAlarm(SNAPSHOT_ALARMS.checkpoint, deps);
-    expect((await local.listSnapshots()).some((snapshot) => snapshot.kind === "automatic")).toBe(
-      true
-    );
+    expect(
+      (await local.listSnapshots()).some(
+        (snapshot) => snapshot.kind === "automatic"
+      )
+    ).toBe(true);
     expect(await local.loadShutdownCheckpoint()).not.toBeNull();
   });
 });

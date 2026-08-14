@@ -193,8 +193,7 @@ export interface SnapshotGroup {
 }
 
 export type SnapshotScope =
-  | { kind: "browser" }
-  | { kind: "group"; managedGroupId: UUID };
+  { kind: "browser" } | { kind: "group"; managedGroupId: UUID };
 
 export interface Snapshot {
   schemaVersion: 1;
@@ -229,7 +228,12 @@ export interface ActivityEntry {
 }
 
 export type UndoPlacement =
-  | { kind: "managedGroup"; managedGroupId: UUID; windowIdHint?: number; index: number }
+  | {
+      kind: "managedGroup";
+      managedGroupId: UUID;
+      windowIdHint?: number;
+      index: number;
+    }
   | { kind: "ungrouped"; windowIdHint?: number; index: number }
   | {
       kind: "unmanagedGroup";

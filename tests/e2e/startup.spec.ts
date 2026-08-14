@@ -37,7 +37,9 @@ test("settings restore persistent groups toggle keeps manager healthy", async ()
   });
   const page = await session.context.newPage();
   try {
-    await page.goto(`chrome-extension://${session.extensionId}/options.html#settings`);
+    await page.goto(
+      `chrome-extension://${session.extensionId}/options.html#settings`
+    );
     await settleManagerQuery({
       timeoutMs: MANAGER_SETTLE_TIMEOUT_MS,
       request: () => sendManagerQueryFromPage(page)

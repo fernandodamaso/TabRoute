@@ -6,15 +6,24 @@ import { createMemorySessionRepository } from "../../src/state/sessionRepository
 import { planSnapshotRestore } from "../../src/snapshots/restoreSnapshot";
 import type { Snapshot, UUID } from "../../src/domain/types";
 
-function baseInventory(tabs: Array<{
-  id: number;
-  url: string;
-  windowId?: number;
-  chromeGroupId?: number;
-  incognito?: false;
-}>) {
+function baseInventory(
+  tabs: Array<{
+    id: number;
+    url: string;
+    windowId?: number;
+    chromeGroupId?: number;
+    incognito?: false;
+  }>
+) {
   return {
-    windows: [{ id: 1, focused: true, incognito: false as const, type: "normal" as const }],
+    windows: [
+      {
+        id: 1,
+        focused: true,
+        incognito: false as const,
+        type: "normal" as const
+      }
+    ],
     tabs: tabs.map((tab, index) => ({
       id: tab.id,
       windowId: tab.windowId ?? 1,
@@ -89,7 +98,9 @@ describe("planSnapshotRestore", () => {
     expect(plan.ok).toBe(true);
     if (!plan.ok) throw new Error(plan.code);
     expect(plan.reusedTabIds).toEqual([42]);
-    expect(plan.actions.filter((action) => action.kind === "createTab")).toHaveLength(1);
+    expect(
+      plan.actions.filter((action) => action.kind === "createTab")
+    ).toHaveLength(1);
   });
 
   it("rejects deleted group UUIDs before any actions", async () => {
@@ -121,7 +132,7 @@ describe("planSnapshotRestore", () => {
         ownership: {},
         lastFocusedWindowId: 1,
         intentionallyClosedGroupIds: [],
-        session: (await createMemorySessionRepository().loadSession())
+        session: await createMemorySessionRepository().loadSession()
       }
     );
     expect(plan).toEqual({
@@ -208,13 +219,22 @@ describe("planSnapshotRestore", () => {
     expect(plan.ok).toBe(true);
     if (!plan.ok) throw new Error(plan.code);
     expect(plan.reusedTabIds).toEqual([42]);
-    expect(plan.actions.filter((action) => action.kind === "createTab")).toHaveLength(1);
+    expect(
+      plan.actions.filter((action) => action.kind === "createTab")
+    ).toHaveLength(1);
   });
 
   it("excludes incognito tabs from reuse", async () => {
     const configuration = createDefaultConfiguration(() => createUuid());
     const raw = {
-      windows: [{ id: 1, focused: true, incognito: false as const, type: "normal" as const }],
+      windows: [
+        {
+          id: 1,
+          focused: true,
+          incognito: false as const,
+          type: "normal" as const
+        }
+      ],
       tabs: [
         {
           id: 42,
@@ -262,6 +282,8 @@ describe("planSnapshotRestore", () => {
     expect(plan.ok).toBe(true);
     if (!plan.ok) throw new Error(plan.code);
     expect(plan.reusedTabIds).toEqual([]);
-    expect(plan.actions.filter((action) => action.kind === "createTab")).toHaveLength(1);
+    expect(
+      plan.actions.filter((action) => action.kind === "createTab")
+    ).toHaveLength(1);
   });
 });

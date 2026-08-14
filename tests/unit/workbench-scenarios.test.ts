@@ -28,7 +28,9 @@ const expectedScenarioIds = [
 
 it("registers exactly the 17 approved fixture scenarios", () => {
   expect(SCENARIO_IDS).toEqual(expectedScenarioIds);
-  expect(SCENARIO_DEFINITIONS.map((definition) => definition.id)).toEqual(expectedScenarioIds);
+  expect(SCENARIO_DEFINITIONS.map((definition) => definition.id)).toEqual(
+    expectedScenarioIds
+  );
   expect(SCENARIO_IDS).not.toContain("wb:activity");
   expect(SCENARIO_IDS.some((id) => id.includes("snapshot"))).toBe(false);
   expect(SCENARIO_IDS.some((id) => id.includes("diagnostic"))).toBe(false);
@@ -42,7 +44,9 @@ it("creates fresh deterministic seeds accepted by the existing configuration sch
     expect(first).toEqual(second);
     expect(first).not.toBe(second);
     expect(first.configuration).not.toBe(second.configuration);
-    expect(validateConfiguration(first.configuration)).toEqual(first.configuration);
+    expect(validateConfiguration(first.configuration)).toEqual(
+      first.configuration
+    );
     expect(first.configuration.persistentTabs).toEqual(
       definition.id === "wb:populated-persistent-tabs"
         ? first.configuration.persistentTabs
@@ -56,31 +60,62 @@ it("covers empty, dense, enabled, disabled, loading, error, overlay, and persist
   const dense = getScenarioDefinition("wb:dense-groups").createSeed();
   const enabled = getScenarioDefinition("wb:enabled-group").createSeed();
   const disabled = getScenarioDefinition("wb:disabled-group").createSeed();
-  const persistentEmpty = getScenarioDefinition("wb:empty-persistent-tabs").createSeed();
-  const persistentPopulated = getScenarioDefinition("wb:populated-persistent-tabs").createSeed();
+  const persistentEmpty = getScenarioDefinition(
+    "wb:empty-persistent-tabs"
+  ).createSeed();
+  const persistentPopulated = getScenarioDefinition(
+    "wb:populated-persistent-tabs"
+  ).createSeed();
 
-  expect(empty.configuration.groups.filter((group) => !group.isFallback)).toHaveLength(0);
-  expect(dense.configuration.groups.filter((group) => !group.isFallback).length).toBeGreaterThanOrEqual(8);
-  expect(enabled.configuration.groups.find((group) => group.id === FIXTURE_IDS.primaryGroup)?.enabled).toBe(true);
-  expect(disabled.configuration.groups.find((group) => group.id === FIXTURE_IDS.primaryGroup)?.enabled).toBe(false);
+  expect(
+    empty.configuration.groups.filter((group) => !group.isFallback)
+  ).toHaveLength(0);
+  expect(
+    dense.configuration.groups.filter((group) => !group.isFallback).length
+  ).toBeGreaterThanOrEqual(8);
+  expect(
+    enabled.configuration.groups.find(
+      (group) => group.id === FIXTURE_IDS.primaryGroup
+    )?.enabled
+  ).toBe(true);
+  expect(
+    disabled.configuration.groups.find(
+      (group) => group.id === FIXTURE_IDS.primaryGroup
+    )?.enabled
+  ).toBe(false);
   expect(enabled.configuration.groups[0]?.id).toBe(FIXTURE_IDS.primaryGroup);
   expect(disabled.configuration.groups[0]?.id).toBe(FIXTURE_IDS.primaryGroup);
-  expect(persistentEmpty.configuration.groups[0]?.id).toBe(FIXTURE_IDS.primaryGroup);
-  expect(persistentPopulated.configuration.groups[0]?.id).toBe(FIXTURE_IDS.primaryGroup);
-  expect(persistentEmpty.viewFixture.persistentTabsByGroup[FIXTURE_IDS.primaryGroup]).toEqual({
+  expect(persistentEmpty.configuration.groups[0]?.id).toBe(
+    FIXTURE_IDS.primaryGroup
+  );
+  expect(persistentPopulated.configuration.groups[0]?.id).toBe(
+    FIXTURE_IDS.primaryGroup
+  );
+  expect(
+    persistentEmpty.viewFixture.persistentTabsByGroup[FIXTURE_IDS.primaryGroup]
+  ).toEqual({
     state: "empty",
     tabs: []
   });
-  expect(persistentPopulated.viewFixture.persistentTabsByGroup[FIXTURE_IDS.primaryGroup]).toEqual(
+  expect(
+    persistentPopulated.viewFixture.persistentTabsByGroup[
+      FIXTURE_IDS.primaryGroup
+    ]
+  ).toEqual(
     expect.objectContaining({
       state: "populated",
-      tabs: ["Docs — https://docs.example.test/", "Inbox — https://mail.example.test/inbox"]
+      tabs: [
+        "Docs — https://docs.example.test/",
+        "Inbox — https://mail.example.test/inbox"
+      ]
     })
   );
   expect(persistentPopulated.configuration.persistentTabs).toHaveLength(2);
 
   expect(getScenarioDefinition("wb:loading").expected.status).toBe("loading");
-  expect(getScenarioDefinition("wb:validation-error").expected.status).toBe("error");
+  expect(getScenarioDefinition("wb:validation-error").expected.status).toBe(
+    "error"
+  );
   expect(getScenarioDefinition("wb:offline").expected.status).toBe("error");
   expect(getScenarioDefinition("wb:confirmation-overlay").deepLink).toEqual({
     kind: "confirm-delete",
@@ -89,22 +124,30 @@ it("covers empty, dense, enabled, disabled, loading, error, overlay, and persist
 });
 
 it("stores scenario transport defaults with the canonical scenario data", () => {
-  expect(getScenarioDefinition("wb:default")).toEqual(expect.objectContaining({
-    latencyMs: 0,
-    failure: { mode: "none" }
-  }));
-  expect(getScenarioDefinition("wb:slow")).toEqual(expect.objectContaining({
-    latencyMs: 250,
-    failure: { mode: "none" }
-  }));
-  expect(getScenarioDefinition("wb:validation-error")).toEqual(expect.objectContaining({
-    latencyMs: 0,
-    failure: { mode: "validation", scope: "persistent" }
-  }));
-  expect(getScenarioDefinition("wb:offline")).toEqual(expect.objectContaining({
-    latencyMs: 0,
-    failure: { mode: "offline", scope: "persistent" }
-  }));
+  expect(getScenarioDefinition("wb:default")).toEqual(
+    expect.objectContaining({
+      latencyMs: 0,
+      failure: { mode: "none" }
+    })
+  );
+  expect(getScenarioDefinition("wb:slow")).toEqual(
+    expect.objectContaining({
+      latencyMs: 250,
+      failure: { mode: "none" }
+    })
+  );
+  expect(getScenarioDefinition("wb:validation-error")).toEqual(
+    expect.objectContaining({
+      latencyMs: 0,
+      failure: { mode: "validation", scope: "persistent" }
+    })
+  );
+  expect(getScenarioDefinition("wb:offline")).toEqual(
+    expect.objectContaining({
+      latencyMs: 0,
+      failure: { mode: "offline", scope: "persistent" }
+    })
+  );
 });
 
 it("uses stable fixture rule identities for edit and confirmation scenarios", () => {
@@ -113,10 +156,24 @@ it("uses stable fixture rule identities for edit and confirmation scenarios", ()
   const editSeed = edit.createSeed();
   const confirmationSeed = confirmation.createSeed();
 
-  expect(edit.deepLink).toEqual({ kind: "edit-rule", ruleId: FIXTURE_IDS.editRule });
-  expect(confirmation.deepLink).toEqual({ kind: "confirm-delete", ruleId: FIXTURE_IDS.editRule });
-  expect(editSeed.configuration.rules.some((rule) => rule.id === FIXTURE_IDS.editRule)).toBe(true);
-  expect(confirmationSeed.configuration.rules.some((rule) => rule.id === FIXTURE_IDS.editRule)).toBe(true);
+  expect(edit.deepLink).toEqual({
+    kind: "edit-rule",
+    ruleId: FIXTURE_IDS.editRule
+  });
+  expect(confirmation.deepLink).toEqual({
+    kind: "confirm-delete",
+    ruleId: FIXTURE_IDS.editRule
+  });
+  expect(
+    editSeed.configuration.rules.some(
+      (rule) => rule.id === FIXTURE_IDS.editRule
+    )
+  ).toBe(true);
+  expect(
+    confirmationSeed.configuration.rules.some(
+      (rule) => rule.id === FIXTURE_IDS.editRule
+    )
+  ).toBe(true);
   expect(getScenarioDefinition("wb:new-rule").deepLink).toBe("new-rule");
   expect(getScenarioDefinition("wb:mixed-rules-overview").route).toBe("rules");
 });

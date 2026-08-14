@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { validateConfiguration } from "../../src/domain/schemas";
-import type { Configuration, PersistentTab, UUID } from "../../src/domain/types";
-import { deriveCanonicalUrl, isValidCanonicalUrl, matchesAcceptedUrl } from "../../src/persistence/acceptedUrl";
+import type {
+  Configuration,
+  PersistentTab,
+  UUID
+} from "../../src/domain/types";
+import {
+  deriveCanonicalUrl,
+  isValidCanonicalUrl,
+  matchesAcceptedUrl
+} from "../../src/persistence/acceptedUrl";
 import {
   calculatePersistentRepairs,
   planPersistentRestore,
@@ -110,7 +118,10 @@ describe("persistence accepted URLs", () => {
       }
     });
     expect(
-      deriveCanonicalUrl("https://docs.example.com/?utm_source=x#frag", config.duplicateSettings)
+      deriveCanonicalUrl(
+        "https://docs.example.com/?utm_source=x#frag",
+        config.duplicateSettings
+      )
     ).toBe("https://docs.example.com/");
     expect(
       matchesAcceptedUrl(
@@ -139,7 +150,10 @@ describe("persistent requirements", () => {
     const def = configuration().persistentTabs[0]!;
     expect(
       matchesPersistentDefinition(
-        { url: "https://docs.example.com/guide", routing: { kind: "routable", url: "https://docs.example.com/guide" } },
+        {
+          url: "https://docs.example.com/guide",
+          routing: { kind: "routable", url: "https://docs.example.com/guide" }
+        },
         def
       )
     ).toBe(true);
@@ -152,7 +166,9 @@ describe("startup restore planning", () => {
     const config = configuration();
     const context = restoreContext(config);
     const inventory = {
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      windows: [
+        { id: 1, focused: true, incognito: false, type: "normal" as const }
+      ],
       tabs: [],
       groups: [
         {
@@ -173,10 +189,9 @@ describe("startup restore planning", () => {
       1
     );
     expect(repairs[0]?.action).toBe("recreate");
-    expect(repairs.flatMap((repair) => repair.actions).map((action) => action.kind)).toEqual([
-      "createTab",
-      "assignTabsToManagedGroup"
-    ]);
+    expect(
+      repairs.flatMap((repair) => repair.actions).map((action) => action.kind)
+    ).toEqual(["createTab", "assignTabsToManagedGroup"]);
   });
 
   it("returns a dragged-out survivor before pause would hold routing", () => {
@@ -185,7 +200,9 @@ describe("startup restore planning", () => {
     });
     const context = restoreContext(config);
     const inventory = {
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      windows: [
+        { id: 1, focused: true, incognito: false, type: "normal" as const }
+      ],
       tabs: [
         {
           id: 5,
@@ -251,7 +268,9 @@ describe("startup restore planning", () => {
     const config = configuration();
     const context = restoreContext(config);
     const inventory = {
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      windows: [
+        { id: 1, focused: true, incognito: false, type: "normal" as const }
+      ],
       tabs: [],
       groups: [
         {
@@ -278,7 +297,9 @@ describe("startup restore planning", () => {
     const config = configuration();
     const context = restoreContext(config);
     const inventory = {
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      windows: [
+        { id: 1, focused: true, incognito: false, type: "normal" as const }
+      ],
       tabs: [
         {
           id: 8,
@@ -323,7 +344,9 @@ describe("startup restore planning", () => {
     const config = configuration();
     const context = restoreContext(config);
     const inventory = {
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      windows: [
+        { id: 1, focused: true, incognito: false, type: "normal" as const }
+      ],
       tabs: [
         {
           id: 8,
@@ -363,7 +386,9 @@ describe("startup restore planning", () => {
     const config = configuration({ restorePersistentGroups: false });
     const context = restoreContext(config);
     const inventory = {
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      windows: [
+        { id: 1, focused: true, incognito: false, type: "normal" as const }
+      ],
       tabs: [
         {
           id: 8,
@@ -398,7 +423,9 @@ describe("startup restore planning", () => {
     const config = configuration();
     const context = restoreContext(config);
     const inventory = {
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      windows: [
+        { id: 1, focused: true, incognito: false, type: "normal" as const }
+      ],
       tabs: [
         {
           id: 9,
@@ -441,7 +468,9 @@ describe("startup restore planning", () => {
     );
     expect(repairs[0]?.action).toBe("recreate");
     expect(
-      repairs.flatMap((repair) => repair.actions).some((action) => action.kind === "createTab")
+      repairs
+        .flatMap((repair) => repair.actions)
+        .some((action) => action.kind === "createTab")
     ).toBe(true);
   });
 
@@ -449,7 +478,9 @@ describe("startup restore planning", () => {
     const config = configuration();
     const context = restoreContext(config);
     const inventory = {
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      windows: [
+        { id: 1, focused: true, incognito: false, type: "normal" as const }
+      ],
       tabs: [
         {
           id: 10,
@@ -589,9 +620,15 @@ describe("pin group commands", () => {
       ["https://docs.example.com/guide"],
       () => 2
     );
-    expect(pinned.groups.find((group) => group.id === groupId)?.isPersistent).toBe(true);
-    expect(pinned.persistentTabs.filter((tab) => tab.managedGroupId === groupId)).toHaveLength(1);
-    expect(pinned.persistentTabs[0]?.canonicalUrl).toBe("https://docs.example.com/guide");
+    expect(
+      pinned.groups.find((group) => group.id === groupId)?.isPersistent
+    ).toBe(true);
+    expect(
+      pinned.persistentTabs.filter((tab) => tab.managedGroupId === groupId)
+    ).toHaveLength(1);
+    expect(pinned.persistentTabs[0]?.canonicalUrl).toBe(
+      "https://docs.example.com/guide"
+    );
   });
 
   it("makePersistent is idempotent for the same canonical URL", () => {
@@ -608,7 +645,9 @@ describe("pin group commands", () => {
       "https://docs.example.com/guide",
       () => 3
     );
-    expect(second.persistentTabs.filter((tab) => tab.managedGroupId === groupId)).toHaveLength(1);
+    expect(
+      second.persistentTabs.filter((tab) => tab.managedGroupId === groupId)
+    ).toHaveLength(1);
   });
   it("reuses a target definition accepted by an existing pattern", () => {
     const config = configuration({
@@ -639,7 +678,9 @@ describe("pin group commands", () => {
 describe("window ownership", () => {
   it("never chooses WINDOW_ID_NONE and ignores poisoned ownership windowId fields", () => {
     const inventory = {
-      windows: [{ id: 2, focused: true, incognito: false, type: "normal" as const }],
+      windows: [
+        { id: 2, focused: true, incognito: false, type: "normal" as const }
+      ],
       tabs: [
         {
           id: 3,
@@ -739,9 +780,13 @@ describe("startup coordinator", () => {
       ...createEmptyRuntimeSession({ browserSessionId: "session" as never }),
       startupRestore: beginStartupRestore(1000)
     };
-    const alarms: { calls: Array<{ name: string; when: number }> } = { calls: [] };
+    const alarms: { calls: Array<{ name: string; when: number }> } = {
+      calls: []
+    };
     const inventory = {
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      windows: [
+        { id: 1, focused: true, incognito: false, type: "normal" as const }
+      ],
       tabs: [],
       groups: [],
       capturedAt: 1
@@ -788,7 +833,9 @@ describe("startup coordinator", () => {
     expect(secondScan.kind).toBe("settled");
   });
   it("settles at the fifteen-second deadline without a worker wait", async () => {
-    const session = createEmptyRuntimeSession({ browserSessionId: "session" as never });
+    const session = createEmptyRuntimeSession({
+      browserSessionId: "session" as never
+    });
     const calls: number[] = [];
     const inventory = { windows: [], tabs: [], groups: [], capturedAt: 1 };
     const started = await advanceStartupSettlement({
@@ -815,7 +862,9 @@ describe("startup coordinator", () => {
   });
 
   it("returns idle without startupRestore on ordinary tab events", async () => {
-    const session = createEmptyRuntimeSession({ browserSessionId: "session" as never });
+    const session = createEmptyRuntimeSession({
+      browserSessionId: "session" as never
+    });
     const inventory = {
       windows: [],
       tabs: [],
@@ -864,7 +913,9 @@ describe("startup coordinator", () => {
 
   it("marks persistent groups intentionally closed when a normal window remains", () => {
     const session = recordWindowClosure({
-      session: createEmptyRuntimeSession({ browserSessionId: "session" as never }),
+      session: createEmptyRuntimeSession({
+        browserSessionId: "session" as never
+      }),
       windowId: 9,
       managedGroupIds: [groupId],
       tabIds: [1],
@@ -885,7 +936,9 @@ describe("startup coordinator", () => {
 
   it("clears pending window closures on last-window shutdown without intentional markers", () => {
     const session = recordWindowClosure({
-      session: createEmptyRuntimeSession({ browserSessionId: "session" as never }),
+      session: createEmptyRuntimeSession({
+        browserSessionId: "session" as never
+      }),
       windowId: 9,
       managedGroupIds: [groupId],
       tabIds: [1],
@@ -911,14 +964,24 @@ describe("configuration widening", () => {
     const config = configuration();
     expect(validateConfiguration(config).schemaVersion).toBe(1);
     expect(validateConfiguration(config).persistentTabs.length).toBe(1);
-    expect(validateConfiguration({ ...config, restorePersistentGroups: undefined }).restorePersistentGroups).toBe(true);
+    expect(
+      validateConfiguration({ ...config, restorePersistentGroups: undefined })
+        .restorePersistentGroups
+    ).toBe(true);
   });
 });
 
 describe("architecture", () => {
   it("keeps chrome.tabs.create out of persistence modules", () => {
     const root = join(process.cwd(), "src", "persistence");
-    const files = ["acceptedUrl.ts", "requirements.ts", "windowOwnership.ts", "startupRestore.ts", "startupCoordinator.ts", "persistentCommands.ts"];
+    const files = [
+      "acceptedUrl.ts",
+      "requirements.ts",
+      "windowOwnership.ts",
+      "startupRestore.ts",
+      "startupCoordinator.ts",
+      "persistentCommands.ts"
+    ];
     for (const file of files) {
       const source = readFileSync(join(root, file), "utf8");
       expect(source).not.toMatch(/chrome\.tabs\.create/);

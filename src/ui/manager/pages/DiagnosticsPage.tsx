@@ -9,14 +9,20 @@ export interface DiagnosticsPageProps {
 }
 
 const WARNING_COPY: Record<DiagnosticsViewState["warnings"][number], string> = {
-  SYNC_INCOMPLETE: "Sync revision is incomplete. Retry or recheck when connectivity returns.",
-  SYNC_INVALID: "Remote configuration is invalid. Recheck after fixing sync data.",
+  SYNC_INCOMPLETE:
+    "Sync revision is incomplete. Retry or recheck when connectivity returns.",
+  SYNC_INVALID:
+    "Remote configuration is invalid. Recheck after fixing sync data.",
   SYNC_QUOTA: "Sync storage quota is exceeded.",
   LOCAL_BUDGET: "Local storage is above the soft budget.",
   OFFLINE: "Chrome runtime is offline."
 };
 
-export function DiagnosticsPage({ diagnostics, command, onBack }: DiagnosticsPageProps) {
+export function DiagnosticsPage({
+  diagnostics,
+  command,
+  onBack
+}: DiagnosticsPageProps) {
   const showRetry = diagnostics.warnings.includes("SYNC_INCOMPLETE");
 
   return (
@@ -33,29 +39,55 @@ export function DiagnosticsPage({ diagnostics, command, onBack }: DiagnosticsPag
         ))}
         <section className="manager-card" aria-label="Storage diagnostics">
           <h2>Storage</h2>
-          <p>Sync: {diagnostics.storage.syncBytes}/{diagnostics.storage.syncQuotaBytes} bytes ({diagnostics.storage.syncItemCount} items)</p>
-          <p>Local: {diagnostics.storage.localBytes}/{diagnostics.storage.localSoftBudgetBytes} soft budget</p>
-          <p>Session: {diagnostics.storage.sessionBytes}/{diagnostics.storage.sessionQuotaBytes} bytes</p>
+          <p>
+            Sync: {diagnostics.storage.syncBytes}/
+            {diagnostics.storage.syncQuotaBytes} bytes (
+            {diagnostics.storage.syncItemCount} items)
+          </p>
+          <p>
+            Local: {diagnostics.storage.localBytes}/
+            {diagnostics.storage.localSoftBudgetBytes} soft budget
+          </p>
+          <p>
+            Session: {diagnostics.storage.sessionBytes}/
+            {diagnostics.storage.sessionQuotaBytes} bytes
+          </p>
         </section>
         <div className="diagnostics-actions">
-          <button type="button" onClick={() => void command({ kind: "diagnosticsRecheck" })}>
+          <button
+            type="button"
+            onClick={() => void command({ kind: "diagnosticsRecheck" })}
+          >
             Recheck
           </button>
           {showRetry ? (
-            <button type="button" onClick={() => void command({ kind: "retryPendingSync" })}>
+            <button
+              type="button"
+              onClick={() => void command({ kind: "retryPendingSync" })}
+            >
               Retry sync
             </button>
           ) : null}
-          <button type="button" onClick={() => void command({ kind: "reconcileAll" })}>
+          <button
+            type="button"
+            onClick={() => void command({ kind: "reconcileAll" })}
+          >
             Reconcile all tabs
           </button>
           <button
             type="button"
-            onClick={() => void navigator.clipboard.writeText(formatDiagnosticsReport(diagnostics))}
+            onClick={() =>
+              void navigator.clipboard.writeText(
+                formatDiagnosticsReport(diagnostics)
+              )
+            }
           >
             Copy report
           </button>
-          <button type="button" onClick={() => void command({ kind: "exportActivityLog" })}>
+          <button
+            type="button"
+            onClick={() => void command({ kind: "exportActivityLog" })}
+          >
             Export activity log
           </button>
         </div>

@@ -83,7 +83,14 @@ export function SettingsPage({
                   kind: "setDuplicateSettings",
                   settings: {
                     ...configuration.duplicateSettings,
-                    globalPolicy: { kind: event.target.value as "allow" | "exactUrl" | "fragmentlessUrl" | "domain" | "urlAndTitle" }
+                    globalPolicy: {
+                      kind: event.target.value as
+                        | "allow"
+                        | "exactUrl"
+                        | "fragmentlessUrl"
+                        | "domain"
+                        | "urlAndTitle"
+                    }
                   }
                 })
               }
@@ -110,7 +117,9 @@ export function SettingsPage({
               onBlur={() => {
                 const minutes = Number(intervalDraft);
                 if (!Number.isFinite(minutes) || minutes <= 0) {
-                  setIntervalDraft(String(configuration.snapshotIntervalMinutes));
+                  setIntervalDraft(
+                    String(configuration.snapshotIntervalMinutes)
+                  );
                   return;
                 }
                 void command({ kind: "setSnapshotIntervalMinutes", minutes });
@@ -127,7 +136,11 @@ export function SettingsPage({
             </p>
           ) : null}
           <div className="settings-actions">
-            <button type="button" className="primary-button" onClick={() => void exportConfigurationFile()}>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => void exportConfigurationFile()}
+            >
               Export configuration
             </button>
             <button
@@ -147,7 +160,10 @@ export function SettingsPage({
                 event.target.value = "";
                 if (!file) return;
                 void file.text().then(async (json) => {
-                  const result = await command({ kind: "importConfiguration", json });
+                  const result = await command({
+                    kind: "importConfiguration",
+                    json
+                  });
                   if (!result.ok) {
                     setImportError(result.error.message);
                     return;
@@ -156,7 +172,11 @@ export function SettingsPage({
                 });
               }}
             />
-            <button type="button" className="primary-button snapshots-entry" onClick={onOpenSnapshots}>
+            <button
+              type="button"
+              className="primary-button snapshots-entry"
+              onClick={onOpenSnapshots}
+            >
               Snapshots
             </button>
             <button type="button" onClick={onOpenDiagnostics}>

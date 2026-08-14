@@ -161,9 +161,9 @@ describe("storage repositories", () => {
       updatedAt: 100
     });
     expect(result.ok).toBe(false);
-    expect(local.bags.snapshots.every((snapshot) => snapshot.kind === "named")).toBe(
-      true
-    );
+    expect(
+      local.bags.snapshots.every((snapshot) => snapshot.kind === "named")
+    ).toBe(true);
   });
 
   it("returns CHECKPOINT_CAPACITY when checkpoint cannot fit after pruning", async () => {
@@ -189,21 +189,12 @@ describe("storage repositories", () => {
 
   it("incomplete remote generation does not append success activity", async () => {
     const local = createMemoryLocalRepository();
-    const { recordSyncRevisionActivity } = await import(
-      "../../src/activity/activityRepository"
-    );
-    await recordSyncRevisionActivity(
-      local,
-      { kind: "pending" },
-      1
-    );
+    const { recordSyncRevisionActivity } =
+      await import("../../src/activity/activityRepository");
+    await recordSyncRevisionActivity(local, { kind: "pending" }, 1);
     expect(await local.listActivity(undefined, 10)).toHaveLength(0);
 
-    await recordSyncRevisionActivity(
-      local,
-      { kind: "applied" },
-      2
-    );
+    await recordSyncRevisionActivity(local, { kind: "applied" }, 2);
     const entries = await local.listActivity(undefined, 10);
     expect(entries).toHaveLength(1);
     expect(entries[0]?.result).toBe("success");

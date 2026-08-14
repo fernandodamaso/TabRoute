@@ -16,7 +16,10 @@ interface AutosaveEntry {
 
 const entries = new Map<string, AutosaveEntry>();
 
-function getEntry(groupId: string, save: (patch: ManagedGroupPatch) => Promise<SaveResult>) {
+function getEntry(
+  groupId: string,
+  save: (patch: ManagedGroupPatch) => Promise<SaveResult>
+) {
   const existing = entries.get(groupId);
   if (existing) {
     existing.save = save;
@@ -52,25 +55,31 @@ function flushEntry(entry: AutosaveEntry) {
   entry.inFlight = true;
   entry.status = "Saving";
   notify(entry);
-  void requestSave(patch).then((result) => {
-    entry.inFlight = false;
-    if (result.ok && requestRevision === entry.revision) {
-      entry.lastAccepted = patch;
-      entry.status = "Saved";
-    } else if (!result.ok && requestRevision === entry.revision) {
-      entry.status = "Error";
-    }
-    notify(entry);
-    flushEntry(entry);
-  }).catch(() => {
-    entry.inFlight = false;
-    if (requestRevision === entry.revision) entry.status = "Error";
-    notify(entry);
-    flushEntry(entry);
-  });
+  void requestSave(patch)
+    .then((result) => {
+      entry.inFlight = false;
+      if (result.ok && requestRevision === entry.revision) {
+        entry.lastAccepted = patch;
+        entry.status = "Saved";
+      } else if (!result.ok && requestRevision === entry.revision) {
+        entry.status = "Error";
+      }
+      notify(entry);
+      flushEntry(entry);
+    })
+    .catch(() => {
+      entry.inFlight = false;
+      if (requestRevision === entry.revision) entry.status = "Error";
+      notify(entry);
+      flushEntry(entry);
+    });
 }
 
-export function useGroupAutosave({ groupId: _groupId, save, debounceMs = 250 }: {
+export function useGroupAutosave({
+  groupId: _groupId,
+  save,
+  debounceMs = 250
+}: {
   groupId: string;
   save: (patch: ManagedGroupPatch) => Promise<SaveResult>;
   debounceMs?: number;
@@ -87,14 +96,22 @@ export function useGroupAutosave({ groupId: _groupId, save, debounceMs = 250 }: 
     };
   }, [entry]);
 
-  const update = useCallback((patch: ManagedGroupPatch, immediate = false) => {
-    entry.revision += 1;
-    entry.pending = { ...entry.pending, ...patch };
-    if (entry.timer) clearTimeout(entry.timer);
-    if (immediate) flushEntry(entry);
-    else entry.timer = setTimeout(() => flushEntry(entry), debounceMs);
-  }, [debounceMs, entry]);
+  const update = useCallback(
+    (patch: ManagedGroupPatch, immediate = false) => {
+      entry.revision += 1;
+      entry.pending = { ...entry.pending, ...patch };
+      if (entry.timer) clearTimeout(entry.timer);
+      if (immediate) flushEntry(entry);
+      else entry.timer = setTimeout(() => flushEntry(entry), debounceMs);
+    },
+    [debounceMs, entry]
+  );
 
   const flush = useCallback(() => flushEntry(entry), [entry]);
-  return { status: entry.status, lastAccepted: entry.lastAccepted, update, flush };
+  return {
+    status: entry.status,
+    lastAccepted: entry.lastAccepted,
+    update,
+    flush
+  };
 }

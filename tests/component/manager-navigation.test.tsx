@@ -2,7 +2,10 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
-import { createDefaultConfiguration, createManagedGroup } from "../../src/domain/defaults";
+import {
+  createDefaultConfiguration,
+  createManagedGroup
+} from "../../src/domain/defaults";
 import type { Configuration, UUID } from "../../src/domain/types";
 import { ManagerApp } from "../../src/ui/manager/ManagerApp";
 import { createChromeManagerTransport } from "../../src/ui/manager/chromeManagerTransport";
@@ -22,7 +25,10 @@ const view = {
   routes: ["groups", "rules", "activity", "settings"] as const
 } satisfies ManagerViewMetadata;
 
-function configurationWithRule(): { configuration: Configuration; ruleId: UUID } {
+function configurationWithRule(): {
+  configuration: Configuration;
+  ruleId: UUID;
+} {
   const configuration = createDefaultConfiguration(
     () => "00000000-0000-4000-8000-000000000001"
   );
@@ -51,7 +57,9 @@ function configurationWithRule(): { configuration: Configuration; ruleId: UUID }
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((next) => { resolve = next; });
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
   return { promise, resolve };
 }
 
@@ -65,9 +73,13 @@ it("keeps keyboard order in the shell before page content", async () => {
   const user = userEvent.setup();
   render(<ManagerApp surface="popup" />);
   await user.tab();
-  expect(document.activeElement?.getAttribute("data-route-focus")).toBe("groups");
+  expect(document.activeElement?.getAttribute("data-route-focus")).toBe(
+    "groups"
+  );
   await user.tab();
-  expect(document.activeElement?.getAttribute("data-route-focus")).toBe("rules");
+  expect(document.activeElement?.getAttribute("data-route-focus")).toBe(
+    "rules"
+  );
 });
 
 it("renders accepted state through an object-shaped manager transport", async () => {
@@ -101,21 +113,27 @@ it("honors the initial rules route and new-rule deep link", async () => {
     view
   }));
 
-  render(<ManagerApp
-    transport={{ request }}
-    initialRoute="rules"
-    initialDeepLink="new-rule"
-  />);
+  render(
+    <ManagerApp
+      transport={{ request }}
+      initialRoute="rules"
+      initialDeepLink="new-rule"
+    />
+  );
 
   expect(await screen.findByRole("heading", { name: "New rule" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Rules" }).getAttribute("aria-current")).toBe("page");
+  expect(
+    screen.getByRole("button", { name: "Rules" }).getAttribute("aria-current")
+  ).toBe("page");
   expect(request).toHaveBeenCalledWith({ kind: "manager-query" });
 });
 
 it("does not reapply the initial route after manager-owned navigation", async () => {
   render(<ManagerApp surface="options" initialRoute="groups" />);
   await screen.findByRole("heading", { name: "Groups" });
-  await userEvent.setup().click(screen.getByRole("button", { name: "Open Rules" }));
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Open Rules" }));
   expect(await screen.findByRole("heading", { name: "Rules" })).toBeTruthy();
 });
 
@@ -126,11 +144,13 @@ it("waits for loaded configuration before mounting a new-rule deep link", async 
     () => "00000000-0000-4000-8000-000000000002"
   );
 
-  render(<ManagerApp
-    transport={{ request }}
-    initialRoute="rules"
-    initialDeepLink="new-rule"
-  />);
+  render(
+    <ManagerApp
+      transport={{ request }}
+      initialRoute="rules"
+      initialDeepLink="new-rule"
+    />
+  );
 
   expect(screen.getByRole("status").textContent).toBe("Loading");
   expect(screen.queryByRole("heading", { name: "New rule" })).toBeNull();
@@ -138,8 +158,13 @@ it("waits for loaded configuration before mounting a new-rule deep link", async 
   pending.resolve({ ok: true, configuration, view });
 
   expect(await screen.findByRole("heading", { name: "New rule" })).toBeTruthy();
-  expect((screen.getByRole("combobox", { name: "Target group" }) as HTMLSelectElement).value)
-    .toBe(configuration.groups[0]!.id);
+  expect(
+    (
+      screen.getByRole("combobox", {
+        name: "Target group"
+      }) as HTMLSelectElement
+    ).value
+  ).toBe(configuration.groups[0]!.id);
 });
 
 it("opens an existing rule from the typed edit deep link after configuration loads", async () => {
@@ -147,18 +172,27 @@ it("opens an existing rule from the typed edit deep link after configuration loa
   const request = vi.fn(() => pending.promise);
   const { configuration, ruleId } = configurationWithRule();
 
-  render(<ManagerApp
-    transport={{ request }}
-    initialRoute="rules"
-    initialDeepLink={{ kind: "edit-rule", ruleId }}
-  />);
+  render(
+    <ManagerApp
+      transport={{ request }}
+      initialRoute="rules"
+      initialDeepLink={{ kind: "edit-rule", ruleId }}
+    />
+  );
 
   expect(screen.queryByRole("heading", { name: "Edit rule" })).toBeNull();
   pending.resolve({ ok: true, configuration, view });
 
-  expect(await screen.findByRole("heading", { name: "Edit rule" })).toBeTruthy();
-  expect((screen.getByRole("textbox", { name: "Condition value 1" }) as HTMLInputElement).value)
-    .toBe("Docs");
+  expect(
+    await screen.findByRole("heading", { name: "Edit rule" })
+  ).toBeTruthy();
+  expect(
+    (
+      screen.getByRole("textbox", {
+        name: "Condition value 1"
+      }) as HTMLInputElement
+    ).value
+  ).toBe("Docs");
 });
 
 it("opens the existing confirmation overlay from the typed delete deep link", async () => {
@@ -169,47 +203,63 @@ it("opens the existing confirmation overlay from the typed delete deep link", as
     view
   }));
 
-  render(<ManagerApp
-    transport={{ request }}
-    initialRoute="rules"
-    initialDeepLink={{ kind: "confirm-delete", ruleId }}
-  />);
+  render(
+    <ManagerApp
+      transport={{ request }}
+      initialRoute="rules"
+      initialDeepLink={{ kind: "confirm-delete", ruleId }}
+    />
+  );
 
-  expect(await screen.findByRole("dialog", { name: "Delete rule?" })).toBeTruthy();
+  expect(
+    await screen.findByRole("dialog", { name: "Delete rule?" })
+  ).toBeTruthy();
 });
 
 it("consumes a delete deep link so later rule updates do not reopen a canceled dialog", async () => {
   const user = userEvent.setup();
   const seeded = configurationWithRule();
   let configuration = seeded.configuration;
-  const request = vi.fn(async (message: ManagerMessage): Promise<ManagerResponse> => {
-    if (message.kind === "manager-command") {
-      const command = message.command;
-      if (command.kind === "setRuleEnabled") {
-        configuration = {
-          ...configuration,
-          rules: configuration.rules.map((rule) => rule.id === command.ruleId
-            ? { ...rule, enabled: command.enabled }
-            : rule)
-        };
+  const request = vi.fn(
+    async (message: ManagerMessage): Promise<ManagerResponse> => {
+      if (message.kind === "manager-command") {
+        const command = message.command;
+        if (command.kind === "setRuleEnabled") {
+          configuration = {
+            ...configuration,
+            rules: configuration.rules.map((rule) =>
+              rule.id === command.ruleId
+                ? { ...rule, enabled: command.enabled }
+                : rule
+            )
+          };
+        }
       }
+      return { ok: true, configuration, view };
     }
-    return { ok: true, configuration, view };
-  });
+  );
 
-  render(<ManagerApp
-    transport={{ request }}
-    initialRoute="rules"
-    initialDeepLink={{ kind: "confirm-delete", ruleId: seeded.ruleId }}
-  />);
+  render(
+    <ManagerApp
+      transport={{ request }}
+      initialRoute="rules"
+      initialDeepLink={{ kind: "confirm-delete", ruleId: seeded.ruleId }}
+    />
+  );
 
-  expect(await screen.findByRole("dialog", { name: "Delete rule?" })).toBeTruthy();
+  expect(
+    await screen.findByRole("dialog", { name: "Delete rule?" })
+  ).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Cancel" }));
   expect(screen.queryByRole("dialog", { name: "Delete rule?" })).toBeNull();
 
-  const enabled = screen.getByRole("checkbox", { name: `Enabled ${seeded.ruleId.slice(0, 8)}` });
+  const enabled = screen.getByRole("checkbox", {
+    name: `Enabled ${seeded.ruleId.slice(0, 8)}`
+  });
   await user.click(enabled);
-  await waitFor(() => expect((enabled as HTMLInputElement).checked).toBe(false));
+  await waitFor(() =>
+    expect((enabled as HTMLInputElement).checked).toBe(false)
+  );
 
   expect(screen.queryByRole("dialog", { name: "Delete rule?" })).toBeNull();
 });
@@ -217,7 +267,11 @@ it("consumes a delete deep link so later rule updates do not reopen a canceled d
 it("surfaces a typed offline transport result without bypassing the transport", async () => {
   const request = vi.fn(async (): Promise<ManagerResponse> => ({
     ok: false,
-    error: { kind: "offline", code: "OFFLINE", message: "Chrome runtime is offline" }
+    error: {
+      kind: "offline",
+      code: "OFFLINE",
+      message: "Chrome runtime is offline"
+    }
   }));
 
   render(<ManagerApp transport={{ request }} />);
@@ -230,24 +284,36 @@ it("keeps Settings aria-current on snapshots subpanel", async () => {
   const configuration = createDefaultConfiguration(
     () => "00000000-0000-4000-8000-000000000001"
   );
-  const request = vi.fn(async (message: ManagerMessage): Promise<ManagerResponse> => {
-    if (message.kind === "snapshots-query") {
-      return {
-        ok: true,
-        configuration,
-        view,
-        viewFixture: { persistentTabsByGroup: {}, snapshots: [] }
-      };
+  const request = vi.fn(
+    async (message: ManagerMessage): Promise<ManagerResponse> => {
+      if (message.kind === "snapshots-query") {
+        return {
+          ok: true,
+          configuration,
+          view,
+          viewFixture: { persistentTabsByGroup: {}, snapshots: [] }
+        };
+      }
+      return { ok: true, configuration, view };
     }
-    return { ok: true, configuration, view };
-  });
+  );
 
   render(<ManagerApp transport={{ request }} initialRoute="settings" />);
   await screen.findByRole("heading", { name: "Settings" });
-  await userEvent.setup().click(screen.getByRole("button", { name: "Snapshots" }));
-  expect(await screen.findByRole("heading", { name: "Snapshots" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Settings" }).getAttribute("aria-current")).toBe("page");
-  await userEvent.setup().click(screen.getByRole("button", { name: "Back to Settings" }));
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Snapshots" }));
+  expect(
+    await screen.findByRole("heading", { name: "Snapshots" })
+  ).toBeTruthy();
+  expect(
+    screen
+      .getByRole("button", { name: "Settings" })
+      .getAttribute("aria-current")
+  ).toBe("page");
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Back to Settings" }));
   expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
 });
 
@@ -264,41 +330,49 @@ it("keeps header and nav outside the snapshots scroll body", async () => {
   const configuration = createDefaultConfiguration(
     () => "00000000-0000-4000-8000-000000000001"
   );
-  const request = vi.fn(async (message: ManagerMessage): Promise<ManagerResponse> => {
-    if (message.kind === "snapshots-query") {
-      return {
-        ok: true,
-        configuration,
-        view,
-        viewFixture: {
-          persistentTabsByGroup: {},
-          snapshots: Array.from({ length: 30 }, (_, index) => ({
-            schemaVersion: 1 as const,
-            id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}` as UUID,
-            name: `Snapshot ${index}`,
-            kind: "named" as const,
-            scope: { kind: "browser" as const },
-            groups: [],
-            createdAt: index,
-            updatedAt: index
-          }))
-        }
-      };
+  const request = vi.fn(
+    async (message: ManagerMessage): Promise<ManagerResponse> => {
+      if (message.kind === "snapshots-query") {
+        return {
+          ok: true,
+          configuration,
+          view,
+          viewFixture: {
+            persistentTabsByGroup: {},
+            snapshots: Array.from({ length: 30 }, (_, index) => ({
+              schemaVersion: 1 as const,
+              id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}` as UUID,
+              name: `Snapshot ${index}`,
+              kind: "named" as const,
+              scope: { kind: "browser" as const },
+              groups: [],
+              createdAt: index,
+              updatedAt: index
+            }))
+          }
+        };
+      }
+      return { ok: true, configuration, view };
     }
-    return { ok: true, configuration, view };
-  });
+  );
 
   render(<ManagerApp transport={{ request }} initialRoute="settings" />);
   await screen.findByRole("heading", { name: "Settings" });
-  await userEvent.setup().click(screen.getByRole("button", { name: "Snapshots" }));
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Snapshots" }));
   await screen.findByRole("heading", { name: "Snapshots" });
 
-  const main = document.querySelector("main.manager-page-scroll.route-settings-snapshots")!;
+  const main = document.querySelector(
+    "main.manager-page-scroll.route-settings-snapshots"
+  )!;
   const scrollBody = document.querySelector(".snapshots-scroll-body")!;
   const header = document.querySelector(".manager-header")!;
   const nav = document.querySelector(".manager-primary-nav")!;
   expect(main.classList.contains("route-settings-snapshots")).toBe(true);
-  expect(scrollBody.contains(screen.getByRole("heading", { name: "Snapshots" }))).toBe(false);
+  expect(
+    scrollBody.contains(screen.getByRole("heading", { name: "Snapshots" }))
+  ).toBe(false);
   expect(scrollBody.contains(header)).toBe(false);
   expect(scrollBody.contains(nav)).toBe(false);
   expect(header.contains(scrollBody)).toBe(false);
@@ -346,6 +420,14 @@ it("records pending and terminal Chrome transport states through the shared reco
   await transport.request({ kind: "manager-query" });
 
   expect(records).toHaveLength(2);
-  expect(records[0]).toMatchObject({ recordType: "request", state: "pending", mode: "real" });
-  expect(records[1]).toMatchObject({ recordType: "request", state: "resolved", mode: "real" });
+  expect(records[0]).toMatchObject({
+    recordType: "request",
+    state: "pending",
+    mode: "real"
+  });
+  expect(records[1]).toMatchObject({
+    recordType: "request",
+    state: "resolved",
+    mode: "real"
+  });
 });

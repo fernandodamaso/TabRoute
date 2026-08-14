@@ -5,15 +5,21 @@ import { resolveDuplicatePolicy } from "../../src/duplicates/policy";
 import { buildDuplicateKey } from "../../src/duplicates/normalizeUrl";
 import { observeInventory } from "../../src/duplicates/observations";
 import { planDuplicateClose } from "../../src/duplicates/planDuplicateClose";
-import { resolveDuplicate, selectDuplicateSurvivor } from "../../src/duplicates/resolveDuplicate";
-import type { ChromeInventory, ManagedGroup, Rule, TabSnapshot, UUID } from "../../src/domain/types";
+import {
+  resolveDuplicate,
+  selectDuplicateSurvivor
+} from "../../src/duplicates/resolveDuplicate";
+import type {
+  ChromeInventory,
+  ManagedGroup,
+  Rule,
+  TabSnapshot,
+  UUID
+} from "../../src/domain/types";
 
 const groupId = "00000000-0000-4000-8000-000000000002" as UUID;
 
-function tab(
-  id: number,
-  overrides: Partial<TabSnapshot> = {}
-): TabSnapshot {
+function tab(id: number, overrides: Partial<TabSnapshot> = {}): TabSnapshot {
   return {
     id,
     windowId: 1,
@@ -33,7 +39,9 @@ function tab(
 
 describe("duplicates", () => {
   it("uses exclusion, then rule, group, and global precedence", () => {
-    const global = createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000001").duplicateSettings;
+    const global = createDefaultConfiguration(
+      () => "00000000-0000-4000-8000-000000000001"
+    ).duplicateSettings;
     const group: ManagedGroup = {
       schemaVersion: 1,
       id: groupId,
@@ -61,13 +69,28 @@ describe("duplicates", () => {
       updatedAt: 1
     };
     expect(
-      resolveDuplicatePolicy(rule, group, { ...global, globalPolicy: { kind: "exactUrl" } }, true).kind
+      resolveDuplicatePolicy(
+        rule,
+        group,
+        { ...global, globalPolicy: { kind: "exactUrl" } },
+        true
+      ).kind
     ).toBe("domain");
     expect(
-      resolveDuplicatePolicy(null, group, { ...global, globalPolicy: { kind: "exactUrl" } }, true).kind
+      resolveDuplicatePolicy(
+        null,
+        group,
+        { ...global, globalPolicy: { kind: "exactUrl" } },
+        true
+      ).kind
     ).toBe("urlAndTitle");
     expect(
-      resolveDuplicatePolicy(null, group, { ...global, globalPolicy: { kind: "exactUrl" } }, false).kind
+      resolveDuplicatePolicy(
+        null,
+        group,
+        { ...global, globalPolicy: { kind: "exactUrl" } },
+        false
+      ).kind
     ).toBe("exactUrl");
     expect(
       resolveDuplicatePolicy(
@@ -85,7 +108,9 @@ describe("duplicates", () => {
   });
 
   it("returns null duplicate key for pending URLs", () => {
-    const settings = createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000001").duplicateSettings;
+    const settings = createDefaultConfiguration(
+      () => "00000000-0000-4000-8000-000000000001"
+    ).duplicateSettings;
     expect(
       buildDuplicateKey(
         tab(1, { routing: { kind: "pending" }, url: undefined }),
@@ -97,7 +122,9 @@ describe("duplicates", () => {
 
   it("strips tracking params and drops hash for fragmentlessUrl", () => {
     const settings = {
-      ...createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000001").duplicateSettings,
+      ...createDefaultConfiguration(
+        () => "00000000-0000-4000-8000-000000000001"
+      ).duplicateSettings,
       trackingParameters: ["utm_source"]
     };
     expect(
@@ -112,8 +139,9 @@ describe("duplicates", () => {
   });
   it("scopes pattern keys to matching normalized URLs", () => {
     const settings = {
-      ...createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000001")
-        .duplicateSettings,
+      ...createDefaultConfiguration(
+        () => "00000000-0000-4000-8000-000000000001"
+      ).duplicateSettings,
       trackingParameters: ["utm_source"]
     };
     const policy = {
@@ -144,7 +172,9 @@ describe("duplicates", () => {
   });
 
   it("ungroup skips group override", () => {
-    const global = createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000001").duplicateSettings;
+    const global = createDefaultConfiguration(
+      () => "00000000-0000-4000-8000-000000000001"
+    ).duplicateSettings;
     const group: ManagedGroup = {
       schemaVersion: 1,
       id: groupId,
@@ -159,7 +189,9 @@ describe("duplicates", () => {
       createdAt: 1,
       updatedAt: 1
     };
-    expect(resolveDuplicatePolicy(null, group, global, false).kind).toBe("allow");
+    expect(resolveDuplicatePolicy(null, group, global, false).kind).toBe(
+      "allow"
+    );
   });
 
   it("prefers correct placement, then lastAccessed, then oldest ordinal, then tabId", async () => {
@@ -167,8 +199,18 @@ describe("duplicates", () => {
     const session = {
       ...(await sessionRepo.loadSession()),
       tabObservations: [
-        { tabId: 1, firstObservedAt: 1, firstObservedOrdinal: 2, lastObservedUrl: "" },
-        { tabId: 2, firstObservedAt: 1, firstObservedOrdinal: 1, lastObservedUrl: "" }
+        {
+          tabId: 1,
+          firstObservedAt: 1,
+          firstObservedOrdinal: 2,
+          lastObservedUrl: ""
+        },
+        {
+          tabId: 2,
+          firstObservedAt: 1,
+          firstObservedOrdinal: 1,
+          lastObservedUrl: ""
+        }
       ]
     };
     const survivor = selectDuplicateSurvivor(
@@ -219,23 +261,28 @@ describe("duplicates", () => {
     const first = observeInventory(inventory, await sessionRepo.loadSession());
     expect(first.session.tabObservations.map((o) => o.tabId)).toEqual([1, 2]);
     const second = observeInventory(inventory, first.session);
-    expect(second.session.tabObservations.map((o) => o.firstObservedOrdinal)).toEqual(
-      first.session.tabObservations.map((o) => o.firstObservedOrdinal)
-    );
+    expect(
+      second.session.tabObservations.map((o) => o.firstObservedOrdinal)
+    ).toEqual(first.session.tabObservations.map((o) => o.firstObservedOrdinal));
     const restarted = observeInventory(inventory, {
       ...first.session,
       tabObservations: [],
       nextObservationOrdinal: 0
     });
-    expect(restarted.session.tabObservations.map((o) => o.tabId)).toEqual([1, 2]);
+    expect(restarted.session.tabObservations.map((o) => o.tabId)).toEqual([
+      1, 2
+    ]);
   });
 
   it("resolves duplicates from the triggering tab key, not the first eligible tab", async () => {
     const configuration = {
-      ...createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000001"),
+      ...createDefaultConfiguration(
+        () => "00000000-0000-4000-8000-000000000001"
+      ),
       duplicateSettings: {
-        ...createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000001")
-          .duplicateSettings,
+        ...createDefaultConfiguration(
+          () => "00000000-0000-4000-8000-000000000001"
+        ).duplicateSettings,
         globalPolicy: { kind: "exactUrl" as const }
       }
     };
@@ -255,7 +302,9 @@ describe("duplicates", () => {
       })
     ];
     const inventory = {
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      windows: [
+        { id: 1, focused: true, incognito: false, type: "normal" as const }
+      ],
       tabs,
       groups: [],
       capturedAt: 1
@@ -273,7 +322,9 @@ describe("duplicates", () => {
       destinationGroup: null
     });
     expect(decision?.survivor.id).toBe(3);
-    expect(decision?.duplicatesToClose.map((candidate) => candidate.id)).toEqual([2]);
+    expect(
+      decision?.duplicatesToClose.map((candidate) => candidate.id)
+    ).toEqual([2]);
   });
 
   it("moves a survivor that is in the wrong group before close", () => {

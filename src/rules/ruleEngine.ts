@@ -31,7 +31,6 @@ function isPaused(value: number | "restart" | undefined, at: number) {
   return value === "restart" || (typeof value === "number" && value > at);
 }
 
-
 function regex(value: string, pattern: string) {
   try {
     return new RegExp(pattern, "i").test(value);

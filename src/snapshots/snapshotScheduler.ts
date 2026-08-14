@@ -49,9 +49,7 @@ function isSnapshotRelevantEvent(event: ChromeEventHint): boolean {
   }
 }
 
-async function readBrowserInventory(
-  deps: SnapshotSchedulerDeps
-): Promise<{
+async function readBrowserInventory(deps: SnapshotSchedulerDeps): Promise<{
   raw: Awaited<ReturnType<ChromeReadPort["readInventory"]>>;
   inventory: ReturnType<typeof observeInventory>["inventory"];
 }> {
@@ -91,17 +89,12 @@ export async function noteSnapshotRelevantEvent(
     local: deps.local,
     inventory: raw
   });
-  const snapshot = captureSnapshot(
-    { kind: "browser" },
-    inventory,
-    context,
-    {
-      id: createCheckpointSnapshotId(),
-      name: "shutdown-latest",
-      kind: "checkpoint",
-      now
-    }
-  );
+  const snapshot = captureSnapshot({ kind: "browser" }, inventory, context, {
+    id: createCheckpointSnapshotId(),
+    name: "shutdown-latest",
+    kind: "checkpoint",
+    now
+  });
   const record: ShutdownCheckpoint = {
     schemaVersion: 1,
     snapshot,
@@ -143,17 +136,12 @@ export async function handleSnapshotAlarm(
     local: deps.local,
     inventory: raw
   });
-  const snapshot = captureSnapshot(
-    { kind: "browser" },
-    inventory,
-    context,
-    {
-      id: createCheckpointSnapshotId(),
-      name: "shutdown-latest",
-      kind: "checkpoint",
-      now
-    }
-  );
+  const snapshot = captureSnapshot({ kind: "browser" }, inventory, context, {
+    id: createCheckpointSnapshotId(),
+    name: "shutdown-latest",
+    kind: "checkpoint",
+    now
+  });
   await deps.local.saveShutdownCheckpoint({
     schemaVersion: 1,
     snapshot,

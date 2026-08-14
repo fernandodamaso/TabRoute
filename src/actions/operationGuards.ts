@@ -16,7 +16,11 @@ export function buildExpectedFootprint(
   plan: RoutePlan
 ): Pick<
   OperationGuard,
-  "operation" | "expectedEventKinds" | "postcondition" | "tabIds" | "chromeGroupIds"
+  | "operation"
+  | "expectedEventKinds"
+  | "postcondition"
+  | "tabIds"
+  | "chromeGroupIds"
 > {
   if (plan.kind === "ungroup") {
     return {
@@ -55,9 +59,7 @@ export function buildExpectedFootprint(
       kind: "tabPlacement",
       tabIds: [plan.tab.id],
       windowId: plan.tab.windowId,
-      ...(chromeGroupId !== undefined
-        ? { chromeGroupId }
-        : { grouped: true })
+      ...(chromeGroupId !== undefined ? { chromeGroupId } : { grouped: true })
     }
   };
 }
@@ -105,7 +107,11 @@ export function buildExpectedActionFootprint(input: {
       return {
         operation: "moveTabs",
         expectedEventKinds: ["tabMoved", "tabAttached", "tabUpdated"],
-        postcondition: { kind: "tabPlacement", tabIds, windowId: action.windowId },
+        postcondition: {
+          kind: "tabPlacement",
+          tabIds,
+          windowId: action.windowId
+        },
         tabIds,
         chromeGroupIds
       };
@@ -164,8 +170,12 @@ export function buildExpectedActionFootprint(input: {
         postcondition: {
           kind: "managedGroupState",
           managedGroupId: action.managedGroupId,
-          ...(action.patch.title === undefined ? {} : { title: action.patch.title }),
-          ...(action.patch.color === undefined ? {} : { color: action.patch.color }),
+          ...(action.patch.title === undefined
+            ? {}
+            : { title: action.patch.title }),
+          ...(action.patch.color === undefined
+            ? {}
+            : { color: action.patch.color }),
           ...(action.patch.collapsed === undefined
             ? {}
             : { collapsed: action.patch.collapsed })
@@ -189,7 +199,11 @@ export function buildExpectedActionFootprint(input: {
       return {
         operation: "reorderTabs",
         expectedEventKinds: ["tabMoved", "tabAttached", "tabUpdated"],
-        postcondition: { kind: "tabPlacement", tabIds, windowId: action.windowId },
+        postcondition: {
+          kind: "tabPlacement",
+          tabIds,
+          windowId: action.windowId
+        },
         tabIds,
         chromeGroupIds
       };
@@ -315,10 +329,7 @@ function replaceGuard(
   return { ...session, operationGuards };
 }
 
-function removeGuardAt(
-  session: RuntimeSession,
-  index: number
-): RuntimeSession {
+function removeGuardAt(session: RuntimeSession, index: number): RuntimeSession {
   return {
     ...session,
     operationGuards: session.operationGuards.filter((_, i) => i !== index)
@@ -340,7 +351,10 @@ function processExpiredGuards(
       remaining.push(guard);
       continue;
     }
-    if (guard.postcondition && postconditionHolds(guard.postcondition, inventory)) {
+    if (
+      guard.postcondition &&
+      postconditionHolds(guard.postcondition, inventory)
+    ) {
       continue;
     }
     manualGuard = guard;
@@ -385,10 +399,7 @@ export function classifyGuardedEvent(
   );
 
   if (guardIndex === -1) {
-    if (
-      expired.manualGuard &&
-      eventMatchesGuard(event, expired.manualGuard)
-    ) {
+    if (expired.manualGuard && eventMatchesGuard(event, expired.manualGuard)) {
       return {
         kind: "manual",
         retiredGuard: expired.manualGuard,
@@ -414,7 +425,10 @@ export function classifyGuardedEvent(
     };
   }
 
-  if (matched.postcondition && postconditionHolds(matched.postcondition, inventory)) {
+  if (
+    matched.postcondition &&
+    postconditionHolds(matched.postcondition, inventory)
+  ) {
     const settleAfter = Math.min(now + GUARD_QUIET_MS, matched.expiresAt);
     const echoing = { ...updated, settleAfter };
     return {

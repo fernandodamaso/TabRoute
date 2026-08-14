@@ -9,7 +9,10 @@ import { GUARD_QUIET_MS } from "../actions/operationGuards";
 
 export const GROUP_SETTLEMENT_ALARM = "tabroute:group-settlement";
 
-function urlsOverlap(left: readonly string[], right: readonly string[]): boolean {
+function urlsOverlap(
+  left: readonly string[],
+  right: readonly string[]
+): boolean {
   const rightSet = new Set(right);
   return left.some((url) => rightSet.has(url));
 }
@@ -128,11 +131,10 @@ export function settlePendingGroupRemovals(input: {
     if (managed?.isPersistent) {
       session = {
         ...session,
-        intentionallyClosedGroupIds: session.intentionallyClosedGroupIds.includes(
-          pending.managedGroupId
-        )
-          ? session.intentionallyClosedGroupIds
-          : [...session.intentionallyClosedGroupIds, pending.managedGroupId]
+        intentionallyClosedGroupIds:
+          session.intentionallyClosedGroupIds.includes(pending.managedGroupId)
+            ? session.intentionallyClosedGroupIds
+            : [...session.intentionallyClosedGroupIds, pending.managedGroupId]
       };
     }
     session = {

@@ -1,7 +1,14 @@
 import { expect, it, vi } from "vitest";
-import { createDefaultConfiguration, createManagedGroup } from "../../src/domain/defaults";
+import {
+  createDefaultConfiguration,
+  createManagedGroup
+} from "../../src/domain/defaults";
 import { createManagerMessageRouter } from "../../src/background/managerMessageRouter";
-import type { ActivityManagerPort, DiagnosticsManagerPort, SnapshotManagerPort } from "../../src/background/managerMessageRouter";
+import type {
+  ActivityManagerPort,
+  DiagnosticsManagerPort,
+  SnapshotManagerPort
+} from "../../src/background/managerMessageRouter";
 import type { ChromeInventory } from "../../src/domain/types";
 import type {
   ManagerCommand,
@@ -32,19 +39,34 @@ function snapshotsPort(): SnapshotManagerPort {
       return { persistentTabsByGroup: {}, snapshots: [] };
     },
     async save() {
-      return { ok: false, error: { kind: "transport", message: "snapshots unavailable" } };
+      return {
+        ok: false,
+        error: { kind: "transport", message: "snapshots unavailable" }
+      };
     },
     async restore() {
-      return { ok: false, error: { kind: "transport", message: "snapshots unavailable" } };
+      return {
+        ok: false,
+        error: { kind: "transport", message: "snapshots unavailable" }
+      };
     },
     async update() {
-      return { ok: false, error: { kind: "transport", message: "snapshots unavailable" } };
+      return {
+        ok: false,
+        error: { kind: "transport", message: "snapshots unavailable" }
+      };
     },
     async rename() {
-      return { ok: false, error: { kind: "transport", message: "snapshots unavailable" } };
+      return {
+        ok: false,
+        error: { kind: "transport", message: "snapshots unavailable" }
+      };
     },
     async delete() {
-      return { ok: false, error: { kind: "transport", message: "snapshots unavailable" } };
+      return {
+        ok: false,
+        error: { kind: "transport", message: "snapshots unavailable" }
+      };
     }
   };
 }
@@ -52,19 +74,25 @@ function snapshotsPort(): SnapshotManagerPort {
 function diagnosticsPort(): DiagnosticsManagerPort {
   return {
     async query() {
-      return { persistentTabsByGroup: {}, diagnostics: { storage: {
-        syncBytes: 0,
-        syncQuotaBytes: 102400,
-        syncLargestItemBytes: 0,
-        syncQuotaBytesPerItem: 8192,
-        syncItemCount: 0,
-        syncMaxItems: 512,
-        localBytes: 0,
-        localSoftBudgetBytes: 9437184,
-        localQuotaBytes: 10485760,
-        sessionBytes: 0,
-        sessionQuotaBytes: 10485760
-      }, warnings: [] } };
+      return {
+        persistentTabsByGroup: {},
+        diagnostics: {
+          storage: {
+            syncBytes: 0,
+            syncQuotaBytes: 102400,
+            syncLargestItemBytes: 0,
+            syncQuotaBytesPerItem: 8192,
+            syncItemCount: 0,
+            syncMaxItems: 512,
+            localBytes: 0,
+            localSoftBudgetBytes: 9437184,
+            localQuotaBytes: 10485760,
+            sessionBytes: 0,
+            sessionQuotaBytes: 10485760
+          },
+          warnings: []
+        }
+      };
     },
     async recheck() {
       return this.query();
@@ -89,8 +117,12 @@ function setup() {
     () => 2
   );
   let configuration = initial;
-  const save = vi.fn(async (next) => { configuration = next; });
-  const replaceConfiguration = vi.fn(async (next) => { configuration = next; });
+  const save = vi.fn(async (next) => {
+    configuration = next;
+  });
+  const replaceConfiguration = vi.fn(async (next) => {
+    configuration = next;
+  });
   const router = createManagerMessageRouter({
     repository: { save },
     controller: {
@@ -103,7 +135,13 @@ function setup() {
     randomUuid: () => "00000000-0000-4000-8000-000000000003",
     now: () => 3
   });
-  return { router, initial, save, replaceConfiguration, getConfiguration: () => configuration };
+  return {
+    router,
+    initial,
+    save,
+    replaceConfiguration,
+    getConfiguration: () => configuration
+  };
 }
 
 it("returns the validated configuration and shared manager metadata", async () => {
@@ -128,7 +166,9 @@ it("accepts typed group and rule commands and persists exactly once", async () =
   };
   const response = await router.handle(command);
   expect(response.ok).toBe(true);
-  expect(getConfiguration().groups.find((group) => group.id === groupId)?.enabled).toBe(false);
+  expect(
+    getConfiguration().groups.find((group) => group.id === groupId)?.enabled
+  ).toBe(false);
   expect(save).toHaveBeenCalledTimes(1);
   expect(replaceConfiguration).toHaveBeenCalledTimes(1);
 });
@@ -137,7 +177,11 @@ it("rejects invalid ids and references without replacing the last valid configur
   const { router, save, replaceConfiguration, initial } = setup();
   const response = await router.handle({
     kind: "manager-command",
-    command: { kind: "updateGroup", groupId: "not-a-uuid" as never, patch: { name: "Nope" } }
+    command: {
+      kind: "updateGroup",
+      groupId: "not-a-uuid" as never,
+      patch: { name: "Nope" }
+    }
   });
   expect(response).toMatchObject({ ok: false, error: { kind: "validation" } });
   expect(save).not.toHaveBeenCalled();
@@ -150,8 +194,12 @@ it("rejects invalid ids and references without replacing the last valid configur
 it("returns the last valid configuration after a persistence failure", async () => {
   const initial = setup().initial;
   let configuration = initial;
-  const save = vi.fn(async () => { throw new Error("storage unavailable"); });
-  const replaceConfiguration = vi.fn(async (next: typeof initial) => { configuration = next; });
+  const save = vi.fn(async () => {
+    throw new Error("storage unavailable");
+  });
+  const replaceConfiguration = vi.fn(async (next: typeof initial) => {
+    configuration = next;
+  });
   const router = createManagerMessageRouter({
     repository: { save },
     controller: { getConfiguration: () => configuration, replaceConfiguration },
@@ -163,7 +211,11 @@ it("returns the last valid configuration after a persistence failure", async () 
 
   const failed = await router.handle({
     kind: "manager-command",
-    command: { kind: "updateGroup", groupId: groupId as never, patch: { name: "Rejected" } }
+    command: {
+      kind: "updateGroup",
+      groupId: groupId as never,
+      patch: { name: "Rejected" }
+    }
   });
   expect(failed).toMatchObject({ ok: false, error: { kind: "persistence" } });
   expect(replaceConfiguration).not.toHaveBeenCalled();
@@ -192,19 +244,27 @@ it("keeps a durable mutation accepted when post-save reconciliation throws", asy
 
   const response = await router.handle({
     kind: "manager-command",
-    command: { kind: "updateGroup", groupId: groupId as never, patch: { name: "Committed" } }
+    command: {
+      kind: "updateGroup",
+      groupId: groupId as never,
+      patch: { name: "Committed" }
+    }
   });
 
   expect(response).toMatchObject({ ok: true });
   if (response.ok)
-    expect(response.configuration.groups.find((group) => group.id === groupId)?.name).toBe("Committed");
+    expect(
+      response.configuration.groups.find((group) => group.id === groupId)?.name
+    ).toBe("Committed");
   expect(save).toHaveBeenCalledTimes(1);
   expect(replaceConfiguration).toHaveBeenCalledTimes(1);
 
   const query = await router.handle({ kind: "manager-query" });
   expect(query.ok).toBe(true);
   if (query.ok)
-    expect(query.configuration.groups.find((group) => group.id === groupId)?.name).toBe("Committed");
+    expect(
+      query.configuration.groups.find((group) => group.id === groupId)?.name
+    ).toBe("Committed");
 });
 
 it("serializes concurrent mutations against the latest persisted configuration", async () => {
@@ -214,13 +274,18 @@ it("serializes concurrent mutations against the latest persisted configuration",
   const save = vi.fn((next: typeof initial) => {
     if (save.mock.calls.length === 1) {
       return new Promise<void>((resolve) => {
-        releaseFirst = () => { configuration = next; resolve(); };
+        releaseFirst = () => {
+          configuration = next;
+          resolve();
+        };
       });
     }
     configuration = next;
     return Promise.resolve();
   });
-  const replaceConfiguration = vi.fn(async (next: typeof initial) => { configuration = next; });
+  const replaceConfiguration = vi.fn(async (next: typeof initial) => {
+    configuration = next;
+  });
   const router = createManagerMessageRouter({
     repository: { save },
     controller: { getConfiguration: () => configuration, replaceConfiguration },
@@ -231,9 +296,23 @@ it("serializes concurrent mutations against the latest persisted configuration",
     now: () => 3
   });
 
-  const first = router.handle({ kind: "manager-command", command: { kind: "updateGroup", groupId: groupId as never, patch: { name: "First" } } });
+  const first = router.handle({
+    kind: "manager-command",
+    command: {
+      kind: "updateGroup",
+      groupId: groupId as never,
+      patch: { name: "First" }
+    }
+  });
   await Promise.resolve();
-  const second = router.handle({ kind: "manager-command", command: { kind: "updateGroup", groupId: groupId as never, patch: { color: "red" } } });
+  const second = router.handle({
+    kind: "manager-command",
+    command: {
+      kind: "updateGroup",
+      groupId: groupId as never,
+      patch: { color: "red" }
+    }
+  });
   await Promise.resolve();
   releaseFirst();
   await Promise.all([first, second]);
@@ -326,10 +405,22 @@ it("pins a group from live inventory members instead of stale configuration URLs
 
 it("declares all manager commands as one exhaustive typed union", () => {
   const commands: ManagerCommand["command"]["kind"][] = [
-    "updateGroup", "createGroup", "deleteGroup", "saveRule", "duplicateRule",
-    "deleteRule", "setRuleEnabled", "setRulePaused", "undo", "clearActivity",
-    "savePersistentTab", "removePersistent", "reorderPersistentTabs", "pinGroup",
-    "makePersistent", "setRestorePersistentGroups"
+    "updateGroup",
+    "createGroup",
+    "deleteGroup",
+    "saveRule",
+    "duplicateRule",
+    "deleteRule",
+    "setRuleEnabled",
+    "setRulePaused",
+    "undo",
+    "clearActivity",
+    "savePersistentTab",
+    "removePersistent",
+    "reorderPersistentTabs",
+    "pinGroup",
+    "makePersistent",
+    "setRestorePersistentGroups"
   ];
   expect(commands).toHaveLength(16);
 });
@@ -367,6 +458,10 @@ it("keeps typed transport records and failures in the manager contract", () => {
 
   expect(response.ok).toBe(false);
   if (!response.ok)
-    expect(response.error).toMatchObject({ kind: "transport", code: "NO_RESPONSE", field: "runtime" });
+    expect(response.error).toMatchObject({
+      kind: "transport",
+      code: "NO_RESPONSE",
+      field: "runtime"
+    });
   expect(records).toHaveLength(2);
 });

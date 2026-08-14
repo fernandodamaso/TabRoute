@@ -2,11 +2,7 @@ import { createUuid } from "../domain/ids";
 import { isRoutableUrl } from "../chrome/types";
 import { renderGroupTitle } from "../groups/displayTitle";
 import { buildActionPlan } from "../actions/buildActionPlan";
-import type {
-  ActionPlan,
-  PlannedAction,
-  TabRef
-} from "../actions/types";
+import type { ActionPlan, PlannedAction, TabRef } from "../actions/types";
 import type {
   ActionId,
   ChromeAssociation,
@@ -102,7 +98,8 @@ function isInTargetManagedGroup(
   associations: readonly ChromeAssociation[]
 ): boolean {
   return (
-    managedGroupIdForTab(tab, inventory, associations) === definition.managedGroupId
+    managedGroupIdForTab(tab, inventory, associations) ===
+    definition.managedGroupId
   );
 }
 
@@ -163,7 +160,10 @@ export function calculatePersistentRepairs(
   context: RestoreContext,
   homeWindow: number
 ): PersistentRepair[] {
-  const managedGroup = managedGroupFor(context.configuration, definition.managedGroupId);
+  const managedGroup = managedGroupFor(
+    context.configuration,
+    definition.managedGroupId
+  );
   if (
     !managedGroup ||
     !isGroupEligibleForRepair(
@@ -181,7 +181,11 @@ export function calculatePersistentRepairs(
     const url = matchingTab.url ?? "";
     const canonicalMatch =
       url === definition.canonicalUrl ||
-      matchesAcceptedUrl(url, definition.canonicalUrl, definition.acceptedPatterns);
+      matchesAcceptedUrl(
+        url,
+        definition.canonicalUrl,
+        definition.acceptedPatterns
+      );
     const inCorrectGroup = isInTargetManagedGroup(
       matchingTab,
       definition,
@@ -316,7 +320,10 @@ export function planPersistentTabOrdering(
   for (const definition of definitions) {
     const tab = groupTabs.find((candidate) => {
       if (isTabInSharedGroup(candidate, inventory)) return false;
-      return matchesPersistentDefinition(tabSnapshotFromChrome(candidate), definition);
+      return matchesPersistentDefinition(
+        tabSnapshotFromChrome(candidate),
+        definition
+      );
     });
     if (!tab) continue;
     if (tab.index !== targetIndex) {

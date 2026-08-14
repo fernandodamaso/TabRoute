@@ -58,7 +58,10 @@ const ruleAction = z.union([
   z.strictObject({ kind: z.literal("group") }),
   z.strictObject({ kind: z.literal("ungroup") }),
   z.strictObject({ kind: z.literal("makePersistent") }),
-  z.strictObject({ kind: z.literal("setDuplicatePolicy"), policy: duplicatePolicy }),
+  z.strictObject({
+    kind: z.literal("setDuplicatePolicy"),
+    policy: duplicatePolicy
+  }),
   z.strictObject({ kind: z.literal("setCollapsed"), collapsed: z.boolean() })
 ]);
 const managedGroup = z.strictObject({

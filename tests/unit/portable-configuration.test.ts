@@ -15,7 +15,9 @@ describe("portable configuration import/export", () => {
     const parsed = parsePortableConfigurationImport(JSON.parse(exported));
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    expect(validateConfiguration(parsed.configuration)).toEqual(parsed.configuration);
+    expect(validateConfiguration(parsed.configuration)).toEqual(
+      parsed.configuration
+    );
   });
 
   it("rejects mixed sync generation keys", () => {
@@ -50,7 +52,10 @@ describe("portable configuration import/export", () => {
       () => "00000000-0000-4000-8000-000000000001"
     );
     for (const extra of [{ snapshots: [] }, { activity: [] }, { undo: {} }]) {
-      const result = parsePortableConfigurationImport({ ...configuration, ...extra });
+      const result = parsePortableConfigurationImport({
+        ...configuration,
+        ...extra
+      });
       expect(result.ok).toBe(false);
       if (result.ok) return;
       expect(result.code).toBe("IMPORT_NON_PORTABLE");

@@ -12,7 +12,10 @@ export function observeInventory(
   session: RuntimeSession
 ): { inventory: BrowserInventory; session: RuntimeSession } {
   const observations = new Map(
-    session.tabObservations.map((observation) => [observation.tabId, observation])
+    session.tabObservations.map((observation) => [
+      observation.tabId,
+      observation
+    ])
   );
   let nextOrdinal = session.nextObservationOrdinal;
   const sortedForBootstrap = [...raw.tabs].sort((left, right) => {
@@ -59,5 +62,7 @@ export function observationForTab(
   session: RuntimeSession,
   tabId: number
 ): TabObservation | undefined {
-  return session.tabObservations.find((observation) => observation.tabId === tabId);
+  return session.tabObservations.find(
+    (observation) => observation.tabId === tabId
+  );
 }

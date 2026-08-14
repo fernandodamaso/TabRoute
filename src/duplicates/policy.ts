@@ -1,4 +1,9 @@
-import type { DuplicatePolicy, DuplicateSettings, ManagedGroup, Rule } from "../domain/types";
+import type {
+  DuplicatePolicy,
+  DuplicateSettings,
+  ManagedGroup,
+  Rule
+} from "../domain/types";
 
 export function resolveDuplicatePolicy(
   rule: Rule | null,
@@ -15,6 +20,7 @@ export function resolveDuplicatePolicy(
   )?.policy;
   if (rulePolicy) return rulePolicy;
   if (rule?.duplicatePolicy) return rule.duplicatePolicy;
-  if (destinationManaged && group?.duplicatePolicy) return group.duplicatePolicy;
+  if (destinationManaged && group?.duplicatePolicy)
+    return group.duplicatePolicy;
   return global.globalPolicy;
 }

@@ -16,7 +16,11 @@ function groupLabel(timestamp: number): string {
   return date.toLocaleDateString();
 }
 
-export function ActivityPage({ activity, availableUndo, command }: ActivityPageProps) {
+export function ActivityPage({
+  activity,
+  availableUndo,
+  command
+}: ActivityPageProps) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"all" | ActivityEntry["result"]>("all");
   const [confirmClear, setConfirmClear] = useState(false);
@@ -45,7 +49,10 @@ export function ActivityPage({ activity, availableUndo, command }: ActivityPageP
   }, [filtered]);
 
   return (
-    <section aria-label="Activity content" className="manager-page-content activity-page">
+    <section
+      aria-label="Activity content"
+      className="manager-page-content activity-page"
+    >
       <h1 data-page-heading="true">Activity</h1>
       <div className="activity-toolbar">
         <input
@@ -57,9 +64,7 @@ export function ActivityPage({ activity, availableUndo, command }: ActivityPageP
         <select
           aria-label="Filter by status"
           value={status}
-          onChange={(event) =>
-            setStatus(event.target.value as typeof status)
-          }
+          onChange={(event) => setStatus(event.target.value as typeof status)}
         >
           <option value="all">All</option>
           <option value="success">Success</option>

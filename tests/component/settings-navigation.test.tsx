@@ -3,7 +3,11 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
-import type { ManagerMessage, ManagerResponse, ManagerViewMetadata } from "../../src/ui/manager/types";
+import type {
+  ManagerMessage,
+  ManagerResponse,
+  ManagerViewMetadata
+} from "../../src/ui/manager/types";
 import { ManagerApp } from "../../src/ui/manager/ManagerApp";
 import "../../src/ui/manager/manager.css";
 
@@ -61,15 +65,25 @@ function transport() {
 
 it("opens snapshots and diagnostics from settings and returns", async () => {
   const user = userEvent.setup();
-  render(<ManagerApp transport={{ request: transport() }} initialRoute="settings" />);
+  render(
+    <ManagerApp transport={{ request: transport() }} initialRoute="settings" />
+  );
   await screen.findByRole("heading", { name: "Settings" });
   await user.click(screen.getByRole("button", { name: "Snapshots" }));
-  expect(await screen.findByRole("heading", { name: "Snapshots" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Settings" }).getAttribute("aria-current")).toBe("page");
+  expect(
+    await screen.findByRole("heading", { name: "Snapshots" })
+  ).toBeTruthy();
+  expect(
+    screen
+      .getByRole("button", { name: "Settings" })
+      .getAttribute("aria-current")
+  ).toBe("page");
   await user.click(screen.getByRole("button", { name: "Back to Settings" }));
   await screen.findByRole("heading", { name: "Settings" });
   await user.click(screen.getByRole("button", { name: "Diagnostics" }));
-  expect(await screen.findByRole("heading", { name: "Diagnostics" })).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", { name: "Diagnostics" })
+  ).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Back to Settings" }));
   expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
 });
@@ -77,7 +91,9 @@ it("opens snapshots and diagnostics from settings and returns", async () => {
 it("honors settings hash subpanels", async () => {
   window.location.hash = "#settings/snapshots";
   render(<ManagerApp transport={{ request: transport() }} />);
-  expect(await screen.findByRole("heading", { name: "Snapshots" })).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", { name: "Snapshots" })
+  ).toBeTruthy();
   window.location.hash = "";
 });
 
@@ -96,5 +112,7 @@ it("opens settings subpanels from workbench deep links", async () => {
       initialDeepLink="diagnostics"
     />
   );
-  expect(await screen.findByRole("heading", { name: "Diagnostics" })).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", { name: "Diagnostics" })
+  ).toBeTruthy();
 });

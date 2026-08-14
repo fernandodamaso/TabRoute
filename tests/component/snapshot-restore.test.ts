@@ -1,10 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { createFakeChromePort } from "../fakes/fakeChromePort";
-import { createMemoryLocalRepository, LOCAL_SOFT_BUDGET_BYTES } from "../../src/state/localRepository";
+import {
+  createMemoryLocalRepository,
+  LOCAL_SOFT_BUDGET_BYTES
+} from "../../src/state/localRepository";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { createUuid } from "../../src/domain/ids";
-import { restoreSnapshotFromRecord, saveNamedSnapshot } from "../../src/snapshots/snapshotService";
+import {
+  restoreSnapshotFromRecord,
+  saveNamedSnapshot
+} from "../../src/snapshots/snapshotService";
 import type { Snapshot, UUID } from "../../src/domain/types";
 import { observeInventory } from "../../src/duplicates/observations";
 
@@ -109,7 +115,11 @@ describe("snapshot restore component", () => {
     const session = createMemorySessionRepository();
     const originalEstimate = JSON.stringify;
     vi.spyOn(JSON, "stringify").mockImplementation((value) => {
-      if (typeof value === "object" && value && "snapshot" in (value as object)) {
+      if (
+        typeof value === "object" &&
+        value &&
+        "snapshot" in (value as object)
+      ) {
         return "x".repeat(LOCAL_SOFT_BUDGET_BYTES + 1);
       }
       return originalEstimate(value);
@@ -123,12 +133,15 @@ describe("snapshot restore component", () => {
         mutations: fake,
         checkpoints: {
           async captureBefore(plan, inventory) {
-            const { createPreMutationCheckpointService } = await import(
-              "../../src/snapshots/checkpointService"
-            );
+            const { createPreMutationCheckpointService } =
+              await import("../../src/snapshots/checkpointService");
             await createPreMutationCheckpointService({
               local,
-              captureContext: async () => ({ configuration, ownership: {}, associations: [] })
+              captureContext: async () => ({
+                configuration,
+                ownership: {},
+                associations: []
+              })
             }).captureBefore(plan, inventory);
           }
         },
@@ -174,7 +187,14 @@ describe("snapshot restore component", () => {
       ]
     });
     const raw = {
-      windows: [{ id: 1, focused: true, incognito: false as const, type: "normal" as const }],
+      windows: [
+        {
+          id: 1,
+          focused: true,
+          incognito: false as const,
+          type: "normal" as const
+        }
+      ],
       tabs: [],
       groups: [],
       capturedAt: 1
@@ -190,7 +210,11 @@ describe("snapshot restore component", () => {
     });
     expect(result.ok).toBe(true);
     const snapshots = await local.listSnapshots();
-    expect(snapshots.some((snapshot) => snapshot.id === automaticId)).toBe(false);
-    expect(snapshots.filter((snapshot) => snapshot.kind === "named")).toHaveLength(50);
+    expect(snapshots.some((snapshot) => snapshot.id === automaticId)).toBe(
+      false
+    );
+    expect(
+      snapshots.filter((snapshot) => snapshot.kind === "named")
+    ).toHaveLength(50);
   });
 });

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { createUuid } from "../../src/domain/ids";
-import { createMemoryLocalRepository, LOCAL_SOFT_BUDGET_BYTES } from "../../src/state/localRepository";
+import {
+  createMemoryLocalRepository,
+  LOCAL_SOFT_BUDGET_BYTES
+} from "../../src/state/localRepository";
 import { createPreMutationCheckpointService } from "../../src/snapshots/checkpointService";
 import { buildActionPlan } from "../../src/actions/buildActionPlan";
 import type { ActionId } from "../../src/domain/types";
@@ -14,10 +17,21 @@ describe("checkpoint service", () => {
     const configuration = createDefaultConfiguration(() => createUuid());
     const checkpoint = createPreMutationCheckpointService({
       local,
-      captureContext: async () => ({ configuration, ownership: {}, associations: [] })
+      captureContext: async () => ({
+        configuration,
+        ownership: {},
+        associations: []
+      })
     });
     const raw = {
-      windows: [{ id: 1, focused: true, incognito: false as const, type: "normal" as const }],
+      windows: [
+        {
+          id: 1,
+          focused: true,
+          incognito: false as const,
+          type: "normal" as const
+        }
+      ],
       tabs: [],
       groups: [],
       capturedAt: 1
@@ -40,12 +54,27 @@ describe("checkpoint service", () => {
   it("rejects CHECKPOINT_FAILED before any mutation", async () => {
     const local = createMemoryLocalRepository();
     Object.defineProperty(local.bags, "snapshots", {
-      value: [{ schemaVersion: 1, id: createUuid(), name: "big", kind: "automatic", scope: { kind: "browser" }, groups: [], createdAt: 1, updatedAt: 1 }],
+      value: [
+        {
+          schemaVersion: 1,
+          id: createUuid(),
+          name: "big",
+          kind: "automatic",
+          scope: { kind: "browser" },
+          groups: [],
+          createdAt: 1,
+          updatedAt: 1
+        }
+      ],
       writable: true
     });
     const originalEstimate = JSON.stringify;
     vi.spyOn(JSON, "stringify").mockImplementation((value) => {
-      if (typeof value === "object" && value && "snapshot" in (value as object)) {
+      if (
+        typeof value === "object" &&
+        value &&
+        "snapshot" in (value as object)
+      ) {
         return "x".repeat(LOCAL_SOFT_BUDGET_BYTES + 1);
       }
       return originalEstimate(value);
@@ -53,10 +82,21 @@ describe("checkpoint service", () => {
     const configuration = createDefaultConfiguration(() => createUuid());
     const checkpoint = createPreMutationCheckpointService({
       local,
-      captureContext: async () => ({ configuration, ownership: {}, associations: [] })
+      captureContext: async () => ({
+        configuration,
+        ownership: {},
+        associations: []
+      })
     });
     const raw = {
-      windows: [{ id: 1, focused: true, incognito: false as const, type: "normal" as const }],
+      windows: [
+        {
+          id: 1,
+          focused: true,
+          incognito: false as const,
+          type: "normal" as const
+        }
+      ],
       tabs: [],
       groups: [],
       capturedAt: 1

@@ -32,9 +32,13 @@ it("renders snapshots and confirms restore", async () => {
   );
   expect(screen.getByRole("heading", { name: "Snapshots" })).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Restore" }));
-  expect(screen.getByRole("dialog", { name: "Restore snapshot?" })).toBeTruthy();
+  expect(
+    screen.getByRole("dialog", { name: "Restore snapshot?" })
+  ).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Cancel" }));
-  expect(screen.queryByRole("dialog", { name: "Restore snapshot?" })).toBeNull();
+  expect(
+    screen.queryByRole("dialog", { name: "Restore snapshot?" })
+  ).toBeNull();
   await user.click(screen.getByRole("button", { name: "Restore" }));
   const dialog = screen.getByRole("dialog", { name: "Restore snapshot?" });
   await user.click(within(dialog).getByRole("button", { name: "Restore" }));
@@ -56,7 +60,10 @@ it("renames without a destructive dialog", async () => {
   );
   await user.click(screen.getByRole("button", { name: "Rename" }));
   await user.clear(screen.getByRole("textbox", { name: "Rename Morning" }));
-  await user.type(screen.getByRole("textbox", { name: "Rename Morning" }), "Evening");
+  await user.type(
+    screen.getByRole("textbox", { name: "Rename Morning" }),
+    "Evening"
+  );
   await user.click(screen.getByRole("button", { name: "Save name" }));
   expect(command).toHaveBeenCalledWith({
     kind: "renameSnapshot",
@@ -78,14 +85,18 @@ it("confirms update and delete actions", async () => {
   );
   await user.click(screen.getByRole("button", { name: "Update" }));
   const updateDialog = screen.getByRole("dialog", { name: "Update snapshot?" });
-  await user.click(within(updateDialog).getByRole("button", { name: "Update" }));
+  await user.click(
+    within(updateDialog).getByRole("button", { name: "Update" })
+  );
   expect(command).toHaveBeenCalledWith({
     kind: "updateSnapshot",
     snapshotId: snapshot.id
   });
   await user.click(screen.getByRole("button", { name: "Delete" }));
   const deleteDialog = screen.getByRole("dialog", { name: "Delete snapshot?" });
-  await user.click(within(deleteDialog).getByRole("button", { name: "Delete" }));
+  await user.click(
+    within(deleteDialog).getByRole("button", { name: "Delete" })
+  );
   expect(command).toHaveBeenCalledWith({
     kind: "deleteSnapshot",
     snapshotId: snapshot.id
@@ -113,8 +124,16 @@ it("scrolls only the snapshots list body", () => {
     name: `Snapshot ${index}`
   }));
   const { container } = render(
-    <ManagerShell route="settings" settingsPanel="snapshots" onRouteChange={() => undefined}>
-      <SnapshotsPage snapshots={many} command={async () => undefined} onBack={() => undefined} />
+    <ManagerShell
+      route="settings"
+      settingsPanel="snapshots"
+      onRouteChange={() => undefined}
+    >
+      <SnapshotsPage
+        snapshots={many}
+        command={async () => undefined}
+        onBack={() => undefined}
+      />
     </ManagerShell>
   );
   const main = container.querySelector("main.route-settings-snapshots")!;
@@ -124,8 +143,12 @@ it("scrolls only the snapshots list body", () => {
   expect(main.classList.contains("route-settings-snapshots")).toBe(true);
   expect(scrollBody.contains(heading)).toBe(false);
   expect(page.contains(container.querySelector(".snapshots-back"))).toBe(true);
-  expect(page.contains(container.querySelector(".snapshots-toolbar"))).toBe(true);
+  expect(page.contains(container.querySelector(".snapshots-toolbar"))).toBe(
+    true
+  );
   expect(scrollBody.querySelectorAll(".snapshot-row")).toHaveLength(30);
-  expect(page.querySelector(".snapshots-toolbar")?.nextElementSibling).toBe(scrollBody);
+  expect(page.querySelector(".snapshots-toolbar")?.nextElementSibling).toBe(
+    scrollBody
+  );
   style.remove();
 });

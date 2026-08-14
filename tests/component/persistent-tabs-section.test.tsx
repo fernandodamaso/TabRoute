@@ -3,7 +3,12 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
-import type { Configuration, ManagedGroup, PersistentTab, UUID } from "../../src/domain/types";
+import type {
+  Configuration,
+  ManagedGroup,
+  PersistentTab,
+  UUID
+} from "../../src/domain/types";
 import { GroupInspector } from "../../src/ui/manager/groups/GroupInspector";
 import type { ManagerResponse } from "../../src/ui/manager/types";
 
@@ -61,7 +66,9 @@ describe("PersistentTabsSection", () => {
       />
     );
     expect(screen.getByText("docs.example.com")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Remove docs.example.com" }));
+    await user.click(
+      screen.getByRole("button", { name: "Remove docs.example.com" })
+    );
     expect(command).toHaveBeenCalledWith({
       kind: "manager-command",
       command: { kind: "removePersistent", persistentTabId: persistentTab.id }

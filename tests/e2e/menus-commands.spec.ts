@@ -114,7 +114,8 @@ test("registers page, tab, and group menu IDs in an isolated profile", async () 
 });
 
 test("worker restart re-registers stable menu IDs", async () => {
-  const { session, profilePath } = await launchProductionSession("menus-restart");
+  const { session, profilePath } =
+    await launchProductionSession("menus-restart");
   try {
     const options = await awakenWorker(session);
     expect(await menuUpdateSucceeds(session, "tabroute:create-rule")).toEqual({
@@ -125,7 +126,9 @@ test("worker restart re-registers stable menu IDs", async () => {
       ok: true
     });
     const worker = await waitForWorker(session);
-    const commands = await worker.evaluate(async () => chrome.commands.getAll());
+    const commands = await worker.evaluate(async () =>
+      chrome.commands.getAll()
+    );
     expect(
       commands
         .map((command) => command.name)

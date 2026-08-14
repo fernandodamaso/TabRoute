@@ -10,19 +10,29 @@ export interface BuildOutput {
   buildPath: string;
 }
 
-export function resolveBuildOutput(worktreePath: string, runId: string, graph: BuildGraph): BuildOutput {
+export function resolveBuildOutput(
+  worktreePath: string,
+  runId: string,
+  graph: BuildGraph
+): BuildOutput {
   const worktree = path.resolve(worktreePath);
   const outDir = path.join(worktree, ".workbench", "tmp", runId, graph);
   const buildPath = path.join(outDir, "chrome-mv3");
   return { graph, outDir, buildPath };
 }
 
-function resolveWxtInvocation(worktree: string): { command: string; prefixArgs: string[] } {
+function resolveWxtInvocation(worktree: string): {
+  command: string;
+  prefixArgs: string[];
+} {
   const wxtMjs = path.join(worktree, "node_modules", "wxt", "bin", "wxt.mjs");
   return { command: process.execPath, prefixArgs: [wxtMjs] };
 }
 
-function runCommand(args: readonly string[], options: { cwd: string; env: Record<string, string | undefined> }): Promise<void> {
+function runCommand(
+  args: readonly string[],
+  options: { cwd: string; env: Record<string, string | undefined> }
+): Promise<void> {
   const { command, prefixArgs } = resolveWxtInvocation(options.cwd);
   return new Promise((resolve, reject) => {
     const child = spawn(command, [...prefixArgs, ...args], {
@@ -34,7 +44,10 @@ function runCommand(args: readonly string[], options: { cwd: string; env: Record
     child.once("error", reject);
     child.once("exit", (code, signal) => {
       if (code === 0) resolve();
-      else reject(new Error(`wxt exited with ${signal ?? code ?? "unknown status"}`));
+      else
+        reject(
+          new Error(`wxt exited with ${signal ?? code ?? "unknown status"}`)
+        );
     });
   });
 }
@@ -46,7 +59,8 @@ export async function buildExtension(input: {
 }): Promise<BuildOutput> {
   const cwd = path.resolve(process.cwd());
   const worktree = path.resolve(input.worktreePath);
-  if (worktree !== cwd) throw new Error("WORKBENCH_ARGUMENT: worktree must match process.cwd()");
+  if (worktree !== cwd)
+    throw new Error("WORKBENCH_ARGUMENT: worktree must match process.cwd()");
   const output = resolveBuildOutput(worktree, input.runId, input.graph);
   await runCommand(["build", "-b", "chrome"], {
     cwd: worktree,

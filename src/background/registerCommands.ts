@@ -60,10 +60,7 @@ async function handleCommand(
     host
   );
   if (!command) return;
-  if (
-    command.kind === "saveSnapshot" &&
-    menuContext.checkpointInFlight
-  ) {
+  if (command.kind === "saveSnapshot" && menuContext.checkpointInFlight) {
     return;
   }
   if (

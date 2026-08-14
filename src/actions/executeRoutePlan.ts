@@ -9,7 +9,10 @@ import type {
   UUID
 } from "../domain/types";
 import { appendActivityEntry } from "../activity/activityRepository";
-import { createActivityEntry, type LocalRepository } from "../state/localRepository";
+import {
+  createActivityEntry,
+  type LocalRepository
+} from "../state/localRepository";
 import type { Configuration } from "../domain/types";
 import type { SessionRepository } from "../state/sessionRepository";
 import {
@@ -151,7 +154,8 @@ export async function executeRoutePlan(
 ): Promise<RouteResult> {
   const now = deps.now?.() ?? Date.now();
   const createId = deps.createId ?? createUuid;
-  const delay = deps.delay ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const delay =
+    deps.delay ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
   const actionId = createId() as unknown as ActionId;
   const chrome = deps.chrome;
 
@@ -163,7 +167,13 @@ export async function executeRoutePlan(
   const onRetry = () => {
     retryEntries.push(recordRouteActivity(deps, plan, "retry"));
   };
-  const executingGuard = await saveExecutingGuard(deps, plan, actionId, now, createId);
+  const executingGuard = await saveExecutingGuard(
+    deps,
+    plan,
+    actionId,
+    now,
+    createId
+  );
   let expectedChromeGroupId =
     plan.kind === "routeToGroup" && plan.groupInput.kind === "existing"
       ? plan.groupInput.chromeGroupId
@@ -181,7 +191,9 @@ export async function executeRoutePlan(
     return inventory;
   }
 
-  function shouldAbortRetry(refreshed: unknown): "gone" | "contradiction" | undefined {
+  function shouldAbortRetry(
+    refreshed: unknown
+  ): "gone" | "contradiction" | undefined {
     const inventory = refreshed as ChromeInventory;
     const subject = findTab(inventory, verifyTabId);
     if (!subject) return "gone";
@@ -252,7 +264,9 @@ export async function executeRoutePlan(
     if (!verifiedTab || verifiedTab.chromeGroupId !== chromeGroupId)
       throw new Error("Action Engine postcondition failed");
     const verifiedAt = deps.now?.() ?? Date.now();
-    await moveGuardToSettling(deps, executingGuard.id, verifiedAt, [chromeGroupId]);
+    await moveGuardToSettling(deps, executingGuard.id, verifiedAt, [
+      chromeGroupId
+    ]);
     await Promise.all(retryEntries);
     await recordRouteActivity(deps, plan, "success");
     return { kind: "executed", chromeGroupId, inventory: verified };

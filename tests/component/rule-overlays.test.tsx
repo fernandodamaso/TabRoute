@@ -5,16 +5,48 @@ import { expect, it, vi } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { RulesOverview } from "../../src/ui/manager/rules/RulesOverview";
 import type { Configuration, UUID } from "../../src/domain/types";
-import type { ManagerCommand, ManagerResponse } from "../../src/ui/manager/types";
+import type {
+  ManagerCommand,
+  ManagerResponse
+} from "../../src/ui/manager/types";
 
 function config(): Configuration {
   const fallbackId = "00000000-0000-4000-8000-000000000001" as UUID;
-  return { ...createDefaultConfiguration(() => fallbackId), rules: [{ schemaVersion: 1, id: "00000000-0000-4000-8000-000000000010" as UUID, targetGroupId: fallbackId, priority: 1, positive: { kind: "host", operator: "exact", value: "example.com" }, negative: [], actions: [{ kind: "group" }], enabled: true, createdAt: 1, updatedAt: 1 }] };
+  return {
+    ...createDefaultConfiguration(() => fallbackId),
+    rules: [
+      {
+        schemaVersion: 1,
+        id: "00000000-0000-4000-8000-000000000010" as UUID,
+        targetGroupId: fallbackId,
+        priority: 1,
+        positive: { kind: "host", operator: "exact", value: "example.com" },
+        negative: [],
+        actions: [{ kind: "group" }],
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1
+      }
+    ]
+  };
 }
 
 it("cancels delete without a command and confirms once with focus restoration", async () => {
   const user = userEvent.setup();
-  const command = vi.fn(async (_message: ManagerCommand): Promise<ManagerResponse> => ({ ok: true, configuration: config(), view: { width: 520, height: 600, headerHeight: 52, navigationHeight: 42, defaultRoute: "groups", routes: ["groups", "rules", "activity", "settings"] } }));
+  const command = vi.fn(
+    async (_message: ManagerCommand): Promise<ManagerResponse> => ({
+      ok: true,
+      configuration: config(),
+      view: {
+        width: 520,
+        height: 600,
+        headerHeight: 52,
+        navigationHeight: 42,
+        defaultRoute: "groups",
+        routes: ["groups", "rules", "activity", "settings"]
+      }
+    })
+  );
   render(<RulesOverview configuration={config()} command={command} />);
   const trigger = screen.getByRole("button", { name: /Rule actions/ });
   await user.click(trigger);
@@ -35,7 +67,20 @@ it("cancels delete without a command and confirms once with focus restoration", 
 
 it("roves menu focus and traps dialog focus at both ends", async () => {
   const user = userEvent.setup();
-  const command = vi.fn(async (_message: ManagerCommand): Promise<ManagerResponse> => ({ ok: true, configuration: config(), view: { width: 520, height: 600, headerHeight: 52, navigationHeight: 42, defaultRoute: "groups", routes: ["groups", "rules", "activity", "settings"] } }));
+  const command = vi.fn(
+    async (_message: ManagerCommand): Promise<ManagerResponse> => ({
+      ok: true,
+      configuration: config(),
+      view: {
+        width: 520,
+        height: 600,
+        headerHeight: 52,
+        navigationHeight: 42,
+        defaultRoute: "groups",
+        routes: ["groups", "rules", "activity", "settings"]
+      }
+    })
+  );
   render(<RulesOverview configuration={config()} command={command} />);
   const trigger = screen.getByRole("button", { name: /Rule actions/ });
   await user.click(trigger);

@@ -152,17 +152,17 @@ Rule Engine ------> Duplicate Resolver ------> Persistent-tab Reconciler
 
 ### 3.1 Component responsibilities
 
-| Component | Responsibility | May call Chrome mutation APIs? |
-|---|---|---:|
-| Event Intake | Converts Chrome events into deduplicated reconciliation requests. | No |
-| Tab State Controller | Loads durable state, owns the queue, resolves runtime associations, applies session overrides. | No |
-| Rule Engine | Pure evaluation of a tab snapshot against rules and target selection. | No |
-| Duplicate Resolver | Pure candidate/key calculation and survivor selection. | No |
-| Persistent-tab Reconciler | Detects missing/moved/navigated persistent definitions and requests repairs. | No |
-| Tab Action Engine | Plans, executes, verifies, compensates, and records group/tab mutations. | Yes, exclusively |
-| Snapshot Service | Captures/restores local snapshots through the controller. | Requests only |
-| UI adapters | Render state and issue explicit user commands. | No |
-| Activity/Undo Service | Persists bounded action records and inverse operations. | No |
+| Component                 | Responsibility                                                                                 | May call Chrome mutation APIs? |
+| ------------------------- | ---------------------------------------------------------------------------------------------- | -----------------------------: |
+| Event Intake              | Converts Chrome events into deduplicated reconciliation requests.                              |                             No |
+| Tab State Controller      | Loads durable state, owns the queue, resolves runtime associations, applies session overrides. |                             No |
+| Rule Engine               | Pure evaluation of a tab snapshot against rules and target selection.                          |                             No |
+| Duplicate Resolver        | Pure candidate/key calculation and survivor selection.                                         |                             No |
+| Persistent-tab Reconciler | Detects missing/moved/navigated persistent definitions and requests repairs.                   |                             No |
+| Tab Action Engine         | Plans, executes, verifies, compensates, and records group/tab mutations.                       |               Yes, exclusively |
+| Snapshot Service          | Captures/restores local snapshots through the controller.                                      |                  Requests only |
+| UI adapters               | Render state and issue explicit user commands.                                                 |                             No |
+| Activity/Undo Service     | Persists bounded action records and inverse operations.                                        |                             No |
 
 The background service worker is event-driven and can stop at any time. In-memory maps are caches only. On every wake, the controller reloads durable configuration and session state, reconciles current Chrome inventory, then processes pending work. No UI code may call `chrome.tabs.group`, `chrome.tabs.move`, `chrome.tabs.ungroup`, `chrome.tabs.remove`, or `chrome.tabGroups.update` directly.
 
@@ -185,18 +185,18 @@ Rule and settings changes begin at step 4 with all current normal tabs as the re
 
 All versioned records include `schemaVersion`, `id` where applicable, `createdAt`, and `updatedAt`. A startup validator rejects malformed records, retains the last valid configuration, and logs the actionable error locally.
 
-| Record | Essential fields | Storage |
-|---|---|---|
-| `ManagedGroup` | UUID, name, emoji, color, enabled flag, fallback flag, persistent flag, duplicate override, default order/collapse | Sync for portable configuration; actual home/order/collapse observations are Local |
-| `Rule` | UUID, target group UUID, priority, positive/negative ASTs, action set, duplicate override, pause state | Sync |
-| `PersistentTab` | UUID, group UUID, canonical URL, accepted patterns, manual persistent-order key | Sync |
-| `DuplicateSettings` | global default, global exclusions, normalization options | Sync |
-| `Template` | UUID, group blueprint, cloned rule/persistent-tab definitions | Sync |
-| `Snapshot` | UUID, name, scope, captured groups/tabs/ownership descriptors | Local only |
-| `ActivityEntry` | action, result, affected IDs/URLs, timestamp, error code when any | Local only, automatically trimmed |
-| `UndoRecord` | typed inverse payload, browser-session token, expiry, pre-action ephemeral association hints | Local only, automatically expires |
-| `RuntimeSession` | browser-session token, manual overrides, intentional closed-group UUIDs, pause-until-restart flags, lifecycle action guards, pending group/window closures, pending Sync revision, live associations, tab observations, startup coordination, prefilled rule-draft records | `storage.session` |
-| `ChromeAssociation` | managed group UUID to current tabGroup ID/window ID, observed Chrome group metadata | `storage.session`; rebuilt every browser session |
+| Record              | Essential fields                                                                                                                                                                                                                                                           | Storage                                                                            |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `ManagedGroup`      | UUID, name, emoji, color, enabled flag, fallback flag, persistent flag, duplicate override, default order/collapse                                                                                                                                                         | Sync for portable configuration; actual home/order/collapse observations are Local |
+| `Rule`              | UUID, target group UUID, priority, positive/negative ASTs, action set, duplicate override, pause state                                                                                                                                                                     | Sync                                                                               |
+| `PersistentTab`     | UUID, group UUID, canonical URL, accepted patterns, manual persistent-order key                                                                                                                                                                                            | Sync                                                                               |
+| `DuplicateSettings` | global default, global exclusions, normalization options                                                                                                                                                                                                                   | Sync                                                                               |
+| `Template`          | UUID, group blueprint, cloned rule/persistent-tab definitions                                                                                                                                                                                                              | Sync                                                                               |
+| `Snapshot`          | UUID, name, scope, captured groups/tabs/ownership descriptors                                                                                                                                                                                                              | Local only                                                                         |
+| `ActivityEntry`     | action, result, affected IDs/URLs, timestamp, error code when any                                                                                                                                                                                                          | Local only, automatically trimmed                                                  |
+| `UndoRecord`        | typed inverse payload, browser-session token, expiry, pre-action ephemeral association hints                                                                                                                                                                               | Local only, automatically expires                                                  |
+| `RuntimeSession`    | browser-session token, manual overrides, intentional closed-group UUIDs, pause-until-restart flags, lifecycle action guards, pending group/window closures, pending Sync revision, live associations, tab observations, startup coordination, prefilled rule-draft records | `storage.session`                                                                  |
+| `ChromeAssociation` | managed group UUID to current tabGroup ID/window ID, observed Chrome group metadata                                                                                                                                                                                        | `storage.session`; rebuilt every browser session                                   |
 
 `chrome.storage.sync` stores only portable configuration and never snapshots, activity logs, Undo records, raw tab inventories, or session IDs. It uses immutable, versioned generations rather than one `config:v1` item. Each generation has bounded shard items named `config:v1:revision:<revisionId>:<index>` and one `config:v1:head` record containing the revision ID, ordered shard keys/count, canonical-configuration SHA-256, schema version, and update timestamp. A save serializes and validates the complete configuration, splits it so the measured JSON value plus key is at most 7,600 bytes (safely below Chrome's 8,192-byte per-item maximum), and preflights the final generation plus head against the 102,400-byte total and 512-item limits. When old and new generations fit together, it stages the new one before cleanup. When they do not, it first confirms the old complete revision in `config-shadow:v1`, removes the old Sync shards, and performs a single-generation rollover; during that interval the old head is intentionally invalid and every client remains on its own last-valid shadow. In both modes it writes all new shards, reads and validates them, then publishes the head pointer last. Only after the head validates does it update the Local shadow; obsolete generations are best-effort cleanup. Loading never mixes revision IDs. An absent, incomplete, oversized, checksum-invalid, or schema-invalid head remains unapplied and the last-valid Local shadow continues to serve.
 
@@ -208,19 +208,19 @@ No Chrome `tabId`, `groupId`, or `windowId` is persisted as identity. In particu
 
 ## 5. Failure handling and recovery
 
-| Condition | v1 behavior |
-|---|---|
-| Tab/group disappears between read and action | Re-read inventory; if absent, treat action as satisfied or discard it without error notification. |
+| Condition                                            | v1 behavior                                                                                                                                                                                                                        |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tab/group disappears between read and action         | Re-read inventory; if absent, treat action as satisfied or discard it without error notification.                                                                                                                                  |
 | User drags while a mutation is attempted or settling | Do not fight the drag. A fresh-state contradiction retires the echo guard and preserves the manual result; transient edit collisions retry the idempotent action with bounded exponential backoff, then stop after three failures. |
-| Service worker restarts mid-operation | Recover state from storage, verify Chrome inventory, and recompute rather than resuming a stale raw action. |
-| Incomplete/invalid remote Sync generation | Do not change active configuration. Keep the last-valid Local shadow, record the pending/error state, and retry only when another relevant Sync change or named recovery alarm arrives. |
-| Sync per-item/total/item-count or network failure | Reject before publishing the head, preserve the last-valid Local shadow and the prior Sync generation when space permits, log exact diagnostics, and retry bounded/debounced writes without applying partial data. |
-| Local checkpoint capacity | Prune only eligible automatic/history records within the soft budget. If the replacement checkpoint alone cannot fit, return `CHECKPOINT_CAPACITY` and perform no destructive mutation. |
-| Invalid rule/pattern or incompatible action | Reject before persistence, preserve prior valid state, display the field error in settings, and write an activity error. |
-| Closed persistent group during session | Preserve the intentional-close marker; do not repair it before Chrome restart. |
-| Duplicate closure fails | Keep both tabs, log the failure, and never close a survivor as compensation. |
-| Undo expiry or unavailable original window/group | Reopen/move into the current applicable group or `Other`; log the degraded Undo result. |
-| No eligible normal window on restore | Defer restoration until one appears; never create an incognito or popup-window group. |
+| Service worker restarts mid-operation                | Recover state from storage, verify Chrome inventory, and recompute rather than resuming a stale raw action.                                                                                                                        |
+| Incomplete/invalid remote Sync generation            | Do not change active configuration. Keep the last-valid Local shadow, record the pending/error state, and retry only when another relevant Sync change or named recovery alarm arrives.                                            |
+| Sync per-item/total/item-count or network failure    | Reject before publishing the head, preserve the last-valid Local shadow and the prior Sync generation when space permits, log exact diagnostics, and retry bounded/debounced writes without applying partial data.                 |
+| Local checkpoint capacity                            | Prune only eligible automatic/history records within the soft budget. If the replacement checkpoint alone cannot fit, return `CHECKPOINT_CAPACITY` and perform no destructive mutation.                                            |
+| Invalid rule/pattern or incompatible action          | Reject before persistence, preserve prior valid state, display the field error in settings, and write an activity error.                                                                                                           |
+| Closed persistent group during session               | Preserve the intentional-close marker; do not repair it before Chrome restart.                                                                                                                                                     |
+| Duplicate closure fails                              | Keep both tabs, log the failure, and never close a survivor as compensation.                                                                                                                                                       |
+| Undo expiry or unavailable original window/group     | Reopen/move into the current applicable group or `Other`; log the degraded Undo result.                                                                                                                                            |
+| No eligible normal window on restore                 | Defer restoration until one appears; never create an incognito or popup-window group.                                                                                                                                              |
 
 Automatic actions are not retried indefinitely. Errors are visible in local activity and settings, never via notifications. Every mutation has an operation guard so Chrome's resulting events are reconciled rather than misclassified as a manual override.
 
@@ -272,13 +272,13 @@ The project skill is a mandatory operating guide: it requires the relevant notes
 
 Testing is layered so pure logic does not depend on Chrome and browser behavior is proven in a real extension host.
 
-| Layer | Focus | Required v1 cases |
-|---|---|---|
-| Unit | AST evaluation, priority/specificity, duplicate keys/survivor, persistent requirements, storage validation | recursive engine AND/OR; flat-editor positives/negatives; tie-breaks; all duplicate policies; manual override; invalid regex; persistent navigation |
-| Component | controller/action plans using a fake Chrome port | event coalescing; multi-event guards; Sync generation/remote change; routability; replacement transfer/GC; retry; group recreation; intentional close; Undo; byte quota errors |
-| Browser integration | unpacked MV3 extension in Chrome test profile | actual group create/move/collapse, manual persistent-group cross-window drag, cross-window duplicate focus/closure, context menus, commands, worker wake/restart |
-| End-to-end | clean profile and restored profile | startup settle/reuse/missing restore, `WINDOW_ID_NONE` focus sequence, window-close semantics, deleted-group snapshot rejection, shared-group hold, window-home resolution/fallback, snapshot restore, no incognito mutation |
-| Manual release checks | Chrome UI behavior and permissions | shared-manager accessibility, emoji titles, user drag wins until restart, no notifications, log visibility |
+| Layer                 | Focus                                                                                                      | Required v1 cases                                                                                                                                                                                                            |
+| --------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unit                  | AST evaluation, priority/specificity, duplicate keys/survivor, persistent requirements, storage validation | recursive engine AND/OR; flat-editor positives/negatives; tie-breaks; all duplicate policies; manual override; invalid regex; persistent navigation                                                                          |
+| Component             | controller/action plans using a fake Chrome port                                                           | event coalescing; multi-event guards; Sync generation/remote change; routability; replacement transfer/GC; retry; group recreation; intentional close; Undo; byte quota errors                                               |
+| Browser integration   | unpacked MV3 extension in Chrome test profile                                                              | actual group create/move/collapse, manual persistent-group cross-window drag, cross-window duplicate focus/closure, context menus, commands, worker wake/restart                                                             |
+| End-to-end            | clean profile and restored profile                                                                         | startup settle/reuse/missing restore, `WINDOW_ID_NONE` focus sequence, window-close semantics, deleted-group snapshot rejection, shared-group hold, window-home resolution/fallback, snapshot restore, no incognito mutation |
+| Manual release checks | Chrome UI behavior and permissions                                                                         | shared-manager accessibility, emoji titles, user drag wins until restart, no notifications, log visibility                                                                                                                   |
 
 The acceptance matrix must demonstrate these invariants before v1 is considered complete:
 

@@ -88,7 +88,11 @@ export type PlannedAction =
   | (ActionBase & {
       kind: "updateManagedGroup";
       managedGroupId: import("../domain/types").UUID;
-      patch: { title?: string; color?: RouteToGroupPlan["color"]; collapsed?: boolean };
+      patch: {
+        title?: string;
+        color?: RouteToGroupPlan["color"];
+        collapsed?: boolean;
+      };
     })
   | (ActionBase & {
       kind: "moveManagedGroup";
@@ -114,12 +118,7 @@ export type PlannedAction =
     });
 
 export type ActionPlanSource =
-  | "reconcile"
-  | "user"
-  | "undo"
-  | "snapshot"
-  | "startup"
-  | "duplicate";
+  "reconcile" | "user" | "undo" | "snapshot" | "startup" | "duplicate";
 
 export interface ActionPlan {
   id: import("../domain/types").ActionId;

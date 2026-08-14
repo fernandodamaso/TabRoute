@@ -5,7 +5,11 @@ import type {
   RecentlyClosedTab
 } from "../domain/types";
 
-export type { ChromeInventory, ChromeTabSnapshot, RecentlyClosedTab } from "../domain/types";
+export type {
+  ChromeInventory,
+  ChromeTabSnapshot,
+  RecentlyClosedTab
+} from "../domain/types";
 
 export type GroupTabsInput =
   | { kind: "create"; tabIds: readonly [number, ...number[]]; windowId: number }

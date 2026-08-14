@@ -22,8 +22,10 @@ export function buildDiagnosticsWarnings(input: {
   if (input.offline) warnings.push("OFFLINE");
   if (input.pendingSyncRevision) warnings.push("SYNC_INCOMPLETE");
   else if (input.syncInvalid) warnings.push("SYNC_INVALID");
-  if (input.storage.syncBytes > input.storage.syncQuotaBytes) warnings.push("SYNC_QUOTA");
-  if (input.storage.localBytes > input.storage.localSoftBudgetBytes) warnings.push("LOCAL_BUDGET");
+  if (input.storage.syncBytes > input.storage.syncQuotaBytes)
+    warnings.push("SYNC_QUOTA");
+  if (input.storage.localBytes > input.storage.localSoftBudgetBytes)
+    warnings.push("LOCAL_BUDGET");
   return warnings;
 }
 

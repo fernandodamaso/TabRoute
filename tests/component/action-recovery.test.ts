@@ -3,7 +3,10 @@ import {
   executeRoutePlan,
   settleGuardsFromSession
 } from "../../src/actions/executeRoutePlan";
-import { GUARD_HARD_MS, GUARD_QUIET_MS } from "../../src/actions/operationGuards";
+import {
+  GUARD_HARD_MS,
+  GUARD_QUIET_MS
+} from "../../src/actions/operationGuards";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
 import { createFakeChromePort } from "../fakes/fakeChromePort";
@@ -221,7 +224,12 @@ describe("action recovery with operation guards", () => {
           kind: "routeToFallback",
           tab: tab(),
           managedGroupId: fallback.id,
-          groupInput: { kind: "existing", tabIds: [7], chromeGroupId: 11, windowId: 1 },
+          groupInput: {
+            kind: "existing",
+            tabIds: [7],
+            chromeGroupId: 11,
+            windowId: 1
+          },
           title: "Other",
           color: "grey"
         },

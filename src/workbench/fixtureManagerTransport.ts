@@ -1,4 +1,9 @@
-import { createManagerMessageRouter, createFixtureActivityManagerPort, createFixtureDiagnosticsManagerPort, createFixtureSnapshotManagerPort } from "../background/managerMessageRouter";
+import {
+  createManagerMessageRouter,
+  createFixtureActivityManagerPort,
+  createFixtureDiagnosticsManagerPort,
+  createFixtureSnapshotManagerPort
+} from "../background/managerMessageRouter";
 import { validateConfiguration } from "../domain/schemas";
 import type { Configuration } from "../domain/types";
 import type {
@@ -9,10 +14,7 @@ import type {
   ManagerSuccess
 } from "../ui/manager/types";
 import { getScenarioDefinition } from "./scenarios";
-import type {
-  FixtureFailurePolicy,
-  FixtureManagerTransport
-} from "./types";
+import type { FixtureFailurePolicy, FixtureManagerTransport } from "./types";
 
 export const FIXTURE_CLOCK_START = 1_900_000_000_000;
 
@@ -21,7 +23,9 @@ type Router = ReturnType<typeof createManagerMessageRouter>;
 type FixtureGeneration = {
   id: number;
   configuration: Configuration;
-  viewFixture: ReturnType<ReturnType<typeof getScenarioDefinition>["createSeed"]>["viewFixture"];
+  viewFixture: ReturnType<
+    ReturnType<typeof getScenarioDefinition>["createSeed"]
+  >["viewFixture"];
   virtualClock: number;
   identifierSequence: number;
   failurePolicy: FixtureFailurePolicy;
@@ -57,7 +61,11 @@ function failure(
 }
 
 function assertLatency(milliseconds: number): void {
-  if (!Number.isInteger(milliseconds) || milliseconds < 0 || milliseconds > 5000)
+  if (
+    !Number.isInteger(milliseconds) ||
+    milliseconds < 0 ||
+    milliseconds > 5000
+  )
     throw new Error("Fixture latency must be an integer from 0 through 5000");
 }
 
@@ -69,7 +77,9 @@ function runtimeUuid(sequence: number): string {
   return `10000000-0000-4000-8000-${String(sequence).padStart(12, "0")}`;
 }
 
-export function createFixtureManagerTransport(input: FixtureOptions): FixtureManagerTransport {
+export function createFixtureManagerTransport(
+  input: FixtureOptions
+): FixtureManagerTransport {
   const scenario = getScenarioDefinition(input.scenarioId);
   const initialLatency = input.latencyMs ?? scenario.latencyMs;
   const initialFailure = cloneFailure(input.failure ?? scenario.failure);
@@ -164,10 +174,24 @@ export function createFixtureManagerTransport(input: FixtureOptions): FixtureMan
     if (policy.mode === "offline") {
       result = failure("offline", "OFFLINE", "Fixture transport is offline");
     } else if (policy.mode === "query" && message.kind === "manager-query") {
-      result = failure("transport", "FIXTURE_QUERY_FAILURE", "Fixture query failure");
-    } else if (policy.mode === "command" && message.kind === "manager-command") {
-      result = failure("transport", "FIXTURE_COMMAND_FAILURE", "Fixture command failure");
-    } else if (policy.mode === "validation" && message.kind === "manager-command") {
+      result = failure(
+        "transport",
+        "FIXTURE_QUERY_FAILURE",
+        "Fixture query failure"
+      );
+    } else if (
+      policy.mode === "command" &&
+      message.kind === "manager-command"
+    ) {
+      result = failure(
+        "transport",
+        "FIXTURE_COMMAND_FAILURE",
+        "Fixture command failure"
+      );
+    } else if (
+      policy.mode === "validation" &&
+      message.kind === "manager-command"
+    ) {
       result = failure(
         "validation",
         "FIXTURE_VALIDATION_FAILURE",
@@ -175,7 +199,8 @@ export function createFixtureManagerTransport(input: FixtureOptions): FixtureMan
       );
     }
 
-    if (result && policy.scope === "once") target.failurePolicy = { mode: "none" };
+    if (result && policy.scope === "once")
+      target.failurePolicy = { mode: "none" };
     return result;
   }
 
@@ -193,18 +218,24 @@ export function createFixtureManagerTransport(input: FixtureOptions): FixtureMan
     const current = log[entry.recordIndex];
     if (!current || current.state !== "pending") return undefined;
 
-    const executionStartedAt = Math.max(entry.generation.virtualClock, current.startedAt);
+    const executionStartedAt = Math.max(
+      entry.generation.virtualClock,
+      current.startedAt
+    );
     await wait(entry.latencyMs);
     if (!isCurrent(entry)) return undefined;
 
     const endedAt = executionStartedAt + entry.latencyMs;
     entry.generation.virtualClock = endedAt;
     const injected = matchingFailure(entry.generation, entry.message);
-    const raw = injected ?? await entry.router.handle(entry.message);
+    const raw = injected ?? (await entry.router.handle(entry.message));
     if (!isCurrent(entry)) return undefined;
 
     const response: ManagerResponse = raw.ok
-      ? ({ ...raw, viewFixture: entry.generation.viewFixture } satisfies ManagerSuccess)
+      ? ({
+          ...raw,
+          viewFixture: entry.generation.viewFixture
+        } satisfies ManagerSuccess)
       : raw;
 
     if (response.ok) {
@@ -293,11 +324,16 @@ export function createFixtureManagerTransport(input: FixtureOptions): FixtureMan
       pending = [];
       holdPending = false;
 
-      const results = await Promise.all(releasing.map((entry) => enqueue(entry)));
+      const results = await Promise.all(
+        releasing.map((entry) => enqueue(entry))
+      );
       for (const [index, result] of results.entries()) {
         if (!result) continue;
         const entry = releasing[index]!;
-        released.push({ requestId: entry.requestId, finalState: result.finalState });
+        released.push({
+          requestId: entry.requestId,
+          finalState: result.finalState
+        });
       }
       return { released };
     },

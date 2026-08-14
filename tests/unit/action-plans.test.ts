@@ -42,7 +42,8 @@ function action(
         ...base,
         kind: "assignTabsToManagedGroup",
         tabs: [{ kind: "live", tabId: 1 }],
-        managedGroupId: "00000000-0000-4000-8000-000000000001" as import("../../src/domain/types").UUID,
+        managedGroupId:
+          "00000000-0000-4000-8000-000000000001" as import("../../src/domain/types").UUID,
         windowId: 1,
         title: "Work",
         color: "blue",
@@ -71,7 +72,8 @@ describe("action plans", () => {
           dependsOn: [],
           kind: "assignTabsToManagedGroup" as const,
           tabs: [] as unknown as [{ kind: "live"; tabId: number }],
-          managedGroupId: "00000000-0000-4000-8000-000000000001" as import("../../src/domain/types").UUID,
+          managedGroupId:
+            "00000000-0000-4000-8000-000000000001" as import("../../src/domain/types").UUID,
           windowId: 1,
           title: "Work",
           color: "blue" as const

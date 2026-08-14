@@ -114,7 +114,9 @@ export function collectWindowManagedGroupIds(
     .map((tab) => tab.chromeGroupId);
   const managed = new Set<UUID>();
   for (const chromeGroupId of groupIds) {
-    const group = inventory.groups.find((candidate) => candidate.id === chromeGroupId);
+    const group = inventory.groups.find(
+      (candidate) => candidate.id === chromeGroupId
+    );
     if (!group || group.shared) continue;
     const association = associations.find(
       (candidate) =>
@@ -142,7 +144,9 @@ export function persistentManagedGroupsInWindow(
   );
 }
 
-export function tabSnapshotFromChrome(tab: ChromeTabSnapshot): import("../domain/types").TabSnapshot {
+export function tabSnapshotFromChrome(
+  tab: ChromeTabSnapshot
+): import("../domain/types").TabSnapshot {
   const url = tab.url;
   return {
     ...tab,

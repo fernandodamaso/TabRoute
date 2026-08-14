@@ -17,7 +17,9 @@ export interface LocalRepository {
   getSnapshot(id: UUID): Promise<Snapshot | null>;
   saveSnapshot(
     snapshot: Snapshot
-  ): Promise<{ ok: true } | { ok: false; code: "SNAPSHOT_LIMIT" | "LOCAL_WRITE" }>;
+  ): Promise<
+    { ok: true } | { ok: false; code: "SNAPSHOT_LIMIT" | "LOCAL_WRITE" }
+  >;
   deleteSnapshot(id: UUID): Promise<void>;
   loadShutdownCheckpoint(): Promise<ShutdownCheckpoint | null>;
   saveShutdownCheckpoint(
@@ -26,14 +28,19 @@ export interface LocalRepository {
     { ok: true } | { ok: false; code: "CHECKPOINT_CAPACITY" | "LOCAL_WRITE" }
   >;
   appendActivity(entry: ActivityEntry): Promise<void>;
-  listActivity(before: number | undefined, limit: number): Promise<ActivityEntry[]>;
+  listActivity(
+    before: number | undefined,
+    limit: number
+  ): Promise<ActivityEntry[]>;
   clearActivity(): Promise<void>;
   putUndo(record: UndoRecord): Promise<void>;
   getUndo(id: UUID): Promise<UndoRecord | null>;
   listUndo(): Promise<UndoRecord[]>;
   deleteUndo(id: UUID): Promise<void>;
   loadWindowOwnership(): Promise<Record<UUID, WindowOwnershipDescriptor>>;
-  saveWindowOwnership(value: Record<UUID, WindowOwnershipDescriptor>): Promise<void>;
+  saveWindowOwnership(
+    value: Record<UUID, WindowOwnershipDescriptor>
+  ): Promise<void>;
   getStorageDiagnostics(): Promise<StorageDiagnostics>;
 }
 
@@ -86,7 +93,9 @@ export function createMemoryLocalRepository(
       .sort((left, right) => left.createdAt - right.createdAt);
     while (total > LOCAL_SOFT_BUDGET_BYTES && automatic.length > 0) {
       const oldest = automatic.shift()!;
-      bags.snapshots = bags.snapshots.filter((snapshot) => snapshot.id !== oldest.id);
+      bags.snapshots = bags.snapshots.filter(
+        (snapshot) => snapshot.id !== oldest.id
+      );
       total =
         estimateBytes(bags.snapshots) +
         estimateBytes(bags.activity) +
@@ -120,7 +129,9 @@ export function createMemoryLocalRepository(
     },
     async saveSnapshot(snapshot) {
       let snapshots = [...bags.snapshots];
-      const isUpdate = snapshots.some((candidate) => candidate.id === snapshot.id);
+      const isUpdate = snapshots.some(
+        (candidate) => candidate.id === snapshot.id
+      );
       if (snapshot.kind !== "checkpoint" && !isUpdate) {
         const namedAndAutomatic = snapshots.filter(
           (candidate) => candidate.kind !== "checkpoint"
@@ -136,7 +147,9 @@ export function createMemoryLocalRepository(
             return { ok: false, code: "SNAPSHOT_LIMIT" };
           }
           const oldest = automatic[0]!;
-          snapshots = snapshots.filter((candidate) => candidate.id !== oldest.id);
+          snapshots = snapshots.filter(
+            (candidate) => candidate.id !== oldest.id
+          );
         }
       }
       bags.snapshots = [
@@ -245,7 +258,10 @@ export function createChromeLocalRepository(
         (snapshot) => snapshot.id === id
       ) ?? null,
     saveSnapshot: async (snapshot) => {
-      const snapshots = await readBag(STORAGE_KEYS.localSnapshots, [] as Snapshot[]);
+      const snapshots = await readBag(
+        STORAGE_KEYS.localSnapshots,
+        [] as Snapshot[]
+      );
       memory.bags.snapshots = snapshots;
       const result = await memory.saveSnapshot(snapshot);
       if (result.ok) {
@@ -254,14 +270,20 @@ export function createChromeLocalRepository(
       return result;
     },
     deleteSnapshot: async (id) => {
-      const snapshots = await readBag(STORAGE_KEYS.localSnapshots, [] as Snapshot[]);
+      const snapshots = await readBag(
+        STORAGE_KEYS.localSnapshots,
+        [] as Snapshot[]
+      );
       await writeBag(
         STORAGE_KEYS.localSnapshots,
         snapshots.filter((snapshot) => snapshot.id !== id)
       );
     },
     loadShutdownCheckpoint: () =>
-      readBag(STORAGE_KEYS.localShutdownCheckpoint, null as ShutdownCheckpoint | null),
+      readBag(
+        STORAGE_KEYS.localShutdownCheckpoint,
+        null as ShutdownCheckpoint | null
+      ),
     saveShutdownCheckpoint: async (value) => {
       memory.bags.snapshots = await readBag(
         STORAGE_KEYS.localSnapshots,
@@ -288,7 +310,10 @@ export function createChromeLocalRepository(
         await writeBag(STORAGE_KEYS.localSnapshots, memory.bags.snapshots);
         await writeBag(STORAGE_KEYS.localActivity, memory.bags.activity);
         await writeBag(STORAGE_KEYS.localUndo, memory.bags.undo);
-        await writeBag(STORAGE_KEYS.localWindowOwnership, memory.bags.ownership);
+        await writeBag(
+          STORAGE_KEYS.localWindowOwnership,
+          memory.bags.ownership
+        );
         if (result.ok)
           await writeBag(
             STORAGE_KEYS.localShutdownCheckpoint,
@@ -300,11 +325,20 @@ export function createChromeLocalRepository(
       return result;
     },
     appendActivity: async (entry) => {
-      const activity = await readBag(STORAGE_KEYS.localActivity, [] as ActivityEntry[]);
-      await writeBag(STORAGE_KEYS.localActivity, [entry, ...activity].slice(0, 500));
+      const activity = await readBag(
+        STORAGE_KEYS.localActivity,
+        [] as ActivityEntry[]
+      );
+      await writeBag(
+        STORAGE_KEYS.localActivity,
+        [entry, ...activity].slice(0, 500)
+      );
     },
     listActivity: async (before, limit) => {
-      const activity = await readBag(STORAGE_KEYS.localActivity, [] as ActivityEntry[]);
+      const activity = await readBag(
+        STORAGE_KEYS.localActivity,
+        [] as ActivityEntry[]
+      );
       const filtered =
         before === undefined
           ? activity
@@ -315,26 +349,42 @@ export function createChromeLocalRepository(
       await writeBag(STORAGE_KEYS.localActivity, [] as ActivityEntry[]);
     },
     putUndo: async (record) => {
-      const undo = await readBag(STORAGE_KEYS.localUndo, {} as Record<string, UndoRecord>);
+      const undo = await readBag(
+        STORAGE_KEYS.localUndo,
+        {} as Record<string, UndoRecord>
+      );
       await writeBag(STORAGE_KEYS.localUndo, { ...undo, [record.id]: record });
     },
     getUndo: async (id) => {
-      const undo = await readBag(STORAGE_KEYS.localUndo, {} as Record<string, UndoRecord>);
+      const undo = await readBag(
+        STORAGE_KEYS.localUndo,
+        {} as Record<string, UndoRecord>
+      );
       return undo[id] ?? null;
     },
     listUndo: async () => {
-      const undo = await readBag(STORAGE_KEYS.localUndo, {} as Record<string, UndoRecord>);
+      const undo = await readBag(
+        STORAGE_KEYS.localUndo,
+        {} as Record<string, UndoRecord>
+      );
       return Object.values(undo);
     },
     deleteUndo: async (id) => {
-      const undo = await readBag(STORAGE_KEYS.localUndo, {} as Record<string, UndoRecord>);
+      const undo = await readBag(
+        STORAGE_KEYS.localUndo,
+        {} as Record<string, UndoRecord>
+      );
       const next = { ...undo };
       delete next[id];
       await writeBag(STORAGE_KEYS.localUndo, next);
     },
     loadWindowOwnership: () =>
-      readBag(STORAGE_KEYS.localWindowOwnership, {} as Record<UUID, WindowOwnershipDescriptor>),
-    saveWindowOwnership: (value) => writeBag(STORAGE_KEYS.localWindowOwnership, value),
+      readBag(
+        STORAGE_KEYS.localWindowOwnership,
+        {} as Record<UUID, WindowOwnershipDescriptor>
+      ),
+    saveWindowOwnership: (value) =>
+      writeBag(STORAGE_KEYS.localWindowOwnership, value),
     async getStorageDiagnostics() {
       const localBytes = (await local.getBytesInUse?.()) ?? 0;
       const sessionBytes = (await session.getBytesInUse?.()) ?? 0;
@@ -356,6 +406,8 @@ export function createChromeLocalRepository(
   };
 }
 
-export function createActivityEntry(input: Omit<ActivityEntry, "schemaVersion" | "id">): ActivityEntry {
+export function createActivityEntry(
+  input: Omit<ActivityEntry, "schemaVersion" | "id">
+): ActivityEntry {
   return { schemaVersion: 1, id: createUuid(), ...input };
 }

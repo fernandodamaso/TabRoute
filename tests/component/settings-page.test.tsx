@@ -5,14 +5,19 @@ import { expect, it, vi } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import type { Configuration } from "../../src/domain/types";
 import { SettingsPage } from "../../src/ui/manager/pages/SettingsPage";
-import type { ManagerCommandPayload, ManagerResponse } from "../../src/ui/manager/types";
+import type {
+  ManagerCommandPayload,
+  ManagerResponse
+} from "../../src/ui/manager/types";
 import "../../src/ui/manager/manager.css";
 
 const configuration = createDefaultConfiguration(
   () => "00000000-0000-4000-8000-000000000001"
 );
 
-function renderPage(overrides: Partial<Parameters<typeof SettingsPage>[0]> = {}) {
+function renderPage(
+  overrides: Partial<Parameters<typeof SettingsPage>[0]> = {}
+) {
   const command =
     overrides.command ??
     vi.fn(
@@ -44,16 +49,26 @@ function renderPage(overrides: Partial<Parameters<typeof SettingsPage>[0]> = {})
 it("renders automation and persistent startup controls", () => {
   renderPage();
   expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
-  expect(screen.getByRole("checkbox", { name: "Enable automation" })).toBeTruthy();
-  expect(screen.getByRole("checkbox", { name: "Restore persistent groups" })).toBeTruthy();
+  expect(
+    screen.getByRole("checkbox", { name: "Enable automation" })
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("checkbox", { name: "Restore persistent groups" })
+  ).toBeTruthy();
 });
 
 it("sends settings commands for automation and duplicate policy", async () => {
   const user = userEvent.setup();
   const command = renderPage();
   await user.click(screen.getByRole("checkbox", { name: "Enable automation" }));
-  expect(command).toHaveBeenCalledWith({ kind: "setAutomationEnabled", enabled: false });
-  await user.selectOptions(screen.getByRole("combobox", { name: "Duplicate policy" }), "domain");
+  expect(command).toHaveBeenCalledWith({
+    kind: "setAutomationEnabled",
+    enabled: false
+  });
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Duplicate policy" }),
+    "domain"
+  );
   expect(command).toHaveBeenCalledWith({
     kind: "setDuplicateSettings",
     settings: {
@@ -68,7 +83,9 @@ it("updates snapshot interval and opens subpanels", async () => {
   const onOpenSnapshots = vi.fn();
   const onOpenDiagnostics = vi.fn();
   const command = renderPage({ onOpenSnapshots, onOpenDiagnostics });
-  const interval = screen.getByRole("spinbutton", { name: "Snapshot interval minutes" });
+  const interval = screen.getByRole("spinbutton", {
+    name: "Snapshot interval minutes"
+  });
   await user.clear(interval);
   await user.type(interval, "30");
   await user.tab();
@@ -93,10 +110,18 @@ it("exports configuration through a blob download", async () => {
     if (tagName === "a") element.click = click;
     return element;
   });
-  Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true });
-  Object.defineProperty(URL, "revokeObjectURL", { value: revokeObjectURL, configurable: true });
+  Object.defineProperty(URL, "createObjectURL", {
+    value: createObjectURL,
+    configurable: true
+  });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    value: revokeObjectURL,
+    configurable: true
+  });
   const command = renderPage();
-  await user.click(screen.getByRole("button", { name: "Export configuration" }));
+  await user.click(
+    screen.getByRole("button", { name: "Export configuration" })
+  );
   expect(command).toHaveBeenCalledWith({ kind: "exportConfiguration" });
   expect(createObjectURL).toHaveBeenCalled();
   expect(click).toHaveBeenCalled();
@@ -112,7 +137,9 @@ it("imports configuration from a selected file", async () => {
   const file = new File([JSON.stringify(payload)], "tabroute.json", {
     type: "application/json"
   });
-  const input = document.querySelector('input[type="file"][aria-label="Import configuration"]') as HTMLInputElement;
+  const input = document.querySelector(
+    'input[type="file"][aria-label="Import configuration"]'
+  ) as HTMLInputElement;
   await user.upload(input, file);
   expect(command).toHaveBeenCalledWith({
     kind: "importConfiguration",
@@ -135,8 +162,12 @@ it("surfaces import failures inline without notifications", async () => {
   const file = new File([JSON.stringify({ tabId: 1 })], "bad.json", {
     type: "application/json"
   });
-  const input = document.querySelector('input[type="file"][aria-label="Import configuration"]') as HTMLInputElement;
+  const input = document.querySelector(
+    'input[type="file"][aria-label="Import configuration"]'
+  ) as HTMLInputElement;
   await user.upload(input, file);
   const alert = screen.getByRole("alert");
-  expect(alert.textContent).toContain("Import must not contain runtime Chrome identifiers");
+  expect(alert.textContent).toContain(
+    "Import must not contain runtime Chrome identifiers"
+  );
 });

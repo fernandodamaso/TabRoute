@@ -29,7 +29,9 @@ function memberTabsForManagedGroup(
   return inventory.tabs.filter((tab) => {
     if (tab.routing.kind !== "routable") return false;
     if (isTabInSharedGroup(tab, inventory)) return false;
-    return managedGroupIdForTab(tab, inventory, associations) === managedGroupId;
+    return (
+      managedGroupIdForTab(tab, inventory, associations) === managedGroupId
+    );
   });
 }
 
@@ -70,12 +72,14 @@ export function captureSnapshot(
       ownership: context.ownership[managedGroupId],
       tabs: memberTabs.flatMap((tab, index) => {
         if (tab.routing.kind !== "routable") return [];
-        return [{
-          url: tab.routing.url,
-          title: tab.title,
-          duplicateKey: tab.routing.url,
-          order: index
-        }];
+        return [
+          {
+            url: tab.routing.url,
+            title: tab.title,
+            duplicateKey: tab.routing.url,
+            order: index
+          }
+        ];
       })
     });
   }

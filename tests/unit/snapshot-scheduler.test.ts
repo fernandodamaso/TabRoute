@@ -30,7 +30,14 @@ describe("snapshot scheduler", () => {
     const alarms = createRecordedAlarmScheduler();
     const configuration = createDefaultConfiguration(() => crypto.randomUUID());
     const raw = {
-      windows: [{ id: 1, focused: true, incognito: false as const, type: "normal" as const }],
+      windows: [
+        {
+          id: 1,
+          focused: true,
+          incognito: false as const,
+          type: "normal" as const
+        }
+      ],
       tabs: [
         {
           id: 42,
@@ -74,7 +81,10 @@ describe("snapshot scheduler", () => {
     );
     expect(await local.loadShutdownCheckpoint()).not.toBeNull();
     expect(alarms.calls).toContainEqual(
-      expect.objectContaining({ kind: "oneShot", name: SNAPSHOT_ALARMS.checkpoint })
+      expect.objectContaining({
+        kind: "oneShot",
+        name: SNAPSHOT_ALARMS.checkpoint
+      })
     );
     void inventory;
   });
@@ -112,6 +122,10 @@ describe("snapshot scheduler", () => {
       alarms: createRecordedAlarmScheduler(),
       now: () => 5000
     });
-    expect((await local.listSnapshots()).filter((snapshot) => snapshot.kind === "automatic")).toHaveLength(0);
+    expect(
+      (await local.listSnapshots()).filter(
+        (snapshot) => snapshot.kind === "automatic"
+      )
+    ).toHaveLength(0);
   });
 });

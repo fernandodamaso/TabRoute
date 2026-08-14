@@ -63,7 +63,8 @@ function availabilityForTab(
   tabId: number | undefined,
   now = Date.now()
 ): Availability {
-  const tab = tabId === undefined ? undefined : findTab(context.inventory, tabId);
+  const tab =
+    tabId === undefined ? undefined : findTab(context.inventory, tabId);
   const active =
     tab ??
     context.inventory.tabs.find((candidate) => candidate.active) ??
@@ -91,7 +92,10 @@ function availabilityForTab(
       active?.url,
       managedGroupId
     ),
-    pauseTitle: pause.duration.kind === "resume" ? "Resume automation" : "Pause automation",
+    pauseTitle:
+      pause.duration.kind === "resume"
+        ? "Resume automation"
+        : "Pause automation",
     canSaveSnapshot: !context.checkpointInFlight
   };
 }
@@ -217,12 +221,7 @@ async function handleMenuClick(
   const context = await host.readMenuContext();
   const availability = availabilityForTab(context, tabId);
   const menuItemId = String(info.menuItemId);
-  const command = commandFromMenuId(
-    menuItemId,
-    tabId,
-    context,
-    availability
-  );
+  const command = commandFromMenuId(menuItemId, tabId, context, availability);
   if (!command) return;
   if (!commandIsCurrentlyAvailable(command, availability, menuItemId)) return;
   await host.executeUserCommand(command);
@@ -259,7 +258,9 @@ function commandFromMenuId(
     return { kind: "moveToOther", tabId };
   }
   if (menuItemId.startsWith("tabroute:move-group:")) {
-    const managedGroupId = menuItemId.slice("tabroute:move-group:".length) as UUID;
+    const managedGroupId = menuItemId.slice(
+      "tabroute:move-group:".length
+    ) as UUID;
     return { kind: "moveToGroup", tabId, managedGroupId };
   }
   if (menuItemId === MENU_IDS.pauseScope) {

@@ -1,6 +1,9 @@
 import { createConfigurationRepository } from "../../src/state/configurationRepository";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
-import { encodeConfigurationRevision, sha256 } from "../../src/state/configurationShards";
+import {
+  encodeConfigurationRevision,
+  sha256
+} from "../../src/state/configurationShards";
 import {
   CONFIGURATION_SYNC_RETRY_ALARM,
   createConfigurationSyncCoordinator,
@@ -21,7 +24,9 @@ function chromeStorage(initial: Record<string, unknown> = {}) {
       if (keys === undefined) return { ...values };
       const requested = typeof keys === "string" ? [keys] : keys;
       return Object.fromEntries(
-        requested.filter((key) => key in values).map((key) => [key, values[key]])
+        requested
+          .filter((key) => key in values)
+          .map((key) => [key, values[key]])
       );
     },
     async set(next: Record<string, unknown>) {
@@ -29,7 +34,8 @@ function chromeStorage(initial: Record<string, unknown> = {}) {
       Object.assign(values, next);
     },
     async remove(keys: string | readonly string[]) {
-      for (const key of typeof keys === "string" ? [keys] : keys) delete values[key];
+      for (const key of typeof keys === "string" ? [keys] : keys)
+        delete values[key];
     },
     async getBytesInUse() {
       return JSON.stringify(values).length;
@@ -42,17 +48,30 @@ function storage() {
   const values: Record<string, unknown> = {};
   return {
     values,
-    async get(key: string) { return key in values ? { [key]: values[key] } : {}; },
-    async set(value: Record<string, unknown>) { Object.assign(values, value); }
+    async get(key: string) {
+      return key in values ? { [key]: values[key] } : {};
+    },
+    async set(value: Record<string, unknown>) {
+      Object.assign(values, value);
+    }
   };
 }
 
 it("keeps the fallback UUID across a fresh repository instance", async () => {
   const local = storage();
   let next = 0;
-  const createDefault = () => createDefaultConfiguration(() => `00000000-0000-4000-8000-00000000000${++next}`);
-  const first = await createConfigurationRepository({ storage: local, createDefault }).loadOrCreate();
-  const second = await createConfigurationRepository({ storage: local, createDefault }).loadOrCreate();
+  const createDefault = () =>
+    createDefaultConfiguration(
+      () => `00000000-0000-4000-8000-00000000000${++next}`
+    );
+  const first = await createConfigurationRepository({
+    storage: local,
+    createDefault
+  }).loadOrCreate();
+  const second = await createConfigurationRepository({
+    storage: local,
+    createDefault
+  }).loadOrCreate();
 
   expect(second.fallbackGroupId).toBe(first.fallbackGroupId);
   expect(JSON.stringify(local.values)).not.toContain("chromeGroupId");
@@ -64,7 +83,10 @@ it("normalizes schema-v1 groups additively and writes the normalized value once"
   const configuration = createDefaultConfiguration(
     () => "00000000-0000-4000-8000-000000000001"
   );
-  const legacy = structuredClone(configuration) as unknown as Record<string, unknown>;
+  const legacy = structuredClone(configuration) as unknown as Record<
+    string,
+    unknown
+  >;
   const legacyGroups = (legacy.groups as Array<Record<string, unknown>>).map(
     ({ enabled: _enabled, ...group }) => group
   );
@@ -77,12 +99,16 @@ it("normalizes schema-v1 groups additively and writes the normalized value once"
     writes += 1;
     await originalSet(value);
   };
-  const loaded = await createConfigurationRepository({ storage: local }).loadOrCreate();
+  const loaded = await createConfigurationRepository({
+    storage: local
+  }).loadOrCreate();
 
   expect(loaded.groups[0]?.enabled).toBe(true);
   expect(loaded.fallbackGroupId).toBe(configuration.fallbackGroupId);
   expect(loaded.rules).toEqual(configuration.rules);
-  expect((local.values["config:v1"] as ConfigurationLike).groups[0]?.enabled).toBe(true);
+  expect(
+    (local.values["config:v1"] as ConfigurationLike).groups[0]?.enabled
+  ).toBe(true);
   expect(writes).toBe(1);
 });
 
@@ -119,7 +145,11 @@ it("migrates a legacy configuration without enabled and preserves UUIDs and rule
         id: "00000000-0000-4000-8000-000000000003" as UUID,
         targetGroupId: secondGroupId,
         priority: 1,
-        positive: { kind: "host", operator: "exact", value: "docs.example.com" },
+        positive: {
+          kind: "host",
+          operator: "exact",
+          value: "docs.example.com"
+        },
         negative: [],
         actions: [{ kind: "group" }],
         enabled: true,
@@ -172,7 +202,9 @@ it("publishes shards before the head and keeps only portable configuration in Sy
     .filter((index) => index >= 0);
 
   expect(syncKeys).toContain("config:v1:head");
-  expect(syncKeys.some((key) => /^config:v1:revision:[^:]+:\d+$/.test(key))).toBe(true);
+  expect(
+    syncKeys.some((key) => /^config:v1:revision:[^:]+:\d+$/.test(key))
+  ).toBe(true);
   expect(headIndex).toBeGreaterThan(Math.max(...shardIndexes));
   expect(Object.values(sync.values).join(" ")).not.toContain("chromeGroupId");
   expect(Object.values(sync.values).join(" ")).not.toContain("windowId");
@@ -203,7 +235,10 @@ it("does not apply an incomplete remote generation and applies it once when the 
     createDefault: () => remote
   });
   await remoteRepository.save(remote);
-  const remoteHead = sync.values["config:v1:head"] as { revisionId: string; shardKeys: string[] };
+  const remoteHead = sync.values["config:v1:head"] as {
+    revisionId: string;
+    shardKeys: string[];
+  };
   const lastKey = remoteHead.shardKeys.at(-1)!;
   const lastShard = sync.values[lastKey];
   delete sync.values[lastKey];
@@ -215,7 +250,9 @@ it("does not apply an incomplete remote generation and applies it once when the 
   sync.values[lastKey] = lastShard;
   const applied = await repository.applySyncChange([lastKey]);
   expect(applied.kind).toBe("applied");
-  expect(repository.getConfiguration().fallbackGroupId).toBe(remote.fallbackGroupId);
+  expect(repository.getConfiguration().fallbackGroupId).toBe(
+    remote.fallbackGroupId
+  );
   await repository.markControllerRevisionApplied(remoteHead.revisionId);
 
   const echo = await repository.applySyncChange(["config:v1:head"]);
@@ -312,7 +349,8 @@ it("preserves revision markers and associations through one serialized Session r
     schemaVersion: 1
   });
   expect(
-    typeof (storage.values["runtime:v1"] as { browserSessionId?: string }).browserSessionId
+    typeof (storage.values["runtime:v1"] as { browserSessionId?: string })
+      .browserSessionId
   ).toBe("string");
   await expect(session.loadAssociations()).resolves.toEqual(associations);
 });
@@ -441,19 +479,26 @@ it("keeps a committed save successful when obsolete shard cleanup fails", async 
       createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000081")
   });
   const initial = await repository.loadOrCreate();
-  const previousHead = sync.values["config:v1:head"] as { revisionId: string; shardKeys: string[] };
+  const previousHead = sync.values["config:v1:head"] as {
+    revisionId: string;
+    shardKeys: string[];
+  };
   const originalRemove = sync.remove;
   sync.remove = async (keys) => {
-    if ((typeof keys === "string" ? [keys] : keys).some((key) => previousHead.shardKeys.includes(key)))
+    if (
+      (typeof keys === "string" ? [keys] : keys).some((key) =>
+        previousHead.shardKeys.includes(key)
+      )
+    )
       throw new Error("cleanup unavailable");
     await originalRemove(keys);
   };
 
   const next = { ...initial, updatedAt: initial.updatedAt + 1 };
   await expect(repository.save(next)).resolves.toBeUndefined();
-  expect((sync.values["config:v1:head"] as { revisionId: string }).revisionId).not.toBe(
-    previousHead.revisionId
-  );
+  expect(
+    (sync.values["config:v1:head"] as { revisionId: string }).revisionId
+  ).not.toBe(previousHead.revisionId);
   expect(repository.getConfiguration()).toEqual(next);
 });
 
@@ -503,15 +548,27 @@ it("coordinates one complete remote apply across controller and future side effe
         applyCount += 1;
         return applyCount === 1
           ? { kind: "applied" as const, configuration, revisionId: "remote" }
-          : { kind: "already-applied" as const, configuration, revisionId: "remote" };
+          : {
+              kind: "already-applied" as const,
+              configuration,
+              revisionId: "remote"
+            };
       },
       async markControllerRevisionApplied() {}
     },
     callbacks: {
-      async replaceConfiguration() { calls.push("controller"); },
-      async refreshMenus() { calls.push("menus"); },
-      async refreshAlarms() { calls.push("alarms"); },
-      async refreshViews() { calls.push("views"); },
+      async replaceConfiguration() {
+        calls.push("controller");
+      },
+      async refreshMenus() {
+        calls.push("menus");
+      },
+      async refreshAlarms() {
+        calls.push("alarms");
+      },
+      async refreshViews() {
+        calls.push("views");
+      },
       async scheduleRetry() {}
     }
   });
@@ -532,7 +589,11 @@ it("retries all controller side effects after a callback failure", async () => {
     repository: {
       async applySyncChange() {
         return acknowledged
-          ? { kind: "already-applied" as const, configuration, revisionId: "revision" }
+          ? {
+              kind: "already-applied" as const,
+              configuration,
+              revisionId: "revision"
+            }
           : { kind: "applied" as const, configuration, revisionId: "revision" };
       },
       async markControllerRevisionApplied() {
@@ -551,8 +612,12 @@ it("retries all controller side effects after a callback failure", async () => {
     }
   });
 
-  await expect(coordinator.applySyncChange()).rejects.toThrow("controller unavailable");
-  await expect(coordinator.applySyncChange()).resolves.toMatchObject({ kind: "applied" });
+  await expect(coordinator.applySyncChange()).rejects.toThrow(
+    "controller unavailable"
+  );
+  await expect(coordinator.applySyncChange()).resolves.toMatchObject({
+    kind: "applied"
+  });
   expect(replaceCalls).toBe(2);
   expect(acknowledged).toBe(true);
 });
@@ -565,7 +630,11 @@ it("schedules the named durable alarm when a remote revision is pending", async 
   const coordinator = createConfigurationSyncCoordinator({
     repository: {
       async applySyncChange() {
-        return { kind: "pending" as const, configuration, revisionId: "pending" };
+        return {
+          kind: "pending" as const,
+          configuration,
+          revisionId: "pending"
+        };
       },
       async markControllerRevisionApplied() {}
     },
@@ -574,7 +643,9 @@ it("schedules the named durable alarm when a remote revision is pending", async 
       async refreshMenus() {},
       async refreshAlarms() {},
       async refreshViews() {},
-      async scheduleRetry() { scheduled.push(CONFIGURATION_SYNC_RETRY_ALARM); }
+      async scheduleRetry() {
+        scheduled.push(CONFIGURATION_SYNC_RETRY_ALARM);
+      }
     }
   });
 
@@ -584,14 +655,26 @@ it("schedules the named durable alarm when a remote revision is pending", async 
 });
 
 it("buffers Sync and retry-alarm intake until asynchronous initialization is ready", () => {
-  const changedListeners: Array<(changes: Record<string, unknown>, areaName: string) => void> = [];
+  const changedListeners: Array<
+    (changes: Record<string, unknown>, areaName: string) => void
+  > = [];
   const alarmListeners: Array<(alarm: { name: string }) => void> = [];
   const dispatched: readonly string[][] = [] as unknown as readonly string[][];
   const calls = dispatched as string[][];
   const intake = registerConfigurationSyncIntake({
-    storageOnChanged: { addListener(listener) { changedListeners.push(listener); } },
-    alarmsOnAlarm: { addListener(listener) { alarmListeners.push(listener); } },
-    dispatch(keys) { calls.push([...keys]); }
+    storageOnChanged: {
+      addListener(listener) {
+        changedListeners.push(listener);
+      }
+    },
+    alarmsOnAlarm: {
+      addListener(listener) {
+        alarmListeners.push(listener);
+      }
+    },
+    dispatch(keys) {
+      calls.push([...keys]);
+    }
   });
 
   changedListeners[0]!({ "config:v1:head": {} }, "sync");

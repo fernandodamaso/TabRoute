@@ -17,8 +17,11 @@ export function persistentTabsForGroup(
     .sort((left, right) => left.order - right.order);
 }
 
-export function tabUrl(tab: TabSnapshot | { url?: string; routing?: TabSnapshot["routing"] }): string | undefined {
-  if ("routing" in tab && tab.routing?.kind === "routable") return tab.routing.url;
+export function tabUrl(
+  tab: TabSnapshot | { url?: string; routing?: TabSnapshot["routing"] }
+): string | undefined {
+  if ("routing" in tab && tab.routing?.kind === "routable")
+    return tab.routing.url;
   return tab.url;
 }
 
@@ -40,7 +43,9 @@ export function isGroupEligibleForRepair(
   managedGroupId: UUID,
   intentionallyClosedGroupIds: readonly UUID[]
 ): boolean {
-  const group = configuration.groups.find((candidate) => candidate.id === managedGroupId);
+  const group = configuration.groups.find(
+    (candidate) => candidate.id === managedGroupId
+  );
   if (!group || !group.enabled) return false;
   if (group.isFallback) return true;
   if (intentionallyClosedGroupIds.includes(managedGroupId)) return false;
@@ -50,9 +55,15 @@ export function isGroupEligibleForRepair(
 export function managedGroupIdForTab(
   tab: { chromeGroupId: number; windowId: number },
   inventory: ChromeInventory,
-  associations: readonly { managedGroupId: UUID; chromeGroupId: number; chromeWindowId: number }[]
+  associations: readonly {
+    managedGroupId: UUID;
+    chromeGroupId: number;
+    chromeWindowId: number;
+  }[]
 ): UUID | undefined {
-  const chromeGroup = inventory.groups.find((group) => group.id === tab.chromeGroupId);
+  const chromeGroup = inventory.groups.find(
+    (group) => group.id === tab.chromeGroupId
+  );
   if (!chromeGroup || chromeGroup.shared) return undefined;
   const association = associations.find(
     (candidate) =>
@@ -66,7 +77,9 @@ export function isTabInSharedGroup(
   tab: { chromeGroupId: number },
   inventory: ChromeInventory
 ): boolean {
-  const group = inventory.groups.find((candidate) => candidate.id === tab.chromeGroupId);
+  const group = inventory.groups.find(
+    (candidate) => candidate.id === tab.chromeGroupId
+  );
   return group?.shared === true;
 }
 
@@ -74,7 +87,11 @@ export function collectLiveMemberUrls(
   managedGroupId: UUID,
   configuration: Configuration,
   inventory: ChromeInventory,
-  associations: readonly { managedGroupId: UUID; chromeGroupId: number; chromeWindowId: number }[],
+  associations: readonly {
+    managedGroupId: UUID;
+    chromeGroupId: number;
+    chromeWindowId: number;
+  }[],
   preferredWindowId?: number
 ): string[] {
   const groupAssociations = associations.filter(
@@ -106,5 +123,7 @@ export function collectLiveMemberUrls(
         isRoutableUrl(tab.url)
     )
     .sort((left, right) => left.index - right.index)
-    .map((tab) => deriveCanonicalUrl(tab.url!, configuration.duplicateSettings));
+    .map((tab) =>
+      deriveCanonicalUrl(tab.url!, configuration.duplicateSettings)
+    );
 }

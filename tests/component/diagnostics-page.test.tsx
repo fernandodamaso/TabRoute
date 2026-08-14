@@ -43,7 +43,10 @@ it("dispatches diagnostics commands", async () => {
   vi.spyOn(navigator.clipboard, "writeText").mockImplementation(writeText);
   render(
     <DiagnosticsPage
-      diagnostics={{ ...diagnostics, warnings: ["SYNC_INCOMPLETE", "LOCAL_BUDGET"] }}
+      diagnostics={{
+        ...diagnostics,
+        warnings: ["SYNC_INCOMPLETE", "LOCAL_BUDGET"]
+      }}
       command={command}
       onBack={() => undefined}
     />

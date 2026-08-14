@@ -21,7 +21,9 @@ export interface DuplicateDecision {
 }
 
 function isSharedMember(inventory: ChromeInventory, tab: TabSnapshot): boolean {
-  const group = inventory.groups.find((candidate) => candidate.id === tab.chromeGroupId);
+  const group = inventory.groups.find(
+    (candidate) => candidate.id === tab.chromeGroupId
+  );
   return group?.shared === true;
 }
 
@@ -52,9 +54,11 @@ export function selectDuplicateSurvivor(
       return right.lastAccessed - left.lastAccessed;
     }
     const leftOrdinal =
-      observationForTab(session, left.id)?.firstObservedOrdinal ?? Number.MAX_SAFE_INTEGER;
+      observationForTab(session, left.id)?.firstObservedOrdinal ??
+      Number.MAX_SAFE_INTEGER;
     const rightOrdinal =
-      observationForTab(session, right.id)?.firstObservedOrdinal ?? Number.MAX_SAFE_INTEGER;
+      observationForTab(session, right.id)?.firstObservedOrdinal ??
+      Number.MAX_SAFE_INTEGER;
     if (leftOrdinal !== rightOrdinal) return leftOrdinal - rightOrdinal;
     return left.id - right.id;
   });
@@ -74,7 +78,8 @@ export function resolveDuplicate(input: {
   destinationGroup: ManagedGroup | null;
 }): DuplicateDecision | null {
   const eligible = input.tabs.filter(
-    (tab) => tab.routing.kind === "routable" && !isSharedMember(input.inventory, tab)
+    (tab) =>
+      tab.routing.kind === "routable" && !isSharedMember(input.inventory, tab)
   );
   if (eligible.length < 2) return null;
   const trigger = eligible.find((tab) => tab.id === input.triggeringTab.id);
@@ -94,10 +99,18 @@ export function resolveDuplicate(input: {
   );
   if (!key) return null;
   const sameKey = eligible.filter((tab) => {
-    if (matchesExclusion(tab.routing.kind === "routable" ? tab.routing.url : "", input.configuration.duplicateSettings.globalExclusions)) {
+    if (
+      matchesExclusion(
+        tab.routing.kind === "routable" ? tab.routing.url : "",
+        input.configuration.duplicateSettings.globalExclusions
+      )
+    ) {
       return false;
     }
-    return buildDuplicateKey(tab, policy, input.configuration.duplicateSettings) === key;
+    return (
+      buildDuplicateKey(tab, policy, input.configuration.duplicateSettings) ===
+      key
+    );
   });
   if (sameKey.length < 2) return null;
   const survivor = selectDuplicateSurvivor(

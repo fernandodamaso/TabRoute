@@ -98,8 +98,9 @@ test("worker restart with routed tab keeps manager query healthy", async () => {
 });
 
 test("native group rename does not duplicate fallback groups", async () => {
-  const { session, profilePath } =
-    await launchProductionSession("lifecycle-native-group");
+  const { session, profilePath } = await launchProductionSession(
+    "lifecycle-native-group"
+  );
   const page = await session.context.newPage();
   try {
     await page.goto(`chrome-extension://${session.extensionId}/options.html`);
@@ -133,7 +134,9 @@ test("native group rename does not duplicate fallback groups", async () => {
         .filter((id): id is number => id !== undefined);
       if (tabIds.length < 2) throw new Error("expected two example tabs");
       const [firstId, secondId] = tabIds as [number, number];
-      const groupId = await chromeApi.tabs.group({ tabIds: [firstId, secondId] });
+      const groupId = await chromeApi.tabs.group({
+        tabIds: [firstId, secondId]
+      });
       await chromeApi.tabGroups.update(groupId, { title: "Native Test" });
     });
 

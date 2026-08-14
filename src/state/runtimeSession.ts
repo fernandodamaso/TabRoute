@@ -80,7 +80,10 @@ export function parseRuntimeSession(
       ? { lastFocusedNormalWindowId: value.lastFocusedNormalWindowId }
       : {}),
     ...(isRecord(value.startupRestore)
-      ? { startupRestore: value.startupRestore as unknown as import("../domain/types").StartupRestoreState }
+      ? {
+          startupRestore:
+            value.startupRestore as unknown as import("../domain/types").StartupRestoreState
+        }
       : {})
   };
 }
@@ -173,8 +176,7 @@ export function scrubRuntimeState(
         : undefined,
     tabObservations: session.tabObservations.filter(
       (observation) =>
-        tabIds.has(observation.tabId) ||
-        referencedTabIds.has(observation.tabId)
+        tabIds.has(observation.tabId) || referencedTabIds.has(observation.tabId)
     ),
     manualOverrides,
     operationGuards: session.operationGuards.map((guard) => ({

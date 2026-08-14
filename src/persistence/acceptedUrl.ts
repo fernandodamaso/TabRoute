@@ -31,5 +31,7 @@ export function matchesAcceptedUrl(
   acceptedPatterns: readonly string[]
 ): boolean {
   if (url === canonicalUrl) return true;
-  return acceptedPatterns.some((pattern) => matchesAcceptedPattern(url, pattern));
+  return acceptedPatterns.some((pattern) =>
+    matchesAcceptedPattern(url, pattern)
+  );
 }

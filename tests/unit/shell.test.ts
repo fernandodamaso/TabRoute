@@ -40,7 +40,10 @@ it("builds a Chrome MV3 manifest with menus, shortcuts, and no notifications", a
   expect(manifest.permissions).not.toContain("commands");
   expect(manifest.incognito).toBe("not_allowed");
   expect(manifest.host_permissions).toBeUndefined();
-  const commands = manifest.commands as Record<string, { suggested_key?: unknown }>;
+  const commands = manifest.commands as Record<
+    string,
+    { suggested_key?: unknown }
+  >;
   expect(Object.keys(commands).sort()).toEqual(APPROVED_COMMAND_NAMES);
   expect(
     Object.values(commands).filter((command) => "suggested_key" in command)

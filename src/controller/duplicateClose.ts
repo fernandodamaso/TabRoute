@@ -1,6 +1,9 @@
 import type { LiveChromePort } from "../chrome/types";
 import { isRoutableUrl } from "../chrome/types";
-import { executeActionPlan, type ActionEngineDeps } from "../actions/executeActionPlan";
+import {
+  executeActionPlan,
+  type ActionEngineDeps
+} from "../actions/executeActionPlan";
 import { planRuleRoute } from "../actions/planActions";
 import type {
   ActionId,
@@ -18,11 +21,17 @@ import { createUuid } from "../domain/ids";
 import { placementAction, selectRule } from "../rules/ruleEngine";
 import { identifyClosedSession } from "../activity/identifyClosedSession";
 import { appendActivityEntry } from "../activity/activityRepository";
-import { createActivityEntry, type LocalRepository } from "../state/localRepository";
+import {
+  createActivityEntry,
+  type LocalRepository
+} from "../state/localRepository";
 import { observeInventory } from "../duplicates/observations";
 import { planDuplicateClose } from "../duplicates/planDuplicateClose";
 import { resolveDuplicate } from "../duplicates/resolveDuplicate";
-import { planUndoRestore, deriveUndoPlacementFromTab } from "../activity/undoPlanner";
+import {
+  planUndoRestore,
+  deriveUndoPlacementFromTab
+} from "../activity/undoPlanner";
 
 function duplicateContext(input: {
   inventory: ChromeInventory;
@@ -169,7 +178,9 @@ export async function attemptDuplicateClose(input: {
     });
   const observed = observeInventory(input.inventory, input.runtime);
   const triggeringTab =
-    observed.inventory.tabs.find((candidate) => candidate.id === input.tab.id) ??
+    observed.inventory.tabs.find(
+      (candidate) => candidate.id === input.tab.id
+    ) ??
     ({
       ...input.tab,
       routing: isRoutableUrl(input.tab.url)
@@ -216,7 +227,8 @@ export async function attemptDuplicateClose(input: {
   const afterClosed = await input.chrome.getRecentlyClosed(25);
 
   for (const duplicate of decision.duplicatesToClose) {
-    if (inventory.tabs.some((candidate) => candidate.id === duplicate.id)) continue;
+    if (inventory.tabs.some((candidate) => candidate.id === duplicate.id))
+      continue;
     const url =
       duplicate.routing.kind === "routable" ? duplicate.routing.url : "";
     const sessionId =

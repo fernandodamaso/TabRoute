@@ -46,7 +46,10 @@ describe("ActivityPage", () => {
       />
     );
 
-    await user.selectOptions(screen.getByLabelText("Filter by status"), "success");
+    await user.selectOptions(
+      screen.getByLabelText("Filter by status"),
+      "success"
+    );
     expect(screen.getByText("Closed duplicate")).toBeTruthy();
     expect(screen.queryByText("Routed tab")).toBeNull();
 

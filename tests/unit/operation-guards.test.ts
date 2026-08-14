@@ -40,9 +40,7 @@ function tab(
   };
 }
 
-function inventory(
-  overrides: Partial<ChromeInventory> = {}
-): ChromeInventory {
+function inventory(overrides: Partial<ChromeInventory> = {}): ChromeInventory {
   return {
     windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
     tabs: [tab()],
@@ -77,7 +75,7 @@ function guard(overrides: Partial<OperationGuard> = {}): OperationGuard {
     phase: "executing",
     tabIds: [7],
     chromeGroupIds: [11],
-      expectedEventKinds: ["tabUpdated", "groupUpdated", "tabReplaced"],
+    expectedEventKinds: ["tabUpdated", "groupUpdated", "tabReplaced"],
     seenEventKinds: [],
     postcondition: {
       kind: "tabPlacement",
@@ -174,7 +172,9 @@ describe("classifyGuardedEvent", () => {
       100
     );
     expect(decision.kind).toBe("defer");
-    expect(decision.kind === "defer" && decision.session.operationGuards).toHaveLength(1);
+    expect(
+      decision.kind === "defer" && decision.session.operationGuards
+    ).toHaveLength(1);
   });
 
   it("records seenEventKinds on defer without removing the guard", () => {
@@ -255,7 +255,9 @@ describe("classifyGuardedEvent", () => {
       200
     );
     expect(decision.kind).toBe("manual");
-    expect(decision.kind === "manual" && decision.session.operationGuards).toHaveLength(0);
+    expect(
+      decision.kind === "manual" && decision.session.operationGuards
+    ).toHaveLength(0);
   });
 
   it("does not extend settleAfter past expiresAt", () => {

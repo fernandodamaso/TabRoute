@@ -4,7 +4,10 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { buildExtension } from "../../scripts/workbench/build";
 import { launchExtensionSession } from "../../scripts/workbench/browser";
-import { createArtifactStore, encodeUtf8 } from "../../scripts/workbench/artifacts";
+import {
+  createArtifactStore,
+  encodeUtf8
+} from "../../scripts/workbench/artifacts";
 const profileRoot = path.join(os.tmpdir(), "tabroute-workbench");
 
 async function resolveProductionBuildPath(): Promise<string> {

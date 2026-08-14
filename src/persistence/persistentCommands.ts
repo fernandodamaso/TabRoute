@@ -20,7 +20,9 @@ export function savePersistentTab(
   if (!isValidCanonicalUrl(draft.canonicalUrl)) {
     throw new Error("invalid canonical URL");
   }
-  if (!configuration.groups.some((group) => group.id === draft.managedGroupId)) {
+  if (
+    !configuration.groups.some((group) => group.id === draft.managedGroupId)
+  ) {
     throw new Error("managed group not found");
   }
   const timestamp = now();
@@ -33,8 +35,8 @@ export function savePersistentTab(
     acceptedPatterns: [...draft.acceptedPatterns],
     order: draft.order,
     createdAt: draft.id
-      ? configuration.persistentTabs.find((tab) => tab.id === draft.id)?.createdAt ??
-        timestamp
+      ? (configuration.persistentTabs.find((tab) => tab.id === draft.id)
+          ?.createdAt ?? timestamp)
       : timestamp,
     updatedAt: timestamp
   };
@@ -104,8 +106,7 @@ export function makePersistentDefinition(
       matchesAcceptedUrl(canonicalUrl, tab.canonicalUrl, tab.acceptedPatterns)
   );
   if (existing) return configuration;
-  const order =
-    persistentTabsForGroup(configuration, managedGroupId).length;
+  const order = persistentTabsForGroup(configuration, managedGroupId).length;
   return savePersistentTab(
     configuration,
     {
@@ -147,7 +148,8 @@ export function pinGroupDefinitions(
     const canonicalUrl = deriveCanonicalUrl(url, next.duplicateSettings);
     const existing = next.persistentTabs.find(
       (tab) =>
-        tab.managedGroupId === managedGroupId && tab.canonicalUrl === canonicalUrl
+        tab.managedGroupId === managedGroupId &&
+        tab.canonicalUrl === canonicalUrl
     );
     if (existing) {
       next = savePersistentTab(

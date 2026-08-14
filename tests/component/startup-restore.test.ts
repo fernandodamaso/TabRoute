@@ -35,7 +35,9 @@ describe("startup restore component", () => {
       ],
       capturedAt: 1
     });
-    const sessionRepo = (await import("../../src/state/sessionRepository")).createMemorySessionRepository();
+    const sessionRepo = (
+      await import("../../src/state/sessionRepository")
+    ).createMemorySessionRepository();
     const session = await sessionRepo.loadSession();
     await sessionRepo.saveSession({
       ...session,
@@ -152,7 +154,9 @@ describe("startup restore component", () => {
       ],
       capturedAt: 1
     });
-    const sessionRepo = (await import("../../src/state/sessionRepository")).createMemorySessionRepository();
+    const sessionRepo = (
+      await import("../../src/state/sessionRepository")
+    ).createMemorySessionRepository();
     const session = await sessionRepo.loadSession();
     await sessionRepo.saveSession({
       ...session,
@@ -222,7 +226,9 @@ describe("startup restore component", () => {
       ],
       capturedAt: 1
     });
-    const sessionRepo = (await import("../../src/state/sessionRepository")).createMemorySessionRepository();
+    const sessionRepo = (
+      await import("../../src/state/sessionRepository")
+    ).createMemorySessionRepository();
     const session = await sessionRepo.loadSession();
     await sessionRepo.saveSession({
       ...session,
@@ -296,7 +302,9 @@ describe("startup restore component", () => {
       ],
       capturedAt: 1
     });
-    const sessionRepo = (await import("../../src/state/sessionRepository")).createMemorySessionRepository();
+    const sessionRepo = (
+      await import("../../src/state/sessionRepository")
+    ).createMemorySessionRepository();
     const session = await sessionRepo.loadSession();
     await sessionRepo.saveSession({
       ...session,
@@ -348,7 +356,9 @@ describe("startup restore component", () => {
       ],
       capturedAt: 1
     });
-    const sessionRepo = (await import("../../src/state/sessionRepository")).createMemorySessionRepository();
+    const sessionRepo = (
+      await import("../../src/state/sessionRepository")
+    ).createMemorySessionRepository();
     const session = await sessionRepo.loadSession();
     await sessionRepo.saveSession({
       ...session,

@@ -25,7 +25,11 @@ function undoDeps(fake: ReturnType<typeof createFakeChromePort>) {
       mutations: fake,
       checkpoints: createPreMutationCheckpointService({
         local,
-        captureContext: async () => ({ configuration, ownership: {}, associations: [] })
+        captureContext: async () => ({
+          configuration,
+          ownership: {},
+          associations: []
+        })
       }),
       local,
       session,
@@ -110,7 +114,9 @@ describe("activity undo", () => {
           title: "Example",
           placement: { kind: "ungrouped", index: 0 }
         },
-        session: { browserSessionId: "other-session" as BrowserSessionId } as never,
+        session: {
+          browserSessionId: "other-session" as BrowserSessionId
+        } as never,
         now: 10_000,
         undoTtlMs: 30_000,
         browserSessionId: "other-session" as BrowserSessionId,
@@ -261,7 +267,12 @@ describe("activity undo", () => {
         sessionId: "closed-1",
         url: "https://example.com/",
         title: "Example",
-        placement: { kind: "managedGroup", managedGroupId: workId, windowIdHint: 1, index: 0 }
+        placement: {
+          kind: "managedGroup",
+          managedGroupId: workId,
+          windowIdHint: 1,
+          index: 0
+        }
       },
       windowId: 1,
       configuration,

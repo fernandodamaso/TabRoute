@@ -1,5 +1,9 @@
 import { createDefaultConfiguration } from "../../src/domain/defaults";
-import type { Configuration, PersistentTab, UUID } from "../../src/domain/types";
+import type {
+  Configuration,
+  PersistentTab,
+  UUID
+} from "../../src/domain/types";
 
 export const groupId = "00000000-0000-4000-8000-000000000002" as UUID;
 export const fallbackId = "00000000-0000-4000-8000-000000000001" as UUID;
