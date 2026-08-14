@@ -150,7 +150,7 @@ describe("PR 10 remaining manager review regressions", () => {
     render(
       <SettingsPage
         configuration={stale}
-        command={async () => success(fresh)}
+        command={async (): Promise<ManagerResponse> => success(fresh)}
         onOpenSnapshots={() => undefined}
         onOpenDiagnostics={() => undefined}
       />
@@ -171,8 +171,9 @@ describe("PR 10 remaining manager review regressions", () => {
       () => 1
     );
     const props = {
-      command: async (_payload: ManagerCommandPayload) =>
-        success(configuration),
+      command: async (
+        _payload: ManagerCommandPayload
+      ): Promise<ManagerResponse> => success(configuration),
       onOpenSnapshots: () => undefined,
       onOpenDiagnostics: () => undefined
     };
