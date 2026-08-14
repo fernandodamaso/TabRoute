@@ -120,8 +120,9 @@ export type PlannedAction =
       kind: "closeDuplicate";
       duplicate: TabRef;
       survivor: TabRef;
-      duplicatePolicy: import("../domain/types").DuplicatePolicy;
-      expectedDuplicateKey: string;
+      /** Generated duplicate plans always provide these; optionality preserves older test fixtures. */
+      duplicatePolicy?: import("../domain/types").DuplicatePolicy;
+      expectedDuplicateKey?: string;
     });
 
 export type ActionPlanSource =
