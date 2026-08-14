@@ -140,7 +140,10 @@ describe("PR 10 review regressions", () => {
     const assign = actions[1];
     expect(move?.kind).toBe("moveTabs");
     expect(assign?.kind).toBe("assignTabsToManagedGroup");
-    if (move?.kind !== "moveTabs" || assign?.kind !== "assignTabsToManagedGroup") {
+    if (
+      move?.kind !== "moveTabs" ||
+      assign?.kind !== "assignTabsToManagedGroup"
+    ) {
       return;
     }
     expect(move.windowId).toBe(1);
