@@ -5,7 +5,7 @@ import { ConfirmationDialog } from "../components/ConfirmationDialog";
 
 export interface SnapshotsPageProps {
   snapshots: readonly Snapshot[];
-  groups: readonly ManagedGroup[];
+  groups?: readonly ManagedGroup[];
   command: (payload: ManagerCommandPayload) => Promise<ManagerResponse>;
   onBack: () => void;
 }
@@ -17,7 +17,7 @@ type PendingAction =
 
 export function SnapshotsPage({
   snapshots,
-  groups,
+  groups = [],
   command,
   onBack
 }: SnapshotsPageProps) {
