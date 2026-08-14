@@ -401,7 +401,11 @@ export function planPersistentRestore(
 
   const actions: PlannedAction[] = [];
   const persistentGroups = configuration.groups.filter(
-    (group) => group.isPersistent && group.enabled && !group.isFallback
+    (group) =>
+      group.enabled &&
+      !group.isFallback &&
+      (group.isPersistent ||
+        persistentTabsForGroup(configuration, group.id).length > 0)
   );
 
   for (const group of persistentGroups) {
