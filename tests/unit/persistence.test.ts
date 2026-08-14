@@ -382,6 +382,63 @@ describe("startup restore planning", () => {
     );
   });
 
+  it("keeps a displaced persistent tab anchored to its associated group home", () => {
+    const config = configuration();
+    const context = restoreContext(config);
+    const displaced = {
+      id: 8,
+      windowId: 2,
+      index: 0,
+      chromeGroupId: -1,
+      url: "https://docs.example.com/guide",
+      title: "Guide",
+      pinned: false,
+      active: true,
+      incognito: false as const,
+      lastAccessed: 1
+    };
+    const inventory = {
+      windows: [
+        { id: 1, focused: false, incognito: false, type: "normal" as const },
+        { id: 2, focused: true, incognito: false, type: "normal" as const }
+      ],
+      tabs: [
+        displaced,
+        {
+          id: 9,
+          windowId: 1,
+          index: 3,
+          chromeGroupId: 11,
+          url: "https://docs.example.com/other",
+          title: "Other",
+          pinned: false,
+          active: false,
+          incognito: false as const,
+          lastAccessed: 1
+        }
+      ],
+      groups: [
+        {
+          id: 11,
+          windowId: 1,
+          title: "Docs",
+          color: "blue" as const,
+          collapsed: false,
+          shared: false
+        }
+      ],
+      capturedAt: 1
+    };
+
+    const repairs = planRepairForTab(displaced, inventory, context);
+    const assign = repairs[0]?.actions.find(
+      (action) => action.kind === "assignTabsToManagedGroup"
+    );
+    expect(assign?.kind).toBe("assignTabsToManagedGroup");
+    if (assign?.kind === "assignTabsToManagedGroup")
+      expect(assign.windowId).toBe(1);
+  });
+
   it("planRepairForTab still repairs when restorePersistentGroups is false", () => {
     const config = configuration({ restorePersistentGroups: false });
     const context = restoreContext(config);
@@ -592,10 +649,10 @@ describe("pin group commands", () => {
       restoreContext(config).associations,
       1
     );
-    expect(urls).toEqual([
-      "https://docs.example.com/guide",
-      "https://temp.example.com/"
-    ]);
+    expect(urls).toEqual({
+      kind: "available",
+      urls: ["https://docs.example.com/guide", "https://temp.example.com/"]
+    });
   });
 
   it("pins only current members and drops stale persistent definitions", () => {
@@ -911,6 +968,33 @@ describe("startup coordinator", () => {
     expect(outcome.session.startupRestore?.consecutiveQuietScans).toBe(1);
   });
 
+  it("merges repeated closure evidence for the same window", () => {
+    const initial = createEmptyRuntimeSession({
+      browserSessionId: "session" as never
+    });
+    const first = recordWindowClosure({
+      session: initial,
+      windowId: 9,
+      managedGroupIds: [groupId],
+      tabIds: [1],
+      now: 1000
+    });
+    const second = recordWindowClosure({
+      session: first,
+      windowId: 9,
+      managedGroupIds: [fallbackId],
+      tabIds: [2],
+      now: 1500
+    });
+    expect(second.pendingWindowClosures).toEqual([
+      {
+        windowId: 9,
+        managedGroupIds: [groupId, fallbackId],
+        tabIds: [1, 2],
+        startedAt: 1500
+      }
+    ]);
+  });
   it("marks persistent groups intentionally closed when a normal window remains", () => {
     const session = recordWindowClosure({
       session: createEmptyRuntimeSession({

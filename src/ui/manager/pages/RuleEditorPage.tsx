@@ -192,6 +192,19 @@ export function RuleEditorPage({
                   )
                 }))
               }
+              onRemove={
+                draft.required.length > 1
+                  ? () =>
+                      setDraft((current) => ({
+                        ...current,
+                        required: current.required.filter(
+                          (_, itemIndex) => itemIndex !== index
+                        )
+                      }))
+                  : undefined
+              }
+              removeLabel={`Remove condition ${index + 1}`}
+              removeDisabled={draft.required.length === 1}
             />
           ))}
         </div>
@@ -228,6 +241,15 @@ export function RuleEditorPage({
                   )
                 }))
               }
+              onRemove={() =>
+                setDraft((current) => ({
+                  ...current,
+                  exceptions: current.exceptions.filter(
+                    (_, itemIndex) => itemIndex !== index
+                  )
+                }))
+              }
+              removeLabel={`Remove exception ${index + 1}`}
             />
           ))}
         </div>

@@ -59,7 +59,12 @@ export type PlannedAction =
       kind: "createTab";
       input: { url: string; windowId: number; active?: false; index?: number };
     })
-  | (ActionBase & { kind: "restoreClosedTab"; sessionId: string })
+  | (ActionBase & {
+      kind: "restoreClosedTab";
+      sessionId: string;
+      expectedUrl?: string;
+      windowId?: number;
+    })
   | (ActionBase & {
       kind: "moveTabs";
       tabs: readonly [TabRef, ...TabRef[]];

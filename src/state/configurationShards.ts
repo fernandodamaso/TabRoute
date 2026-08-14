@@ -93,11 +93,15 @@ function splitUnicode(value: string, maxBytes: number): string[] {
   return chunks;
 }
 
-function measuredBytes(key: string, value: unknown): number {
+export function storageItemBytes(key: string, value: unknown): number {
   return (
     encoder.encode(key).byteLength +
     encoder.encode(JSON.stringify(value)).byteLength
   );
+}
+
+function measuredBytes(key: string, value: unknown): number {
+  return storageItemBytes(key, value);
 }
 
 export function configurationShardKey(

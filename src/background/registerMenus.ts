@@ -40,6 +40,7 @@ export interface MenuContext {
   configuration: Configuration;
   inventory: ChromeInventory;
   associations: readonly ChromeAssociation[];
+  focusedWindowId?: number;
   checkpointInFlight: boolean;
   availableUndoId?: UUID;
 }
@@ -67,6 +68,12 @@ function availabilityForTab(
     tabId === undefined ? undefined : findTab(context.inventory, tabId);
   const active =
     tab ??
+    (context.focusedWindowId === undefined
+      ? undefined
+      : context.inventory.tabs.find(
+          (candidate) =>
+            candidate.windowId === context.focusedWindowId && candidate.active
+        )) ??
     context.inventory.tabs.find((candidate) => candidate.active) ??
     context.inventory.tabs[0];
   const routable = !!active?.url && isRoutableUrl(active.url);
@@ -117,8 +124,7 @@ export async function refreshMenus(
   host: MenuCommandHost
 ): Promise<void> {
   const context = await host.readMenuContext();
-  const active = context.inventory.tabs.find((tab) => tab.active);
-  const availability = availabilityForTab(context, active?.id);
+  const availability = availabilityForTab(context, undefined);
   await browser.contextMenus.removeAll();
 
   createMenu(browser, {

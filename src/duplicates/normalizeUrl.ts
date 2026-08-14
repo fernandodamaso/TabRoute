@@ -63,5 +63,5 @@ export function matchesExclusion(
   url: string,
   exclusions: readonly string[]
 ): boolean {
-  return exclusions.some((pattern) => url.includes(pattern));
+  return exclusions.some((pattern) => matchesPattern(url, pattern));
 }

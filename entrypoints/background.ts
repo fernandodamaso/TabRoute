@@ -328,6 +328,9 @@ export default defineBackground(() => {
           configuration,
           inventory,
           associations: reconstructAssociations(inventory, configuration),
+          focusedWindowId:
+            inventory.windows.find((window) => window.focused)?.id ??
+            runtime.lastFocusedNormalWindowId,
           checkpointInFlight: runtime.operationGuards.some(
             (guard) => guard.phase === "executing"
           ),

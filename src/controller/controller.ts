@@ -23,7 +23,11 @@ import { executeRoutePlan } from "../actions/executeRoutePlan";
 import type { ActionEngineDeps } from "../actions/executeActionPlan";
 import { planRuleRoute } from "../actions/planActions";
 import { makePersistentDefinition } from "../persistence/persistentCommands";
-import { placementAction, selectRule } from "../rules/ruleEngine";
+import {
+  isPauseActive,
+  placementAction,
+  selectRule
+} from "../rules/ruleEngine";
 
 import type { PreMutationCheckpointPort } from "../snapshots/checkpointService";
 
@@ -145,7 +149,10 @@ export function createTabRouteController(input: {
     return associations;
   }
 
-  async function reconcileTab(tab: ChromeTabSnapshot): Promise<RouteResult> {
+  async function reconcileTab(
+    tab: ChromeTabSnapshot,
+    skipPersistentRepair = false
+  ): Promise<RouteResult> {
     if (tab.incognito) return { kind: "held", reason: "not-routable" };
 
     const inventory = await input.chrome.readInventory();
@@ -167,63 +174,74 @@ export function createTabRouteController(input: {
     );
 
     if (currentGroup?.shared) {
-      const repaired = await repairTabIfNeeded({
-        tab,
+      if (!skipPersistentRepair) {
+        const repaired = await repairTabIfNeeded({
+          tab,
+          inventory,
+          session: runtime,
+          configuration,
+          local: input.local,
+          associations,
+          actionDeps: actionDeps()
+        });
 
-        inventory,
-
-        session: runtime,
-
-        configuration,
-
-        local: input.local,
-
-        associations,
-
-        actionDeps: actionDeps()
-      });
-
-      if (repaired) {
-        const after = await input.chrome.readInventory();
-
-        return {
-          kind: "executed",
-
-          chromeGroupId: tab.chromeGroupId,
-
-          inventory: after
-        };
+        if (repaired.kind === "reclassifyAndRecreate") {
+          const after = await input.chrome.readInventory();
+          const original = after.tabs.find(
+            (candidate) => candidate.id === tab.id
+          );
+          return original
+            ? reconcileTab(original, true)
+            : {
+                kind: "executed",
+                chromeGroupId: tab.chromeGroupId,
+                inventory: after
+              };
+        }
+        if (repaired.kind === "handled") {
+          const after = await input.chrome.readInventory();
+          return {
+            kind: "executed",
+            chromeGroupId: tab.chromeGroupId,
+            inventory: after
+          };
+        }
       }
-
       return { kind: "held", reason: "unmanaged-placement" };
     }
 
-    const persistentRepaired = await repairTabIfNeeded({
-      tab,
+    if (!skipPersistentRepair) {
+      const persistentRepaired = await repairTabIfNeeded({
+        tab,
+        inventory,
+        session: runtime,
+        configuration,
+        local: input.local,
+        associations,
+        actionDeps: actionDeps()
+      });
 
-      inventory,
-
-      session: runtime,
-
-      configuration,
-
-      local: input.local,
-
-      associations,
-
-      actionDeps: actionDeps()
-    });
-
-    if (persistentRepaired) {
-      const after = await input.chrome.readInventory();
-
-      return {
-        kind: "executed",
-
-        chromeGroupId: tab.chromeGroupId,
-
-        inventory: after
-      };
+      if (persistentRepaired.kind === "reclassifyAndRecreate") {
+        const after = await input.chrome.readInventory();
+        const original = after.tabs.find(
+          (candidate) => candidate.id === tab.id
+        );
+        return original
+          ? reconcileTab(original, true)
+          : {
+              kind: "executed",
+              chromeGroupId: tab.chromeGroupId,
+              inventory: after
+            };
+      }
+      if (persistentRepaired.kind === "handled") {
+        const after = await input.chrome.readInventory();
+        return {
+          kind: "executed",
+          chromeGroupId: tab.chromeGroupId,
+          inventory: after
+        };
+      }
     }
 
     if (!isRoutableUrl(tab.url))
@@ -260,14 +278,27 @@ export function createTabRouteController(input: {
 
     if (
       !configuration.automationEnabled ||
-      configuration.globalPausedUntil === "restart" ||
-      (typeof configuration.globalPausedUntil === "number" &&
-        configuration.globalPausedUntil > now())
+      isPauseActive(configuration.globalPausedUntil, now())
     )
       return { kind: "held", reason: "paused" };
 
     const freshTab =
       inventory.tabs.find((candidate) => candidate.id === tab.id) ?? tab;
+    const currentAssociation = associations.find(
+      (association) =>
+        association.chromeGroupId === freshTab.chromeGroupId &&
+        association.chromeWindowId === freshTab.windowId
+    );
+    const currentManagedGroup = currentAssociation
+      ? configuration.groups.find(
+          (group) => group.id === currentAssociation.managedGroupId
+        )
+      : undefined;
+    if (
+      currentManagedGroup &&
+      isPauseActive(currentManagedGroup.pausedUntil, now())
+    )
+      return { kind: "held", reason: "paused" };
 
     executing = true;
     try {
@@ -343,6 +374,7 @@ export function createTabRouteController(input: {
       const result = await executeRoutePlan(planned, {
         chrome: input.chrome,
         session: input.session,
+        checkpoints: input.checkpoints,
         local: input.local,
         configuration,
         now

@@ -7,7 +7,13 @@ import { createUuid } from "../../src/domain/ids";
 import type { Snapshot } from "../../src/domain/types";
 import { SnapshotsPage } from "../../src/ui/manager/pages/SnapshotsPage";
 import { ManagerShell } from "../../src/ui/manager/ManagerShell";
+import type { ManagerResponse } from "../../src/ui/manager/types";
 import "../../src/ui/manager/manager.css";
+
+const failure: ManagerResponse = {
+  ok: false,
+  error: { kind: "persistence", message: "Snapshot command failed" }
+};
 
 const snapshot: Snapshot = {
   schemaVersion: 1,
@@ -22,7 +28,7 @@ const snapshot: Snapshot = {
 
 it("renders snapshots and confirms restore", async () => {
   const user = userEvent.setup();
-  const command = vi.fn(async () => undefined);
+  const command = vi.fn(async (): Promise<ManagerResponse> => failure);
   render(
     <SnapshotsPage
       snapshots={[snapshot]}
@@ -46,11 +52,17 @@ it("renders snapshots and confirms restore", async () => {
     kind: "restoreSnapshot",
     snapshotId: snapshot.id
   });
+  expect(screen.getByRole("alert").textContent).toContain(
+    "Snapshot command failed"
+  );
+  expect(
+    screen.getByRole("dialog", { name: "Restore snapshot?" })
+  ).toBeTruthy();
 });
 
 it("renames without a destructive dialog", async () => {
   const user = userEvent.setup();
-  const command = vi.fn(async () => undefined);
+  const command = vi.fn(async (): Promise<ManagerResponse> => failure);
   render(
     <SnapshotsPage
       snapshots={[snapshot]}
@@ -75,7 +87,7 @@ it("renames without a destructive dialog", async () => {
 
 it("confirms update and delete actions", async () => {
   const user = userEvent.setup();
-  const command = vi.fn(async () => undefined);
+  const command = vi.fn(async (): Promise<ManagerResponse> => failure);
   render(
     <SnapshotsPage
       snapshots={[snapshot]}
@@ -131,7 +143,7 @@ it("scrolls only the snapshots list body", () => {
     >
       <SnapshotsPage
         snapshots={many}
-        command={async () => undefined}
+        command={async (): Promise<ManagerResponse> => failure}
         onBack={() => undefined}
       />
     </ManagerShell>

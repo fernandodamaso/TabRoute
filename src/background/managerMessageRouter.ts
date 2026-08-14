@@ -538,7 +538,8 @@ function failure(kind: ManagerFailureKind, error: unknown): ManagerResponse {
 
 function domainFailure(error: unknown): ManagerResponse {
   const kind: ManagerFailureKind =
-    error instanceof Error && /not found|missing/.test(error.message)
+    error instanceof Error &&
+    /not found|missing|unavailable/.test(error.message)
       ? "reference"
       : "validation";
   return failure(kind, error);
@@ -696,10 +697,12 @@ function applyCommand(
         inventory.associations,
         inventory.preferredWindowId
       );
+      if (memberUrls.kind === "unavailable")
+        throw new Error("live managed group unavailable");
       return pinGroupDefinitions(
         current,
         command.managedGroupId,
-        memberUrls,
+        memberUrls.urls,
         now,
         randomUuid
       );

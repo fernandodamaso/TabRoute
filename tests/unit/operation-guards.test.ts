@@ -384,6 +384,119 @@ describe("classifyGuardedEvent", () => {
     );
     expect(decision.kind).toBe("defer");
   });
+  it("binds tabCreated to pendingTab guard for create/restore actions before output tab ID exists", () => {
+    const pendingGuard = guard({
+      operation: "createTab",
+      phase: "executing",
+      tabIds: [],
+      expectedEventKinds: ["tabCreated", "tabUpdated", "tabAttached"],
+      postcondition: { kind: "tabsPresent", tabIds: [] },
+      pendingTab: { url: "https://example.com/page", windowId: 1 }
+    });
+
+    const inv = inventory({
+      tabs: [
+        tab({
+          id: 55,
+          windowId: 1,
+          url: "https://example.com/page",
+          title: "Example Page"
+        })
+      ]
+    });
+
+    const decision = classifyGuardedEvent(
+      { kind: "tabCreated", tabId: 55 },
+      inv,
+      session({ operationGuards: [pendingGuard] }),
+      100
+    );
+
+    expect(decision.kind).toBe("defer");
+    if (decision.kind === "defer") {
+      expect(decision.guard.tabIds).toEqual([55]);
+      expect(decision.guard.pendingTab).toBeUndefined();
+      expect(decision.guard.postcondition).toEqual({
+        kind: "tabsPresent",
+        tabIds: [55]
+      });
+      expect(decision.guard.seenEventKinds).toContain("tabCreated");
+    }
+  });
+
+  it("does not bind pendingTab if URL or windowId does not match", () => {
+    const pendingGuard = guard({
+      operation: "createTab",
+      phase: "executing",
+      tabIds: [],
+      expectedEventKinds: ["tabCreated"],
+      pendingTab: { url: "https://example.com/target", windowId: 1 }
+    });
+
+    const invOtherWindow = inventory({
+      tabs: [tab({ id: 55, windowId: 2, url: "https://example.com/target" })]
+    });
+
+    const decisionOtherWindow = classifyGuardedEvent(
+      { kind: "tabCreated", tabId: 55 },
+      invOtherWindow,
+      session({ operationGuards: [pendingGuard] }),
+      100
+    );
+    expect(decisionOtherWindow.kind).toBe("unmatched");
+
+    const invOtherUrl = inventory({
+      tabs: [tab({ id: 56, windowId: 1, url: "https://different.com/" })]
+    });
+    const decisionOtherUrl = classifyGuardedEvent(
+      { kind: "tabCreated", tabId: 56 },
+      invOtherUrl,
+      session({ operationGuards: [pendingGuard] }),
+      100
+    );
+    expect(decisionOtherUrl.kind).toBe("unmatched");
+  });
+
+  it("binds only the first matching guard when two same-URL pending guards exist", () => {
+    const firstGuard = guard({
+      id: "00000000-0000-4000-8000-000000000001" as UUID,
+      operation: "createTab",
+      phase: "executing",
+      tabIds: [],
+      expectedEventKinds: ["tabCreated"],
+      pendingTab: { url: "https://example.com/same", windowId: 1 }
+    });
+    const secondGuard = guard({
+      id: "00000000-0000-4000-8000-000000000002" as UUID,
+      operation: "createTab",
+      phase: "executing",
+      tabIds: [],
+      expectedEventKinds: ["tabCreated"],
+      pendingTab: { url: "https://example.com/same", windowId: 1 }
+    });
+
+    const inv = inventory({
+      tabs: [tab({ id: 77, windowId: 1, url: "https://example.com/same" })]
+    });
+
+    const decision = classifyGuardedEvent(
+      { kind: "tabCreated", tabId: 77 },
+      inv,
+      session({ operationGuards: [firstGuard, secondGuard] }),
+      100
+    );
+
+    expect(decision.kind).toBe("defer");
+    if (decision.kind === "defer") {
+      expect(decision.guard.id).toBe(firstGuard.id);
+      expect(decision.guard.tabIds).toEqual([77]);
+      const remainingSecond = decision.session.operationGuards.find(
+        (g) => g.id === secondGuard.id
+      );
+      expect(remainingSecond?.tabIds).toEqual([]);
+      expect(remainingSecond?.pendingTab).toBeDefined();
+    }
+  });
 });
 
 describe("settleOperationGuards", () => {
@@ -500,5 +613,64 @@ describe("postconditionHolds", () => {
         inventory({ tabs: [tab({ chromeGroupId: -1 })], groups: [] })
       )
     ).toBe(true);
+  });
+
+  it("verifies managedGroupState postcondition against the exact intended native group", () => {
+    const intendedGroupId = 20;
+    const unrelatedGroupId = 30;
+    const managedUuid = "00000000-0000-4000-8000-000000000001" as UUID;
+
+    const invWithUnrelatedInWindow2 = inventory({
+      groups: [
+        {
+          id: intendedGroupId,
+          windowId: 1,
+          title: "Old Title",
+          color: "blue",
+          collapsed: false,
+          shared: false
+        },
+        {
+          id: unrelatedGroupId,
+          windowId: 2,
+          title: "New Title",
+          color: "red",
+          collapsed: true,
+          shared: false
+        }
+      ]
+    });
+
+    const postcondition = {
+      kind: "managedGroupState" as const,
+      managedGroupId: managedUuid,
+      chromeGroupId: intendedGroupId,
+      windowId: 2,
+      title: "New Title",
+      color: "red" as const,
+      collapsed: true
+    };
+
+    // Verification must fail because intended group #20 is still in window 1 with Old Title
+    expect(postconditionHolds(postcondition, invWithUnrelatedInWindow2)).toBe(
+      false
+    );
+
+    // Once intended group #20 moves to window 2 and updates to New Title/red/collapsed, verification succeeds
+    const invWithIntendedUpdated = inventory({
+      groups: [
+        {
+          id: intendedGroupId,
+          windowId: 2,
+          title: "New Title",
+          color: "red",
+          collapsed: true,
+          shared: false
+        }
+      ]
+    });
+    expect(postconditionHolds(postcondition, invWithIntendedUpdated)).toBe(
+      true
+    );
   });
 });

@@ -1,11 +1,11 @@
 import { useState } from "react";
 import type { Snapshot, UUID } from "../../../domain/types";
-import type { ManagerCommandPayload } from "../types";
+import type { ManagerCommandPayload, ManagerResponse } from "../types";
 import { ConfirmationDialog } from "../components/ConfirmationDialog";
 
 export interface SnapshotsPageProps {
   snapshots: readonly Snapshot[];
-  command: (payload: ManagerCommandPayload) => Promise<void>;
+  command: (payload: ManagerCommandPayload) => Promise<ManagerResponse>;
   onBack: () => void;
 }
 
@@ -23,6 +23,14 @@ export function SnapshotsPage({
   const [renameId, setRenameId] = useState<UUID | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [pending, setPending] = useState<PendingAction | null>(null);
+  const [error, setError] = useState<string>();
+  const run = async (
+    payload: ManagerCommandPayload
+  ): Promise<ManagerResponse> => {
+    const result = await command(payload);
+    setError(result.ok ? undefined : result.error.message);
+    return result;
+  };
 
   return (
     <section aria-label="Snapshots content" className="snapshots-page">
@@ -30,6 +38,11 @@ export function SnapshotsPage({
         Back to Settings
       </button>
       <h1 data-page-heading="true">Snapshots</h1>
+      {error ? (
+        <p role="alert" className="snapshot-command-error">
+          {error}
+        </p>
+      ) : null}
       <div className="snapshots-toolbar">
         <input
           aria-label="Snapshot name"
@@ -41,12 +54,13 @@ export function SnapshotsPage({
           type="button"
           className="primary-button"
           onClick={() => {
-            void command({
+            void run({
               kind: "saveSnapshot",
               name,
               scope: { kind: "browser" }
+            }).then((result) => {
+              if (result.ok) setName("");
             });
-            setName("");
           }}
         >
           Save snapshot
@@ -71,12 +85,13 @@ export function SnapshotsPage({
                     <button
                       type="button"
                       onClick={() => {
-                        void command({
+                        void run({
                           kind: "renameSnapshot",
                           snapshotId: snapshot.id,
                           name: renameValue
+                        }).then((result) => {
+                          if (result.ok) setRenameId(null);
                         });
-                        setRenameId(null);
                       }}
                     >
                       Save name
@@ -122,12 +137,12 @@ export function SnapshotsPage({
           message={`Restore "${pending.snapshot.name}" and reorganize open tabs.`}
           confirmLabel="Restore"
           onCancel={() => setPending(null)}
-          onConfirm={() => {
-            setPending(null);
-            void command({
+          onConfirm={async () => {
+            const result = await run({
               kind: "restoreSnapshot",
               snapshotId: pending.snapshot.id
             });
+            if (result.ok) setPending(null);
           }}
         />
       ) : null}
@@ -137,12 +152,12 @@ export function SnapshotsPage({
           message={`Replace "${pending.snapshot.name}" with the current browser layout.`}
           confirmLabel="Update"
           onCancel={() => setPending(null)}
-          onConfirm={() => {
-            setPending(null);
-            void command({
+          onConfirm={async () => {
+            const result = await run({
               kind: "updateSnapshot",
               snapshotId: pending.snapshot.id
             });
+            if (result.ok) setPending(null);
           }}
         />
       ) : null}
@@ -152,12 +167,12 @@ export function SnapshotsPage({
           message={`Delete "${pending.snapshot.name}" permanently.`}
           confirmLabel="Delete"
           onCancel={() => setPending(null)}
-          onConfirm={() => {
-            setPending(null);
-            void command({
+          onConfirm={async () => {
+            const result = await run({
               kind: "deleteSnapshot",
               snapshotId: pending.snapshot.id
             });
+            if (result.ok) setPending(null);
           }}
         />
       ) : null}

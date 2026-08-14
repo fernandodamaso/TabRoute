@@ -15,12 +15,13 @@ import {
   removePersistent
 } from "../persistence/persistentCommands";
 import { collectLiveMemberUrls } from "../persistence/requirements";
+import { observeInventory } from "../duplicates/observations";
 import { setAutomationEnabled } from "../settings/settingsCommands";
 import {
   buildSnapshotContext,
   saveNamedSnapshot
 } from "../snapshots/snapshotService";
-import { observeInventory } from "../duplicates/observations";
+import { writeManualOverride } from "./eventClassifier";
 import type {
   ActionId,
   ChromeAssociation,
@@ -84,6 +85,27 @@ async function runUserPlan(
     actionId: plan.id,
     degraded: result.status === "degraded"
   };
+}
+
+async function runUserPlanWithOverride(
+  deps: UserCommandExecutorDeps,
+  actions: PlannedAction[],
+  tabId: number,
+  managedGroupId: UUID,
+  now: () => number
+): Promise<CommandResult> {
+  const result = await runUserPlan(deps, actions);
+  if (result.ok) {
+    await deps.session.updateSession((session) =>
+      writeManualOverride(
+        session,
+        tabId,
+        { kind: "managedGroup", managedGroupId },
+        now()
+      )
+    );
+  }
+  return result;
 }
 
 export async function executeUserCommand(
@@ -170,12 +192,19 @@ export async function executeUserCommand(
         associations,
         inventory.windows.find((window) => window.focused)?.id
       );
+      if (memberUrls.kind === "unavailable") {
+        return {
+          ok: false,
+          code: "GROUP_UNAVAILABLE",
+          message: "live managed group unavailable"
+        };
+      }
       await persist(
         deps,
         pinGroupDefinitions(
           configuration,
           command.managedGroupId,
-          memberUrls,
+          memberUrls.urls,
           now,
           randomUuid
         )
@@ -195,18 +224,24 @@ export async function executeUserCommand(
           message: "tab is not eligible"
         };
       }
-      return runUserPlan(deps, [
-        {
-          id: createUuid(randomUuid) as unknown as ActionId,
-          kind: "assignTabsToManagedGroup",
-          dependsOn: [],
-          tabs: [{ kind: "live", tabId: tab.id }],
-          managedGroupId: group.id,
-          windowId: tab.windowId,
-          title: renderGroupTitle(group),
-          color: group.color
-        }
-      ]);
+      return runUserPlanWithOverride(
+        deps,
+        [
+          {
+            id: createUuid(randomUuid) as unknown as ActionId,
+            kind: "assignTabsToManagedGroup",
+            dependsOn: [],
+            tabs: [{ kind: "live", tabId: tab.id }],
+            managedGroupId: group.id,
+            windowId: tab.windowId,
+            title: renderGroupTitle(group),
+            color: group.color
+          }
+        ],
+        tab.id,
+        group.id,
+        now
+      );
     }
     case "moveToGroup": {
       const inventory = await actionDeps.reads.readInventory();
@@ -228,18 +263,24 @@ export async function executeUserCommand(
           message: "move target unavailable"
         };
       }
-      return runUserPlan(deps, [
-        {
-          id: createUuid(randomUuid) as unknown as ActionId,
-          kind: "assignTabsToManagedGroup",
-          dependsOn: [],
-          tabs: [{ kind: "live", tabId: tab.id }],
-          managedGroupId: group.id,
-          windowId: tab.windowId,
-          title: renderGroupTitle(group),
-          color: group.color
-        }
-      ]);
+      return runUserPlanWithOverride(
+        deps,
+        [
+          {
+            id: createUuid(randomUuid) as unknown as ActionId,
+            kind: "assignTabsToManagedGroup",
+            dependsOn: [],
+            tabs: [{ kind: "live", tabId: tab.id }],
+            managedGroupId: group.id,
+            windowId: tab.windowId,
+            title: renderGroupTitle(group),
+            color: group.color
+          }
+        ],
+        tab.id,
+        group.id,
+        now
+      );
     }
     case "setGroupCollapsed": {
       const group = configuration.groups.find(

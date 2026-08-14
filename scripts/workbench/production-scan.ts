@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import {
   mkdir,
   mkdtemp,
@@ -9,10 +8,8 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
+import { unzipSync } from "fflate";
 import { createArtifactStore, encodeUtf8 } from "./artifacts";
-
-const execFileAsync = promisify(execFile);
 
 export interface ProductionScanFs {
   readManifest?: () => Promise<string>;
@@ -358,10 +355,26 @@ export async function extractZipArchive(
   zipPath: string,
   destination: string
 ): Promise<void> {
-  await mkdir(destination, { recursive: true });
-  await execFileAsync("tar", ["-xf", path.resolve(zipPath), "-C", destination]);
+  const root = path.resolve(destination);
+  await mkdir(root, { recursive: true });
+  const entries = unzipSync(new Uint8Array(await readFile(zipPath)));
+  for (const [entryName, bytes] of Object.entries(entries)) {
+    const target = path.resolve(root, entryName);
+    const relative = path.relative(root, target);
+    if (
+      relative === ".." ||
+      relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative)
+    )
+      throw new Error(`ZIP entry escapes extraction root: ${entryName}`);
+    if (entryName.endsWith("/")) {
+      await mkdir(target, { recursive: true });
+      continue;
+    }
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, bytes);
+  }
 }
-
 export async function scanProductionZip(
   zipPath: string
 ): Promise<ProductionScanResult> {

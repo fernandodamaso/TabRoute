@@ -352,7 +352,9 @@ export function planUndoActions(input: {
           id: createId,
           dependsOn: [],
           kind: "restoreClosedTab",
-          sessionId: input.payload.sessionId
+          sessionId: input.payload.sessionId,
+          expectedUrl: input.payload.url,
+          windowId: input.windowId
         }
       : {
           id: createId,

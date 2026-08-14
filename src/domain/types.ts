@@ -178,6 +178,7 @@ export interface TabSnapshotRecord {
   url: string;
   title: string;
   duplicateKey: string | null;
+  duplicatePolicy?: DuplicatePolicy;
   order: number;
 }
 
@@ -325,6 +326,7 @@ export type GuardPostcondition =
   | {
       kind: "managedGroupState";
       managedGroupId: UUID;
+      chromeGroupId: number;
       windowId?: number;
       title?: string;
       color?: ChromeGroupColor;
@@ -354,6 +356,7 @@ export interface OperationGuard {
   expectedEventKinds: GuardEventKind[];
   seenEventKinds: GuardEventKind[];
   postcondition?: GuardPostcondition;
+  pendingTab?: { url: string; windowId?: number };
   startedAt: number;
   verifiedAt?: number;
   settleAfter?: number;

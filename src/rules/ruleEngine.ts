@@ -27,7 +27,10 @@ type ConditionLeaf = Exclude<ConditionNode, { kind: "all" | "any" }>;
 
 const now = () => Date.now();
 
-function isPaused(value: number | "restart" | undefined, at: number) {
+export function isPauseActive(
+  value: number | "restart" | undefined,
+  at: number
+): boolean {
   return value === "restart" || (typeof value === "number" && value > at);
 }
 
@@ -148,9 +151,11 @@ function leaf(
           : node.operator === "pattern"
             ? matchesPattern(opener?.hostname ?? "", node.value)
             : !!opener &&
-              opener.hostname
-                .toLowerCase()
-                .endsWith(`.${node.value.toLowerCase()}`);
+              (() => {
+                const actual = opener.hostname.toLowerCase();
+                const expected = node.value.toLowerCase();
+                return actual === expected || actual.endsWith(`.${expected}`);
+              })();
       specificityClass = node.operator === "pattern" ? 1 : 3;
       break;
     case "currentGroup":
@@ -223,7 +228,7 @@ export function evaluateRule(
   associations: readonly ChromeAssociation[],
   at = now()
 ): RuleEvaluation {
-  if (!rule.enabled || isPaused(rule.pausedUntil, at))
+  if (!rule.enabled || isPauseActive(rule.pausedUntil, at))
     return {
       matches: false,
       matchingLeafCount: 0,
@@ -267,7 +272,7 @@ export function selectRule(input: {
   const at = input.at ?? now();
   if (
     !input.configuration.automationEnabled ||
-    isPaused(input.configuration.globalPausedUntil, at)
+    isPauseActive(input.configuration.globalPausedUntil, at)
   )
     return undefined;
   const candidates = input.configuration.rules.flatMap((rule) => {
@@ -277,7 +282,7 @@ export function selectRule(input: {
     );
     if (
       placement === "group" &&
-      (!target || !target.enabled || isPaused(target.pausedUntil, at))
+      (!target || !target.enabled || isPauseActive(target.pausedUntil, at))
     )
       return [];
     const evaluation = evaluateRule(

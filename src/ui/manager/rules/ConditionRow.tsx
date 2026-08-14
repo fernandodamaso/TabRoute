@@ -27,12 +27,18 @@ export function ConditionRow({
   index,
   groups,
   onChange,
+  onRemove,
+  removeLabel,
+  removeDisabled = false,
   valueRef
 }: {
   condition: ConditionLeaf;
   index: number;
   groups: ManagedGroup[];
   onChange: (condition: ConditionLeaf) => void;
+  onRemove?: () => void;
+  removeLabel?: string;
+  removeDisabled?: boolean;
   valueRef?: (element: HTMLInputElement | HTMLSelectElement | null) => void;
 }) {
   const available = operators(condition.kind);
@@ -136,6 +142,17 @@ export function ConditionRow({
             }
           />
         </label>
+      )}
+      {onRemove && removeLabel && (
+        <button
+          type="button"
+          className="condition-remove"
+          disabled={removeDisabled}
+          aria-label={removeLabel}
+          onClick={onRemove}
+        >
+          Remove
+        </button>
       )}
     </div>
   );

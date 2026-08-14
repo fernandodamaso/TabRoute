@@ -9,6 +9,7 @@ import type {
   WindowOwnershipDescriptor
 } from "../domain/types";
 import { STORAGE_KEYS, SYNC_LIMITS, type StorageAreaPort } from "./keys";
+import { storageItemBytes } from "./configurationShards";
 
 export const LOCAL_SOFT_BUDGET_BYTES = 9_437_184;
 
@@ -137,12 +138,13 @@ export function createMemoryLocalRepository(
           (candidate) => candidate.kind !== "checkpoint"
         );
         if (namedAndAutomatic.length >= 50) {
-          if (snapshot.kind === "automatic") {
-            return { ok: false, code: "SNAPSHOT_LIMIT" };
-          }
           const automatic = namedAndAutomatic
             .filter((candidate) => candidate.kind === "automatic")
-            .sort((left, right) => left.createdAt - right.createdAt);
+            .sort(
+              (left, right) =>
+                left.createdAt - right.createdAt ||
+                left.id.localeCompare(right.id)
+            );
           if (automatic.length === 0) {
             return { ok: false, code: "SNAPSHOT_LIMIT" };
           }
@@ -250,151 +252,193 @@ export function createChromeLocalRepository(
   }
 
   const memory = createMemoryLocalRepository();
+  let mutationTail = Promise.resolve();
+
+  function serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const next = mutationTail.then(operation, operation);
+    mutationTail = next.then(
+      () => {},
+      () => {}
+    );
+    return next;
+  }
 
   return {
-    listSnapshots: () => readBag(STORAGE_KEYS.localSnapshots, [] as Snapshot[]),
-    getSnapshot: async (id) =>
-      (await readBag(STORAGE_KEYS.localSnapshots, [] as Snapshot[])).find(
-        (snapshot) => snapshot.id === id
-      ) ?? null,
-    saveSnapshot: async (snapshot) => {
-      const snapshots = await readBag(
-        STORAGE_KEYS.localSnapshots,
-        [] as Snapshot[]
-      );
-      memory.bags.snapshots = snapshots;
-      const result = await memory.saveSnapshot(snapshot);
-      if (result.ok) {
-        await writeBag(STORAGE_KEYS.localSnapshots, memory.bags.snapshots);
-      }
-      return result;
-    },
-    deleteSnapshot: async (id) => {
-      const snapshots = await readBag(
-        STORAGE_KEYS.localSnapshots,
-        [] as Snapshot[]
-      );
-      await writeBag(
-        STORAGE_KEYS.localSnapshots,
-        snapshots.filter((snapshot) => snapshot.id !== id)
-      );
-    },
-    loadShutdownCheckpoint: () =>
-      readBag(
-        STORAGE_KEYS.localShutdownCheckpoint,
-        null as ShutdownCheckpoint | null
+    listSnapshots: () =>
+      serializeMutation(() =>
+        readBag(STORAGE_KEYS.localSnapshots, [] as Snapshot[])
       ),
-    saveShutdownCheckpoint: async (value) => {
-      memory.bags.snapshots = await readBag(
-        STORAGE_KEYS.localSnapshots,
-        [] as Snapshot[]
-      );
-      memory.bags.checkpoint = await readBag(
-        STORAGE_KEYS.localShutdownCheckpoint,
-        null as ShutdownCheckpoint | null
-      );
-      memory.bags.activity = await readBag(
-        STORAGE_KEYS.localActivity,
-        [] as ActivityEntry[]
-      );
-      memory.bags.undo = await readBag(
-        STORAGE_KEYS.localUndo,
-        {} as Record<string, UndoRecord>
-      );
-      memory.bags.ownership = await readBag(
-        STORAGE_KEYS.localWindowOwnership,
-        {} as Record<UUID, WindowOwnershipDescriptor>
-      );
-      const result = await memory.saveShutdownCheckpoint(value);
-      try {
-        await writeBag(STORAGE_KEYS.localSnapshots, memory.bags.snapshots);
-        await writeBag(STORAGE_KEYS.localActivity, memory.bags.activity);
-        await writeBag(STORAGE_KEYS.localUndo, memory.bags.undo);
-        await writeBag(
-          STORAGE_KEYS.localWindowOwnership,
-          memory.bags.ownership
+    getSnapshot: (id) =>
+      serializeMutation(
+        async () =>
+          (await readBag(STORAGE_KEYS.localSnapshots, [] as Snapshot[])).find(
+            (snapshot) => snapshot.id === id
+          ) ?? null
+      ),
+    saveSnapshot: (snapshot) =>
+      serializeMutation(async () => {
+        const snapshots = await readBag(
+          STORAGE_KEYS.localSnapshots,
+          [] as Snapshot[]
         );
-        if (result.ok)
+        memory.bags.snapshots = snapshots;
+        const result = await memory.saveSnapshot(snapshot);
+        if (result.ok) {
+          await writeBag(STORAGE_KEYS.localSnapshots, memory.bags.snapshots);
+        }
+        return result;
+      }),
+    deleteSnapshot: (id) =>
+      serializeMutation(async () => {
+        const snapshots = await readBag(
+          STORAGE_KEYS.localSnapshots,
+          [] as Snapshot[]
+        );
+        await writeBag(
+          STORAGE_KEYS.localSnapshots,
+          snapshots.filter((snapshot) => snapshot.id !== id)
+        );
+      }),
+    loadShutdownCheckpoint: () =>
+      serializeMutation(() =>
+        readBag(
+          STORAGE_KEYS.localShutdownCheckpoint,
+          null as ShutdownCheckpoint | null
+        )
+      ),
+    saveShutdownCheckpoint: (value) =>
+      serializeMutation(async () => {
+        memory.bags.snapshots = await readBag(
+          STORAGE_KEYS.localSnapshots,
+          [] as Snapshot[]
+        );
+        memory.bags.checkpoint = await readBag(
+          STORAGE_KEYS.localShutdownCheckpoint,
+          null as ShutdownCheckpoint | null
+        );
+        memory.bags.activity = await readBag(
+          STORAGE_KEYS.localActivity,
+          [] as ActivityEntry[]
+        );
+        memory.bags.undo = await readBag(
+          STORAGE_KEYS.localUndo,
+          {} as Record<string, UndoRecord>
+        );
+        memory.bags.ownership = await readBag(
+          STORAGE_KEYS.localWindowOwnership,
+          {} as Record<UUID, WindowOwnershipDescriptor>
+        );
+        const result = await memory.saveShutdownCheckpoint(value);
+        try {
+          await writeBag(STORAGE_KEYS.localSnapshots, memory.bags.snapshots);
+          await writeBag(STORAGE_KEYS.localActivity, memory.bags.activity);
+          await writeBag(STORAGE_KEYS.localUndo, memory.bags.undo);
           await writeBag(
-            STORAGE_KEYS.localShutdownCheckpoint,
-            memory.bags.checkpoint
+            STORAGE_KEYS.localWindowOwnership,
+            memory.bags.ownership
           );
-      } catch {
-        return { ok: false, code: "LOCAL_WRITE" };
-      }
-      return result;
-    },
-    appendActivity: async (entry) => {
-      const activity = await readBag(
-        STORAGE_KEYS.localActivity,
-        [] as ActivityEntry[]
-      );
-      await writeBag(
-        STORAGE_KEYS.localActivity,
-        [entry, ...activity].slice(0, 500)
-      );
-    },
-    listActivity: async (before, limit) => {
-      const activity = await readBag(
-        STORAGE_KEYS.localActivity,
-        [] as ActivityEntry[]
-      );
-      const filtered =
-        before === undefined
-          ? activity
-          : activity.filter((entry) => entry.createdAt < before);
-      return filtered.slice(0, limit);
-    },
-    clearActivity: async () => {
-      await writeBag(STORAGE_KEYS.localActivity, [] as ActivityEntry[]);
-    },
-    putUndo: async (record) => {
-      const undo = await readBag(
-        STORAGE_KEYS.localUndo,
-        {} as Record<string, UndoRecord>
-      );
-      await writeBag(STORAGE_KEYS.localUndo, { ...undo, [record.id]: record });
-    },
-    getUndo: async (id) => {
-      const undo = await readBag(
-        STORAGE_KEYS.localUndo,
-        {} as Record<string, UndoRecord>
-      );
-      return undo[id] ?? null;
-    },
-    listUndo: async () => {
-      const undo = await readBag(
-        STORAGE_KEYS.localUndo,
-        {} as Record<string, UndoRecord>
-      );
-      return Object.values(undo);
-    },
-    deleteUndo: async (id) => {
-      const undo = await readBag(
-        STORAGE_KEYS.localUndo,
-        {} as Record<string, UndoRecord>
-      );
-      const next = { ...undo };
-      delete next[id];
-      await writeBag(STORAGE_KEYS.localUndo, next);
-    },
+          if (result.ok)
+            await writeBag(
+              STORAGE_KEYS.localShutdownCheckpoint,
+              memory.bags.checkpoint
+            );
+        } catch {
+          return { ok: false, code: "LOCAL_WRITE" };
+        }
+        return result;
+      }),
+    appendActivity: (entry) =>
+      serializeMutation(async () => {
+        const activity = await readBag(
+          STORAGE_KEYS.localActivity,
+          [] as ActivityEntry[]
+        );
+        await writeBag(
+          STORAGE_KEYS.localActivity,
+          [entry, ...activity].slice(0, 500)
+        );
+      }),
+    listActivity: (before, limit) =>
+      serializeMutation(async () => {
+        const activity = await readBag(
+          STORAGE_KEYS.localActivity,
+          [] as ActivityEntry[]
+        );
+        const filtered =
+          before === undefined
+            ? activity
+            : activity.filter((entry) => entry.createdAt < before);
+        return filtered.slice(0, limit);
+      }),
+    clearActivity: () =>
+      serializeMutation(async () => {
+        await writeBag(STORAGE_KEYS.localActivity, [] as ActivityEntry[]);
+      }),
+    putUndo: (record) =>
+      serializeMutation(async () => {
+        const undo = await readBag(
+          STORAGE_KEYS.localUndo,
+          {} as Record<string, UndoRecord>
+        );
+        await writeBag(STORAGE_KEYS.localUndo, {
+          ...undo,
+          [record.id]: record
+        });
+      }),
+    getUndo: (id) =>
+      serializeMutation(async () => {
+        const undo = await readBag(
+          STORAGE_KEYS.localUndo,
+          {} as Record<string, UndoRecord>
+        );
+        return undo[id] ?? null;
+      }),
+    listUndo: () =>
+      serializeMutation(async () => {
+        const undo = await readBag(
+          STORAGE_KEYS.localUndo,
+          {} as Record<string, UndoRecord>
+        );
+        return Object.values(undo);
+      }),
+    deleteUndo: (id) =>
+      serializeMutation(async () => {
+        const undo = await readBag(
+          STORAGE_KEYS.localUndo,
+          {} as Record<string, UndoRecord>
+        );
+        const next = { ...undo };
+        delete next[id];
+        await writeBag(STORAGE_KEYS.localUndo, next);
+      }),
     loadWindowOwnership: () =>
-      readBag(
-        STORAGE_KEYS.localWindowOwnership,
-        {} as Record<UUID, WindowOwnershipDescriptor>
+      serializeMutation(() =>
+        readBag(
+          STORAGE_KEYS.localWindowOwnership,
+          {} as Record<UUID, WindowOwnershipDescriptor>
+        )
       ),
     saveWindowOwnership: (value) =>
-      writeBag(STORAGE_KEYS.localWindowOwnership, value),
+      serializeMutation(() =>
+        writeBag(STORAGE_KEYS.localWindowOwnership, value)
+      ),
     async getStorageDiagnostics() {
       const localBytes = (await local.getBytesInUse?.()) ?? 0;
       const sessionBytes = (await session.getBytesInUse?.()) ?? 0;
       const syncBytes = (await sync.getBytesInUse?.()) ?? 0;
+      const syncData = await sync.get();
+      const syncEntries = Object.entries(syncData);
+      const syncItemCount = syncEntries.length;
+      const syncLargestItemBytes = syncEntries.reduce(
+        (max, [key, value]) => Math.max(max, storageItemBytes(key, value)),
+        0
+      );
       return {
         syncBytes,
         syncQuotaBytes: SYNC_LIMITS.maxTotalBytes,
-        syncLargestItemBytes: 0,
+        syncLargestItemBytes,
         syncQuotaBytesPerItem: SYNC_LIMITS.hardItemBytes,
-        syncItemCount: 0,
+        syncItemCount,
         syncMaxItems: SYNC_LIMITS.maxItems,
         localBytes,
         localSoftBudgetBytes: LOCAL_SOFT_BUDGET_BYTES,

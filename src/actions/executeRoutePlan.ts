@@ -22,10 +22,14 @@ import {
   settleOperationGuards
 } from "./operationGuards";
 import { executeWithRetry } from "./retryPolicy";
+import { translateRoutePlan } from "./translateRoutePlan";
+import { observeInventory } from "../duplicates/observations";
+import type { PreMutationCheckpointPort } from "../snapshots/checkpointService";
 import type { RoutePlan, RouteResult } from "./types";
 export interface RouteEngineDeps {
   chrome: ChromeReadPort & ChromeMutationPort;
   session: SessionRepository;
+  checkpoints: PreMutationCheckpointPort;
   local?: LocalRepository;
   configuration?: Configuration;
   now?: () => number;
@@ -163,6 +167,25 @@ export async function executeRoutePlan(
   const tab = findTab(fresh, plan.tab.id);
   if (!tab || tab.incognito) return { kind: "held", reason: "incognito" };
   if (!isRoutableUrl(tab.url)) return { kind: "held", reason: "not-routable" };
+  if (plan.kind === "ungroup") {
+    try {
+      const session = await deps.session.loadSession();
+      const observed = observeInventory(fresh, session);
+      await deps.session.saveSession(observed.session);
+      await deps.checkpoints.captureBefore(
+        translateRoutePlan(plan),
+        observed.inventory
+      );
+    } catch (error) {
+      await recordRouteActivity(
+        deps,
+        plan,
+        "failure",
+        error instanceof Error ? error.message : "CHECKPOINT_FAILED"
+      );
+      throw error;
+    }
+  }
   const retryEntries: Promise<void>[] = [];
   const onRetry = () => {
     retryEntries.push(recordRouteActivity(deps, plan, "retry"));
@@ -174,10 +197,6 @@ export async function executeRoutePlan(
     now,
     createId
   );
-  let expectedChromeGroupId =
-    plan.kind === "routeToGroup" && plan.groupInput.kind === "existing"
-      ? plan.groupInput.chromeGroupId
-      : undefined;
 
   let verifyTabId = plan.tab.id;
 
@@ -191,29 +210,55 @@ export async function executeRoutePlan(
     return inventory;
   }
 
-  function shouldAbortRetry(
-    refreshed: unknown
-  ): "gone" | "contradiction" | undefined {
-    const inventory = refreshed as ChromeInventory;
+  type PlacementBaseline = {
+    windowId: number;
+    index: number;
+    chromeGroupId: number;
+  };
+
+  function placementBaseline(inventory: ChromeInventory): PlacementBaseline {
     const subject = findTab(inventory, verifyTabId);
-    if (!subject) return "gone";
-    if (plan.kind === "ungroup") {
-      if (subject.chromeGroupId < 0) return "contradiction";
-      return undefined;
-    }
-    const footprint = buildExpectedFootprint(plan);
-    if (footprint.postcondition?.kind === "tabPlacement") {
-      const postcondition = footprint.postcondition;
-      const expectedGroupId =
-        expectedChromeGroupId ?? postcondition.chromeGroupId;
-      if (expectedGroupId !== undefined)
-        return subject.chromeGroupId === expectedGroupId
-          ? undefined
-          : "contradiction";
-      if (plan.groupInput.kind === "create" && subject.chromeGroupId < 0)
-        return "contradiction";
-    }
-    return undefined;
+    if (!subject) throw new Error("No tab with id");
+    return {
+      windowId: subject.windowId,
+      index: subject.index,
+      chromeGroupId: subject.chromeGroupId
+    };
+  }
+
+  function placementRetry(
+    baseline: PlacementBaseline,
+    expectedGroupId?: number
+  ) {
+    let recoveredGroupId: number | undefined;
+    const predicate = (refreshed: unknown) => {
+      const inventory = refreshed as ChromeInventory;
+      const subject = findTab(inventory, verifyTabId);
+      if (!subject) return "gone" as const;
+
+      const satisfied =
+        plan.kind === "ungroup"
+          ? subject.chromeGroupId < 0
+          : expectedGroupId !== undefined
+            ? subject.chromeGroupId === expectedGroupId
+            : plan.groupInput.kind === "create" &&
+              subject.chromeGroupId >= 0 &&
+              subject.chromeGroupId !== baseline.chromeGroupId;
+      if (satisfied) {
+        if (plan.kind !== "ungroup") recoveredGroupId = subject.chromeGroupId;
+        return "satisfied" as const;
+      }
+
+      const changed =
+        subject.windowId !== baseline.windowId ||
+        subject.index !== baseline.index ||
+        subject.chromeGroupId !== baseline.chromeGroupId;
+      return changed ? ("contradiction" as const) : undefined;
+    };
+    return {
+      predicate,
+      recover: () => recoveredGroupId
+    };
   }
 
   try {
@@ -222,12 +267,15 @@ export async function executeRoutePlan(
         await removeGuard(deps, executingGuard.id);
         return { kind: "noop", reason: "already-ungrouped" };
       }
+      const baseline = placementBaseline(await refreshInventory());
+      const retry = placementRetry(baseline);
       await executeWithRetry(
         () => chrome.ungroupTabs([tab.id]),
         refreshInventory,
         delay,
-        shouldAbortRetry,
-        onRetry
+        retry.predicate,
+        onRetry,
+        () => undefined
       );
       const verified = await refreshInventory();
       const verifiedTab = findTab(verified, verifyTabId);
@@ -239,14 +287,49 @@ export async function executeRoutePlan(
       await recordRouteActivity(deps, plan, "success");
       return { kind: "executed", chromeGroupId: -1, inventory: verified };
     }
+
+    const baseline = placementBaseline(await refreshInventory());
+    const expectedGroupId =
+      plan.groupInput.kind === "existing"
+        ? plan.groupInput.chromeGroupId
+        : undefined;
+    const retry = placementRetry(baseline, expectedGroupId);
     const chromeGroupId = await executeWithRetry(
       () => chrome.groupTabs(plan.groupInput),
       refreshInventory,
       delay,
-      shouldAbortRetry,
-      onRetry
+      retry.predicate,
+      onRetry,
+      () => {
+        const recovered = retry.recover();
+        if (recovered === undefined)
+          throw new Error("Action Engine recovery group unavailable");
+        return recovered;
+      }
     );
-    expectedChromeGroupId = chromeGroupId;
+
+    const updateBaselineInventory = await refreshInventory();
+    const updateGroup = updateBaselineInventory.groups.find(
+      (group) => group.id === chromeGroupId
+    );
+    if (!updateGroup) throw new Error("Action Engine group missing");
+    const updateRetry = (refreshed: unknown) => {
+      const inventory = refreshed as ChromeInventory;
+      const group = inventory.groups.find(
+        (candidate) => candidate.id === chromeGroupId
+      );
+      if (!group) return "gone" as const;
+      const holds =
+        group.title === plan.title &&
+        group.color === plan.color &&
+        (plan.collapsed === undefined || group.collapsed === plan.collapsed);
+      if (holds) return "satisfied" as const;
+      const changed =
+        group.title !== updateGroup.title ||
+        group.color !== updateGroup.color ||
+        group.collapsed !== updateGroup.collapsed;
+      return changed ? ("contradiction" as const) : undefined;
+    };
     await executeWithRetry(
       () =>
         chrome.updateGroup(chromeGroupId, {
@@ -256,8 +339,9 @@ export async function executeRoutePlan(
         }),
       refreshInventory,
       delay,
-      shouldAbortRetry,
-      onRetry
+      updateRetry,
+      onRetry,
+      () => undefined
     );
     const verified = await refreshInventory();
     const verifiedTab = findTab(verified, verifyTabId);

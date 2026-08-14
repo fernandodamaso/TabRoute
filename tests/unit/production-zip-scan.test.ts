@@ -1,15 +1,12 @@
-import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
+import { strToU8, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import {
   findChromeZip,
   scanProductionZip
 } from "../../scripts/workbench/production-scan";
-
-const execFileAsync = promisify(execFile);
 
 const APPROVED_PERMISSIONS = [
   "tabs",
@@ -46,25 +43,21 @@ const APPROVED_COMMANDS = {
 
 async function writeZipFixture(options: { marker?: boolean }): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-zip-fixture-"));
-  const payload = path.join(root, "payload");
-  await mkdir(payload, { recursive: true });
-  await writeFile(
-    path.join(payload, "manifest.json"),
-    JSON.stringify({
-      manifest_version: 3,
-      incognito: "not_allowed",
-      permissions: [...APPROVED_PERMISSIONS],
-      commands: structuredClone(APPROVED_COMMANDS)
-    }),
-    "utf8"
-  );
-  await writeFile(
-    path.join(payload, "options.html"),
-    options.marker ? "TABROUTE_DEV_WORKBENCH_V1" : "<html></html>",
-    "utf8"
-  );
   const zipPath = path.join(root, "tabroute-0.1.0-chrome.zip");
-  await execFileAsync("tar", ["-a", "-cf", zipPath, "-C", payload, "."]);
+  const archive = zipSync({
+    "manifest.json": strToU8(
+      JSON.stringify({
+        manifest_version: 3,
+        incognito: "not_allowed",
+        permissions: [...APPROVED_PERMISSIONS],
+        commands: structuredClone(APPROVED_COMMANDS)
+      })
+    ),
+    "options.html": strToU8(
+      options.marker ? "TABROUTE_DEV_WORKBENCH_V1" : "<html></html>"
+    )
+  });
+  await writeFile(zipPath, archive);
   return zipPath;
 }
 

@@ -10,7 +10,13 @@ export function reconstructAssociations(
   configuration: Configuration,
   now = Date.now
 ): ChromeAssociation[] {
-  return configuration.groups.flatMap((managedGroup) => {
+  // Pass 1: Build each managed UUID's unique candidate per window
+  const candidateClaims: Array<{
+    managedGroup: (typeof configuration.groups)[number];
+    candidateGroup: (typeof inventory.groups)[number];
+  }> = [];
+
+  for (const managedGroup of configuration.groups) {
     const matches = inventory.groups.filter(
       (group) => !group.shared && group.title === renderGroupTitle(managedGroup)
     );
@@ -20,22 +26,40 @@ export function reconstructAssociations(
       windowMatches.push(match);
       matchesByWindow.set(match.windowId, windowMatches);
     }
-    return [...matchesByWindow.values()].flatMap((windowMatches) => {
-      const match = windowMatches.length === 1 ? windowMatches[0] : undefined;
-      return match
-        ? [
-            {
-              managedGroupId: managedGroup.id,
-              chromeGroupId: match.id,
-              chromeWindowId: match.windowId,
-              observedTitle: match.title,
-              observedMemberUrls: inventory.tabs
-                .filter((tab) => tab.chromeGroupId === match.id)
-                .map((tab) => tab.url ?? ""),
-              observedAt: now()
-            }
-          ]
-        : [];
-    });
-  });
+    for (const windowMatches of matchesByWindow.values()) {
+      if (windowMatches.length === 1) {
+        candidateClaims.push({
+          managedGroup,
+          candidateGroup: windowMatches[0]!
+        });
+      }
+    }
+  }
+
+  // Pass 2: Discard any candidate Chrome group ID claimed by more than one managed UUID
+  const claimsByChromeGroupId = new Map<number, typeof candidateClaims>();
+  for (const claim of candidateClaims) {
+    const existing = claimsByChromeGroupId.get(claim.candidateGroup.id) ?? [];
+    existing.push(claim);
+    claimsByChromeGroupId.set(claim.candidateGroup.id, existing);
+  }
+
+  const validAssociations: ChromeAssociation[] = [];
+  for (const claims of claimsByChromeGroupId.values()) {
+    if (claims.length === 1) {
+      const { managedGroup, candidateGroup } = claims[0]!;
+      validAssociations.push({
+        managedGroupId: managedGroup.id,
+        chromeGroupId: candidateGroup.id,
+        chromeWindowId: candidateGroup.windowId,
+        observedTitle: candidateGroup.title,
+        observedMemberUrls: inventory.tabs
+          .filter((tab) => tab.chromeGroupId === candidateGroup.id)
+          .map((tab) => tab.url ?? ""),
+        observedAt: now()
+      });
+    }
+  }
+
+  return validAssociations;
 }

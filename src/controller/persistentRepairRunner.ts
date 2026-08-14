@@ -198,6 +198,9 @@ export async function handleStartupCoordinatorEvent(input: {
   return outcome.session;
 }
 
+export type PersistentRepairResult =
+  { kind: "none" } | { kind: "handled" } | { kind: "reclassifyAndRecreate" };
+
 export async function repairTabIfNeeded(input: {
   tab: ChromeTabSnapshot;
   inventory: ChromeInventory;
@@ -206,7 +209,7 @@ export async function repairTabIfNeeded(input: {
   local: LocalRepository;
   associations: readonly import("../domain/types").ChromeAssociation[];
   actionDeps: ActionEngineDeps;
-}): Promise<boolean> {
+}): Promise<PersistentRepairResult> {
   const context = await buildRestoreContext({
     configuration: input.configuration,
     inventory: input.inventory,
@@ -215,12 +218,16 @@ export async function repairTabIfNeeded(input: {
     associations: input.associations
   });
   const repairs = planRepairForTab(input.tab, input.inventory, context);
-  if (repairs.length === 0) return false;
-  return executePersistentRepairs({
+  if (repairs.length === 0) return { kind: "none" };
+  const succeeded = await executePersistentRepairs({
     repairs,
     actionDeps: input.actionDeps,
     associations: input.associations
   });
+  if (!succeeded) return { kind: "none" };
+  return repairs.some((repair) => repair.action === "reclassifyAndRecreate")
+    ? { kind: "reclassifyAndRecreate" }
+    : { kind: "handled" };
 }
 
 export async function repairClosedTabIfNeeded(input: {

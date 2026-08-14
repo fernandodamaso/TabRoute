@@ -273,6 +273,7 @@ describe("ordinary removal and worker-wake scrub", () => {
               kind: "managedGroupState",
               managedGroupId:
                 "00000000-0000-4000-8000-000000000001" as RuntimeSession["intentionallyClosedGroupIds"][number],
+              chromeGroupId: 10,
               windowId: 1,
               title: "Other"
             },
@@ -311,6 +312,7 @@ describe("ordinary removal and worker-wake scrub", () => {
       kind: "managedGroupState",
       managedGroupId:
         "00000000-0000-4000-8000-000000000001" as RuntimeSession["intentionallyClosedGroupIds"][number],
+      chromeGroupId: 10,
       title: "Other"
     });
   });

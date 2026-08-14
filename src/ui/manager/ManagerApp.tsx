@@ -286,9 +286,9 @@ export function ManagerApp({
             snapshots={state.viewFixture?.snapshots ?? []}
 
             command={async (payload) => {
-              await state.runCommand(payload);
-
+              const result = await state.runCommand(payload);
               await state.querySnapshots();
+              return result;
             }}
 
             onBack={() => setSettingsPanel("root")}

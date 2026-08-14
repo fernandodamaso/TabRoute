@@ -91,6 +91,33 @@ function findMatchingNonSharedTab(
   return undefined;
 }
 
+function acceptableHomeMemberTabIds(
+  managedGroupId: UUID,
+  inventory: ChromeInventory,
+  associations: readonly ChromeAssociation[]
+): number[] {
+  const association = associations.find(
+    (candidate) => candidate.managedGroupId === managedGroupId
+  );
+  if (!association) return [];
+  const group = inventory.groups.find(
+    (candidate) =>
+      candidate.id === association.chromeGroupId &&
+      candidate.windowId === association.chromeWindowId &&
+      !candidate.shared
+  );
+  if (!group) return [];
+  return inventory.tabs
+    .filter(
+      (tab) =>
+        tab.windowId === association.chromeWindowId &&
+        tab.chromeGroupId === association.chromeGroupId &&
+        !tab.incognito &&
+        !isTabInSharedGroup(tab, inventory)
+    )
+    .map((tab) => tab.id);
+}
+
 function isInTargetManagedGroup(
   tab: ChromeTabSnapshot,
   definition: PersistentTab,
@@ -264,10 +291,15 @@ export function planRepairForTab(
     ) {
       continue;
     }
+    const acceptableMemberTabIds = acceptableHomeMemberTabIds(
+      definition.managedGroupId,
+      inventory,
+      context.associations
+    );
     const homeWindow = resolveHomeWindow(
       context.ownership[definition.managedGroupId],
       inventory,
-      [tab.id],
+      acceptableMemberTabIds,
       context.lastFocusedWindowId
     );
     if (homeWindow === null) continue;
@@ -315,7 +347,7 @@ export function planPersistentTabOrdering(
     .sort((left, right) => left.index - right.index);
 
   const actions: PlannedAction[] = [];
-  let targetIndex = 0;
+  let targetIndex = groupTabs[0]?.index ?? 0;
 
   for (const definition of definitions) {
     const tab = groupTabs.find((candidate) => {

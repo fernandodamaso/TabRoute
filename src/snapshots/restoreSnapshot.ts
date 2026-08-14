@@ -2,12 +2,14 @@ import { createUuid } from "../domain/ids";
 import { renderGroupTitle } from "../groups/displayTitle";
 import { selectDuplicateSurvivor } from "../duplicates/resolveDuplicate";
 import { buildDuplicateKey } from "../duplicates/normalizeUrl";
+import { resolveDuplicatePolicy } from "../duplicates/policy";
 import { isTabInSharedGroup } from "../persistence/requirements";
 import { resolveHomeWindow } from "../persistence/windowOwnership";
 import type { RestoreContext } from "../persistence/startupRestore";
 import type {
   ActionId,
   BrowserInventory,
+  DuplicatePolicy,
   RuntimeSession,
   Snapshot,
   TabSnapshot,
@@ -36,15 +38,32 @@ function outputRef(actionIdValue: ActionId): TabRef {
   return { kind: "actionOutput", actionId: actionIdValue };
 }
 
+function snapshotRecordTab(member: TabSnapshotRecord): TabSnapshot {
+  return {
+    id: -1,
+    windowId: -1,
+    index: 0,
+    chromeGroupId: -1,
+    url: member.url,
+    status: "complete",
+    title: member.title,
+    pinned: false,
+    active: false,
+    incognito: false,
+    lastAccessed: 0,
+    routing: { kind: "routable", url: member.url }
+  };
+}
+
 function tabMatchesSnapshotMember(
   tab: TabSnapshot,
   member: TabSnapshotRecord,
+  policy: DuplicatePolicy,
   inventory: BrowserInventory,
   configuration: RestoreContext["configuration"]
 ): boolean {
   if (tab.incognito || tab.routing.kind !== "routable") return false;
   if (isTabInSharedGroup(tab, inventory)) return false;
-  const policy = configuration.duplicateSettings.globalPolicy;
   const liveKey = buildDuplicateKey(
     tab,
     policy,
@@ -57,6 +76,7 @@ function tabMatchesSnapshotMember(
 
 function findReusableTab(
   member: TabSnapshotRecord,
+  policy: DuplicatePolicy,
   inventory: BrowserInventory,
   context: RestoreContext & { session: RuntimeSession },
   destinationManagedGroupId: UUID,
@@ -65,7 +85,13 @@ function findReusableTab(
   const candidates = inventory.tabs.filter(
     (tab) =>
       !claimed.has(tab.id) &&
-      tabMatchesSnapshotMember(tab, member, inventory, context.configuration)
+      tabMatchesSnapshotMember(
+        tab,
+        member,
+        policy,
+        inventory,
+        context.configuration
+      )
   );
   if (candidates.length === 0) return undefined;
   return selectDuplicateSurvivor(
@@ -97,6 +123,7 @@ export function planSnapshotRestore(
   const claimed = new Set<number>();
   const reusedTabIds: number[] = [];
   const actions: PlannedAction[] = [];
+  const plannedByKey = new Map<string, TabRef>();
   const sortedGroups = [...snapshot.groups].sort(
     (left, right) => left.order - right.order
   );
@@ -107,8 +134,47 @@ export function planSnapshotRestore(
     );
     if (memberTabs.length === 0) continue;
 
+    const managed = context.configuration.groups.find(
+      (candidate) => candidate.id === group.managedGroupId
+    )!;
+    const policyForMember = (member: TabSnapshotRecord): DuplicatePolicy =>
+      member.duplicatePolicy ??
+      resolveDuplicatePolicy(
+        null,
+        managed,
+        context.configuration.duplicateSettings,
+        true,
+        member.url
+      );
+    const keyForMember = (
+      member: TabSnapshotRecord,
+      policy: DuplicatePolicy
+    ): string | null => {
+      if (policy.kind === "allow") return null;
+      return (
+        member.duplicateKey ??
+        buildDuplicateKey(
+          snapshotRecordTab(member),
+          policy,
+          context.configuration.duplicateSettings
+        )
+      );
+    };
+
     const acceptableMemberTabIds = inventory.tabs
-      .filter((tab) => !tab.incognito && !isTabInSharedGroup(tab, inventory))
+      .filter(
+        (tab) =>
+          !claimed.has(tab.id) &&
+          memberTabs.some((member) =>
+            tabMatchesSnapshotMember(
+              tab,
+              member,
+              policyForMember(member),
+              inventory,
+              context.configuration
+            )
+          )
+      )
       .map((tab) => tab.id);
     const windowId = resolveHomeWindow(
       group.ownership ?? context.ownership[group.managedGroupId],
@@ -120,8 +186,17 @@ export function planSnapshotRestore(
 
     const tabRefs: TabRef[] = [];
     for (const member of memberTabs) {
+      const policy = policyForMember(member);
+      const key = keyForMember(member, policy);
+      const planned = key ? plannedByKey.get(key) : undefined;
+      if (planned) {
+        tabRefs.push(planned);
+        continue;
+      }
+
       const reusable = findReusableTab(
         member,
+        policy,
         inventory,
         context,
         group.managedGroupId,
@@ -130,9 +205,12 @@ export function planSnapshotRestore(
       if (reusable) {
         claimed.add(reusable.id);
         reusedTabIds.push(reusable.id);
-        tabRefs.push(tabRef(reusable.id));
+        const ref = tabRef(reusable.id);
+        tabRefs.push(ref);
+        if (key) plannedByKey.set(key, ref);
         continue;
       }
+
       const createId = actionId();
       actions.push({
         id: createId,
@@ -140,7 +218,9 @@ export function planSnapshotRestore(
         kind: "createTab",
         input: { url: member.url, windowId, active: false }
       });
-      tabRefs.push(outputRef(createId));
+      const ref = outputRef(createId);
+      tabRefs.push(ref);
+      if (key) plannedByKey.set(key, ref);
     }
 
     if (tabRefs.length === 0) continue;

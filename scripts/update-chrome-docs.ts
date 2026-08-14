@@ -129,33 +129,37 @@ async function swapDirectory(
   const stagedManifest = `${manifestPath}.staged`;
   const backupVendor = `${vendor}.backup`;
   const backupManifest = `${manifestPath}.backup`;
+  let oldVendorMoved = false;
+  let newVendorMoved = false;
+  let oldManifestMoved = false;
+  let newManifestMoved = false;
   await writeFile(stagedManifest, `${JSON.stringify(manifest, null, 2)}\n`);
   await rm(backupVendor, { recursive: true, force: true });
   await rm(backupManifest, { force: true });
   try {
     await rename(vendor, backupVendor);
+    oldVendorMoved = true;
     await rename(stagedVendor, vendor);
+    newVendorMoved = true;
     await rename(manifestPath, backupManifest);
+    oldManifestMoved = true;
     await rename(stagedManifest, manifestPath);
-    await rm(backupVendor, { recursive: true, force: true });
-    await rm(backupManifest, { force: true });
+    newManifestMoved = true;
   } catch (error) {
-    await rm(vendor, { recursive: true, force: true });
-    await rm(manifestPath, { force: true });
-    try {
-      await rename(backupVendor, vendor);
-    } catch {
-      /* rollback is best effort */
+    if (newManifestMoved) await rm(manifestPath, { force: true });
+    if (newVendorMoved) await rm(vendor, { recursive: true, force: true });
+    if (oldManifestMoved) {
+      await rename(backupManifest, manifestPath).catch(() => undefined);
     }
-    try {
-      await rename(backupManifest, manifestPath);
-    } catch {
-      /* rollback is best effort */
+    if (oldVendorMoved) {
+      await rename(backupVendor, vendor).catch(() => undefined);
     }
     throw error;
   } finally {
     await rm(stagedManifest, { force: true });
   }
+  await rm(backupVendor, { recursive: true, force: true });
+  await rm(backupManifest, { force: true });
 }
 
 export async function updateChromeDocs(input: {

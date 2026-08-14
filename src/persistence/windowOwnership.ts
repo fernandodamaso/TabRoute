@@ -19,6 +19,22 @@ export function resolveHomeWindow(
   );
   if (normalWindows.length === 0) return null;
 
+  if (descriptor && descriptor.memberUrls.length > 0) {
+    const acceptableIds = new Set(acceptableMemberTabIds);
+    const matching = normalWindows.filter((window) => {
+      const urls = inventory.tabs
+        .filter(
+          (tab) =>
+            (acceptableIds.size === 0 || acceptableIds.has(tab.id)) &&
+            !tab.incognito &&
+            tab.windowId === window.id
+        )
+        .map((tab) => tab.url ?? "");
+      return descriptor.memberUrls.some((url) => urls.includes(url));
+    });
+    if (matching.length === 1) return matching[0]!.id;
+  }
+
   const memberWindows = new Set(
     inventory.tabs
       .filter((tab) => acceptableMemberTabIds.includes(tab.id))
@@ -32,16 +48,6 @@ export function resolveHomeWindow(
     ) {
       return windowId;
     }
-  }
-
-  if (descriptor && descriptor.memberUrls.length > 0) {
-    const matching = normalWindows.filter((window) => {
-      const urls = inventory.tabs
-        .filter((tab) => tab.windowId === window.id)
-        .map((tab) => tab.url ?? "");
-      return descriptor.memberUrls.some((url) => urls.includes(url));
-    });
-    if (matching.length === 1) return matching[0]!.id;
   }
 
   if (

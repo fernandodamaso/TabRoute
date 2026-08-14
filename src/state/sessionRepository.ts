@@ -8,6 +8,9 @@ import { parseRuntimeSession } from "./runtimeSession";
 export interface SessionRepository {
   loadSession(): Promise<RuntimeSession>;
   saveSession(session: RuntimeSession): Promise<void>;
+  updateSession(
+    update: (current: RuntimeSession) => RuntimeSession
+  ): Promise<RuntimeSession>;
   loadAssociations(): Promise<readonly ChromeAssociation[]>;
   saveAssociations(associations: readonly ChromeAssociation[]): Promise<void>;
   loadRuntime(): Promise<Record<string, unknown>>;
@@ -115,9 +118,19 @@ export function createMemorySessionRepository(
     value = mergeStoredSession(value, session);
   }
 
+  async function updateSession(
+    update: (current: RuntimeSession) => RuntimeSession
+  ) {
+    const current = await loadSession();
+    const next = update(current);
+    await saveSession(next);
+    return next;
+  }
+
   return {
     loadSession,
     saveSession,
+    updateSession,
     async loadAssociations() {
       return (await loadSession()).associations;
     },
@@ -176,9 +189,23 @@ export function createChromeSessionRepository(
     });
   }
 
+  async function updateSession(
+    update: (current: RuntimeSession) => RuntimeSession
+  ) {
+    return serialized(async () => {
+      const current = sessionFromStore(await readState());
+      const next = update(current);
+      await storage.set({
+        [SESSION_KEY]: mergeStoredSession(await readState(), next)
+      });
+      return next;
+    });
+  }
+
   return {
     loadSession,
     saveSession,
+    updateSession,
     async loadAssociations() {
       return (await loadSession()).associations;
     },

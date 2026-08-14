@@ -99,7 +99,7 @@ describe("duplicates", () => {
         {
           ...global,
           globalPolicy: { kind: "exactUrl" },
-          globalExclusions: ["excluded.test"]
+          globalExclusions: ["*excluded.test*"]
         },
         true,
         "https://excluded.test/a"

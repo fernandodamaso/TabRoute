@@ -467,6 +467,20 @@ button:focus-visible {
   font: inherit;
   font-size: 11px;
 }
+.condition-remove {
+  grid-column: 1 / -1;
+  justify-self: end;
+  border: 0;
+  background: transparent;
+  color: #a34343;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.condition-remove:disabled {
+  color: #bdb7af;
+  cursor: not-allowed;
+}
 .rule-editor > .manager-card > button {
   margin-top: 8px;
   border: 0;

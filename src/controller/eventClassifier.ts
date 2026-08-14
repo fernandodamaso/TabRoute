@@ -178,7 +178,7 @@ function deriveManualPlacement(
   return { kind: "leaveWherePlaced" };
 }
 
-function writeManualOverride(
+export function writeManualOverride(
   session: RuntimeSession,
   tabId: number,
   placement: ManualPlacement,

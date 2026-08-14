@@ -1,7 +1,8 @@
 import type {
   ChromeInventory,
   RuntimeSession,
-  StartupRestoreState
+  StartupRestoreState,
+  UUID
 } from "../domain/types";
 import type { ChromeEventHint } from "../domain/types";
 
@@ -193,21 +194,29 @@ export function settlePendingWindowClosures(input: {
 export function recordWindowClosure(input: {
   session: RuntimeSession;
   windowId: number;
-  managedGroupIds: readonly import("../domain/types").UUID[];
+  managedGroupIds: readonly UUID[];
   tabIds: readonly number[];
   now: number;
 }): RuntimeSession {
-  const pending = {
+  const current = input.session.pendingWindowClosures.find(
+    (record) => record.windowId === input.windowId
+  );
+  const merged = {
     windowId: input.windowId,
-    managedGroupIds: [...input.managedGroupIds],
-    tabIds: [...input.tabIds],
+    managedGroupIds: [
+      ...new Set([
+        ...(current?.managedGroupIds ?? []),
+        ...input.managedGroupIds
+      ])
+    ],
+    tabIds: [...new Set([...(current?.tabIds ?? []), ...input.tabIds])],
     startedAt: input.now
   };
-  const existing = input.session.pendingWindowClosures.filter(
+  const remaining = input.session.pendingWindowClosures.filter(
     (record) => record.windowId !== input.windowId
   );
   return {
     ...input.session,
-    pendingWindowClosures: [...existing, pending]
+    pendingWindowClosures: [...remaining, merged]
   };
 }

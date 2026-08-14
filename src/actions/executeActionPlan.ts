@@ -148,7 +148,8 @@ async function saveActionGuard(
     action,
     tabIds: resolved.tabIds,
     absentTabIds: resolved.absentTabIds,
-    chromeGroupIds: knownActionGroupIds(action, associations, inventory)
+    chromeGroupIds: knownActionGroupIds(action, associations, inventory),
+    associations
   });
   const session = await deps.session.loadSession();
   const startedAt = deps.now();
@@ -163,6 +164,7 @@ async function saveActionGuard(
     expectedEventKinds: footprint.expectedEventKinds,
     seenEventKinds: [],
     postcondition: footprint.postcondition,
+    pendingTab: footprint.pendingTab,
     startedAt,
     expiresAt: startedAt + GUARD_HARD_MS
   };
@@ -195,7 +197,8 @@ async function finishActionGuard(
     tabIds,
     absentTabIds: resolved.absentTabIds,
     chromeGroupIds: knownActionGroupIds(action, associations, inventory),
-    outputChromeGroupId: outputGroupId
+    outputChromeGroupId: outputGroupId,
+    associations
   });
   const holds = postconditionHolds(footprint.postcondition, inventory);
   const session = await deps.session.loadSession();
@@ -214,6 +217,7 @@ async function finishActionGuard(
                 tabIds: footprint.tabIds,
                 chromeGroupIds: footprint.chromeGroupIds,
                 postcondition: footprint.postcondition,
+                pendingTab: undefined,
                 verifiedAt: deps.now(),
                 settleAfter: deps.now() + GUARD_QUIET_MS
               }
@@ -591,7 +595,7 @@ async function executePlannedAction(
       const next = refreshed as ChromeInventory;
       for (const tabId of retryTabIds) {
         if (!findTab(next, tabId)) {
-          return retryFootprint.postcondition.kind === "tabsAbsent" &&
+          return retryFootprint.postcondition?.kind === "tabsAbsent" &&
             postconditionHolds(retryFootprint.postcondition, next)
             ? "satisfied"
             : "gone";

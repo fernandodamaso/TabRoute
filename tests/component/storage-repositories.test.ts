@@ -233,4 +233,164 @@ describe("storage repositories", () => {
     expect(entries[0]?.result).toBe("failure");
     expect(entries[0]?.errorCode).toBe("checksum mismatch");
   });
+  it("serializes concurrent Chrome Local snapshot mutations through promise tail queue", async () => {
+    const stored: Record<string, unknown> = {
+      [STORAGE_KEYS.localSnapshots]: []
+    };
+
+    let pauseSetPromise: Promise<void> | null = null;
+    let resolveSetPromise: (() => void) | null = null;
+
+    const area = {
+      async get(key?: string | readonly string[]) {
+        if (!key) return { ...stored };
+        const keys = typeof key === "string" ? [key] : key;
+        return Object.fromEntries(keys.map((item) => [item, stored[item]]));
+      },
+      async set(values: Record<string, unknown>) {
+        if (pauseSetPromise && STORAGE_KEYS.localSnapshots in values) {
+          await pauseSetPromise;
+        }
+        Object.assign(stored, values);
+      },
+      async remove() {}
+    };
+
+    const local = createChromeLocalRepository(area, area, area);
+    const snap1 = {
+      schemaVersion: 1 as const,
+      id: createUuid(),
+      name: "snap-1",
+      kind: "named" as const,
+      scope: { kind: "browser" as const },
+      groups: [],
+      createdAt: 1,
+      updatedAt: 1
+    };
+    const snap2 = {
+      schemaVersion: 1 as const,
+      id: createUuid(),
+      name: "snap-2",
+      kind: "automatic" as const,
+      scope: { kind: "browser" as const },
+      groups: [],
+      createdAt: 2,
+      updatedAt: 2
+    };
+
+    pauseSetPromise = new Promise<void>((resolve) => {
+      resolveSetPromise = resolve;
+    });
+
+    const p1 = local.saveSnapshot(snap1);
+    const p2 = local.saveSnapshot(snap2);
+
+    // Unpause first set
+    resolveSetPromise!();
+
+    const [res1, res2] = await Promise.all([p1, p2]);
+    expect(res1.ok).toBe(true);
+    expect(res2.ok).toBe(true);
+
+    const saved = await local.listSnapshots();
+    expect(saved).toHaveLength(2);
+    expect(saved.map((s) => s.name).sort()).toEqual(["snap-1", "snap-2"]);
+  });
+
+  it("checkpoint vs activity serialized read-modify-write does not overwrite bags", async () => {
+    const stored: Record<string, unknown> = {};
+    const area = {
+      async get(key?: string | readonly string[]) {
+        if (!key) return { ...stored };
+        const keys = typeof key === "string" ? [key] : key;
+        return Object.fromEntries(keys.map((item) => [item, stored[item]]));
+      },
+      async set(values: Record<string, unknown>) {
+        Object.assign(stored, values);
+      },
+      async remove() {}
+    };
+
+    const local = createChromeLocalRepository(area, area, area);
+    const checkpoint = {
+      schemaVersion: 1 as const,
+      snapshot: {
+        schemaVersion: 1 as const,
+        id: createUuid(),
+        name: "checkpoint",
+        kind: "checkpoint" as const,
+        scope: { kind: "browser" as const },
+        groups: [],
+        createdAt: 10,
+        updatedAt: 10
+      },
+      capturedAt: 10
+    };
+    const activity = createActivityEntry({
+      action: "test-action",
+      result: "success",
+      affectedManagedGroupIds: [],
+      affectedUrls: [],
+      createdAt: 10
+    });
+
+    await Promise.all([
+      local.saveShutdownCheckpoint(checkpoint),
+      local.appendActivity(activity)
+    ]);
+
+    expect(await local.loadShutdownCheckpoint()).toEqual(checkpoint);
+    expect(await local.listActivity(undefined, 10)).toHaveLength(1);
+  });
+
+  it("reports real Sync item diagnostics with multibyte UTF-8 characters", async () => {
+    const { storageItemBytes } =
+      await import("../../src/state/configurationShards");
+    const syncStored: Record<string, unknown> = {
+      "key:emoji:🚀": "value:世界:🌍",
+      "key:plain": { a: 1, b: "hello" }
+    };
+    const syncArea = {
+      async get() {
+        return { ...syncStored };
+      },
+      async set() {},
+      async remove() {},
+      async getBytesInUse() {
+        return 1234;
+      }
+    };
+    const localArea = {
+      async get() {
+        return {};
+      },
+      async set() {},
+      async remove() {},
+      async getBytesInUse() {
+        return 5678;
+      }
+    };
+    const sessionArea = {
+      async get() {
+        return {};
+      },
+      async set() {},
+      async remove() {},
+      async getBytesInUse() {
+        return 90;
+      }
+    };
+
+    const local = createChromeLocalRepository(localArea, syncArea, sessionArea);
+    const diag = await local.getStorageDiagnostics();
+
+    expect(diag.syncItemCount).toBe(2);
+    expect(diag.syncBytes).toBe(1234);
+
+    const expectedBytes1 = storageItemBytes("key:emoji:🚀", "value:世界:🌍");
+    const expectedBytes2 = storageItemBytes("key:plain", { a: 1, b: "hello" });
+    const expectedLargest = Math.max(expectedBytes1, expectedBytes2);
+
+    expect(diag.syncLargestItemBytes).toBe(expectedLargest);
+  });
 });

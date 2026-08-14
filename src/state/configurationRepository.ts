@@ -7,6 +7,7 @@ import {
   decodeConfigurationRevision,
   encodeConfigurationRevision,
   sha256,
+  storageItemBytes,
   type ConfigurationShadow,
   type ConfigurationSyncHead
 } from "./configurationShards";
@@ -92,12 +93,8 @@ function isHead(value: unknown): value is ConfigurationSyncHead {
 }
 
 function measuredBytes(key: string, value: unknown): number {
-  return (
-    new TextEncoder().encode(key).byteLength +
-    new TextEncoder().encode(JSON.stringify(value)).byteLength
-  );
+  return storageItemBytes(key, value);
 }
-
 function shadowFor(
   configuration: Configuration,
   revisionId: string,
@@ -327,64 +324,99 @@ export function createConfigurationRepository(input: {
       ? (existing[SYNC_KEYS.configurationHead] as ConfigurationSyncHead)
       : undefined;
     const previousShadow = await readShadow();
+
+    // Capture previous generation shards if previousHead exists
+    const capturedOldShards: Record<string, unknown> = {};
+    let previousGenValid = false;
+    if (previousHead) {
+      for (const key of previousHead.shardKeys) {
+        if (key in existing) {
+          capturedOldShards[key] = existing[key];
+        }
+      }
+      if (previousHead.shardKeys.every((k) => k in capturedOldShards)) {
+        try {
+          await decodeConfigurationRevision(previousHead, capturedOldShards);
+          previousGenValid = true;
+        } catch {
+          previousGenValid = false;
+        }
+      }
+    }
+
     const shardEntries = Object.entries(encoded.shards);
-    const stagedEntries = Object.entries(existing).filter(
-      ([key]) => key !== SYNC_KEYS.configurationHead
+
+    // Compute replacement-only items before removing any published shard
+    const oldShardKeySet = new Set(previousHead?.shardKeys ?? []);
+    const replacementItems = new Map<string, unknown>();
+    for (const [key, value] of Object.entries(existing)) {
+      if (key !== SYNC_KEYS.configurationHead && !oldShardKeySet.has(key)) {
+        replacementItems.set(key, value);
+      }
+    }
+    for (const [key, value] of shardEntries) {
+      replacementItems.set(key, value);
+    }
+    replacementItems.set(SYNC_KEYS.configurationHead, encoded.head);
+
+    const replacementBytes = [...replacementItems].reduce(
+      (total, [key, value]) => total + storageItemBytes(key, value),
+      0
     );
-    const staged = new Map(stagedEntries);
-    for (const [key, value] of shardEntries) staged.set(key, value);
+    const replacementCount = replacementItems.size;
+
+    if (
+      replacementBytes > SYNC_LIMITS.maxTotalBytes ||
+      replacementCount > SYNC_LIMITS.maxItems
+    ) {
+      throw new ConfigurationStorageError(
+        replacementCount > SYNC_LIMITS.maxItems
+          ? "SYNC_ITEM_COUNT"
+          : "SYNC_TOTAL_QUOTA",
+        replacementCount > SYNC_LIMITS.maxItems
+          ? "Sync item-count quota would be exceeded"
+          : "Sync total quota would be exceeded"
+      );
+    }
+
+    // Calculate staged (merged old + new) metrics
+    const staged = new Map(
+      Object.entries(existing).filter(
+        ([k]) => k !== SYNC_KEYS.configurationHead
+      )
+    );
+    for (const [key, value] of shardEntries) {
+      staged.set(key, value);
+    }
     staged.set(SYNC_KEYS.configurationHead, encoded.head);
+
     const stagedBytes = [...staged].reduce(
-      (total, [key, value]) => total + measuredBytes(key, value),
+      (total, [key, value]) => total + storageItemBytes(key, value),
       0
     );
     const stagedCount = staged.size;
-    let rolledOver = false;
 
-    if (
+    let rolledOver = false;
+    let remoteCommitVerified = false;
+    let verifiedConfiguration: Configuration | undefined;
+
+    const canRollover =
+      !!previousHead &&
+      previousGenValid &&
+      shadowMatchesHead(previousShadow, previousHead);
+
+    const needsRollover =
       stagedBytes > SYNC_LIMITS.maxTotalBytes ||
-      stagedCount > SYNC_LIMITS.maxItems
-    ) {
-      const canRollover =
-        !!previousHead &&
-        shadowMatchesHead(previousShadow, previousHead) &&
-        previousHead.shardKeys.every((key) => key in existing);
-      if (!canRollover)
-        throw new ConfigurationStorageError(
-          stagedCount > SYNC_LIMITS.maxItems
-            ? "SYNC_ITEM_COUNT"
-            : "SYNC_TOTAL_QUOTA",
-          stagedCount > SYNC_LIMITS.maxItems
-            ? "Sync item-count quota would be exceeded"
-            : "Sync total quota would be exceeded"
-        );
-      await sync.remove(previousHead.shardKeys);
-      rolledOver = true;
-      const afterRemoval = await sync.get();
-      const finalEntries = Object.entries(afterRemoval).filter(
-        ([key]) => key !== SYNC_KEYS.configurationHead
+      stagedCount > SYNC_LIMITS.maxItems;
+    if (needsRollover && !canRollover) {
+      throw new ConfigurationStorageError(
+        stagedCount > SYNC_LIMITS.maxItems
+          ? "SYNC_ITEM_COUNT"
+          : "SYNC_TOTAL_QUOTA",
+        stagedCount > SYNC_LIMITS.maxItems
+          ? "Sync item-count quota would be exceeded"
+          : "Sync total quota would be exceeded"
       );
-      const finalBytes =
-        finalEntries.reduce(
-          (total, [key, value]) => total + measuredBytes(key, value),
-          0
-        ) +
-        shardEntries.reduce(
-          (total, [key, value]) => total + measuredBytes(key, value),
-          0
-        ) +
-        measuredBytes(SYNC_KEYS.configurationHead, encoded.head);
-      const finalCount = finalEntries.length + shardEntries.length + 1;
-      if (finalBytes > SYNC_LIMITS.maxTotalBytes)
-        throw new ConfigurationStorageError(
-          "SYNC_TOTAL_QUOTA",
-          "Sync total quota would be exceeded"
-        );
-      if (finalCount > SYNC_LIMITS.maxItems)
-        throw new ConfigurationStorageError(
-          "SYNC_ITEM_COUNT",
-          "Sync item-count quota would be exceeded"
-        );
     }
 
     try {
@@ -393,6 +425,12 @@ export function createConfigurationRepository(input: {
         pendingSyncRevision: undefined,
         lastSyncInvalid: false
       });
+
+      if (needsRollover) {
+        rolledOver = true;
+        await sync.remove(previousHead!.shardKeys);
+      }
+
       await sync.set(Object.fromEntries(shardEntries));
       const stagedShards = await sync.get(encoded.head.shardKeys);
       await decodeConfigurationRevision(encoded.head, stagedShards);
@@ -409,40 +447,64 @@ export function createConfigurationRepository(input: {
         encoded.head,
         verifiedShards
       );
-      await writeShadow(
-        shadowFor(
-          verified.configuration,
-          revisionId,
-          encoded.head.checksum,
-          now()
-        )
-      );
-      await updateRuntime({
-        lastAppliedSyncRevisionId: revisionId,
-        pendingSyncRevision: undefined,
-        lastSyncInvalid: false
-      });
-      configuration = verified.configuration;
-      activeRevisionId = revisionId;
-      if (
-        previousHead &&
-        !rolledOver &&
-        previousHead.revisionId !== revisionId &&
-        shadowMatchesHead(previousShadow, previousHead)
-      ) {
-        const currentHead = await sync.get(SYNC_KEYS.configurationHead);
-        const current = currentHead[SYNC_KEYS.configurationHead];
-        if (isHead(current) && current.revisionId === revisionId) {
-          try {
-            await sync.remove(previousHead.shardKeys);
-          } catch {
-            // Obsolete shard cleanup is best effort after the new revision commits.
-          }
+      remoteCommitVerified = true;
+      verifiedConfiguration = verified.configuration;
+    } catch (error) {
+      if (rolledOver && !remoteCommitVerified) {
+        try {
+          await sync.remove(encoded.head.shardKeys);
+          await sync.set(capturedOldShards);
+          await sync.set({ [SYNC_KEYS.configurationHead]: previousHead });
+          const restoredShards = await sync.get(previousHead!.shardKeys);
+          await decodeConfigurationRevision(previousHead!, restoredShards);
+        } catch (rollbackError) {
+          const originalErr =
+            error instanceof ConfigurationStorageError
+              ? error
+              : mapSyncWriteError(error);
+          throw new ConfigurationStorageError(
+            "SYNC_WRITE",
+            "Sync rollover write failed and rollback failed",
+            { cause: new AggregateError([originalErr, rollbackError]) }
+          );
         }
       }
-    } catch (error) {
       if (error instanceof ConfigurationStorageError) throw error;
       throw mapSyncWriteError(error);
+    }
+
+    // Verified remote commit succeeded! Now perform local state updates.
+    await writeShadow(
+      shadowFor(
+        verifiedConfiguration!,
+        revisionId,
+        encoded.head.checksum,
+        now()
+      )
+    );
+    await updateRuntime({
+      lastAppliedSyncRevisionId: revisionId,
+      pendingSyncRevision: undefined,
+      lastSyncInvalid: false
+    });
+    configuration = verifiedConfiguration!;
+    activeRevisionId = revisionId;
+
+    if (
+      previousHead &&
+      !rolledOver &&
+      previousHead.revisionId !== revisionId &&
+      shadowMatchesHead(previousShadow, previousHead)
+    ) {
+      const currentHead = await sync.get(SYNC_KEYS.configurationHead);
+      const current = currentHead[SYNC_KEYS.configurationHead];
+      if (isHead(current) && current.revisionId === revisionId) {
+        try {
+          await sync.remove(previousHead.shardKeys);
+        } catch {
+          // Obsolete shard cleanup is best effort after the new revision commits.
+        }
+      }
     }
   }
 

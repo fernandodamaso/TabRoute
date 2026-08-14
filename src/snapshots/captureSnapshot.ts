@@ -1,4 +1,6 @@
 import { createUuid } from "../domain/ids";
+import { buildDuplicateKey } from "../duplicates/normalizeUrl";
+import { effectiveDuplicatePolicyForTab } from "../duplicates/policy";
 import type {
   BrowserInventory,
   ChromeAssociation,
@@ -72,11 +74,24 @@ export function captureSnapshot(
       ownership: context.ownership[managedGroupId],
       tabs: memberTabs.flatMap((tab, index) => {
         if (tab.routing.kind !== "routable") return [];
+        const policy = effectiveDuplicatePolicyForTab({
+          tab,
+          inventory,
+          configuration: context.configuration,
+          associations: context.associations,
+          destinationManagedGroupId: managedGroupId,
+          at: metadata.now
+        });
         return [
           {
             url: tab.routing.url,
             title: tab.title,
-            duplicateKey: tab.routing.url,
+            duplicatePolicy: policy,
+            duplicateKey: buildDuplicateKey(
+              tab,
+              policy,
+              context.configuration.duplicateSettings
+            ),
             order: index
           }
         ];

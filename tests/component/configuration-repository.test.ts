@@ -690,3 +690,231 @@ it("buffers Sync and retry-alarm intake until asynchronous initialization is rea
 
   expect(calls).toEqual([["config:v1:revision:remote:0"]]);
 });
+describe("Sync rollover & rollback controlled-storage regressions", () => {
+  it("preflight rejects intrinsically oversized replacement with zero removals", async () => {
+    const defaultCfg = createDefaultConfiguration(
+      () => "00000000-0000-4000-8000-000000000001"
+    );
+    const syncValues: Record<string, unknown> = {};
+    const localValues: Record<string, unknown> = {};
+    const sessionValues: Record<string, unknown> = {};
+    const removals: string[] = [];
+
+    const storage = {
+      sync: {
+        async get(keys?: string | readonly string[]) {
+          if (!keys) return { ...syncValues };
+          const arr = typeof keys === "string" ? [keys] : keys;
+          return Object.fromEntries(
+            arr.filter((k) => k in syncValues).map((k) => [k, syncValues[k]])
+          );
+        },
+        async set(values: Record<string, unknown>) {
+          Object.assign(syncValues, values);
+        },
+        async remove(keys: string | readonly string[]) {
+          const arr = typeof keys === "string" ? [keys] : [...keys];
+          removals.push(...arr);
+          for (const k of arr) delete syncValues[k];
+        },
+        async getBytesInUse() {
+          return JSON.stringify(syncValues).length;
+        }
+      },
+      local: {
+        async get(keys?: string | readonly string[]) {
+          if (!keys) return { ...localValues };
+          const arr = typeof keys === "string" ? [keys] : keys;
+          return Object.fromEntries(
+            arr.filter((k) => k in localValues).map((k) => [k, localValues[k]])
+          );
+        },
+        async set(values: Record<string, unknown>) {
+          Object.assign(localValues, values);
+        },
+        async remove(keys: string | readonly string[]) {
+          for (const k of typeof keys === "string" ? [keys] : keys)
+            delete localValues[k];
+        },
+        async getBytesInUse() {
+          return JSON.stringify(localValues).length;
+        }
+      },
+      session: {
+        async get(keys?: string | readonly string[]) {
+          if (!keys) return { ...sessionValues };
+          const arr = typeof keys === "string" ? [keys] : keys;
+          return Object.fromEntries(
+            arr
+              .filter((k) => k in sessionValues)
+              .map((k) => [k, sessionValues[k]])
+          );
+        },
+        async set(values: Record<string, unknown>) {
+          Object.assign(sessionValues, values);
+        },
+        async remove(keys: string | readonly string[]) {
+          for (const k of typeof keys === "string" ? [keys] : keys)
+            delete sessionValues[k];
+        },
+        async getBytesInUse() {
+          return JSON.stringify(sessionValues).length;
+        }
+      }
+    };
+
+    const repo = createConfigurationRepository({
+      storage,
+      createDefault: () => defaultCfg
+    });
+    await repo.loadOrCreate();
+
+    // Fill storage with 512 dummy items so count quota would be exceeded
+    for (let i = 0; i < 512; i++) {
+      syncValues[`dummy:${i}`] = "x";
+    }
+
+    const nextCfg = structuredClone(defaultCfg);
+    await expect(repo.save(nextCfg)).rejects.toThrow(
+      "Sync item-count quota would be exceeded"
+    );
+    expect(removals).toHaveLength(0);
+  });
+
+  it("handles first new-shard failure and head-write/verification failure with ordered rollback", async () => {
+    const defaultCfg = createDefaultConfiguration(
+      () => "00000000-0000-4000-8000-000000000001"
+    );
+    defaultCfg.groups = Array.from({ length: 140 }, (_, i) => ({
+      schemaVersion: 1,
+      id: `00000000-0000-4000-8000-${(i + 10).toString(16).padStart(12, "0")}` as UUID,
+      name: `Group ${i} ${"x".repeat(320)}`,
+      color: "blue" as const,
+      isFallback: i === 0,
+      enabled: true,
+      isPersistent: false,
+      defaultOrder: i,
+      defaultCollapsed: false,
+      createdAt: 1,
+      updatedAt: 1
+    }));
+    defaultCfg.fallbackGroupId = defaultCfg.groups[0]!.id;
+    const syncValues: Record<string, unknown> = {};
+    const localValues: Record<string, unknown> = {};
+    const sessionValues: Record<string, unknown> = {};
+    let syncLog: string[] = [];
+
+    let failOnSetCondition:
+      ((values: Record<string, unknown>) => boolean) | null = null;
+
+    const storage = {
+      sync: {
+        async get(keys?: string | readonly string[]) {
+          if (!keys) return { ...syncValues };
+          const arr = typeof keys === "string" ? [keys] : keys;
+          return Object.fromEntries(
+            arr.filter((k) => k in syncValues).map((k) => [k, syncValues[k]])
+          );
+        },
+        async set(values: Record<string, unknown>) {
+          for (const k of Object.keys(values)) {
+            syncLog.push(`set:${k}`);
+          }
+          if (failOnSetCondition && failOnSetCondition(values)) {
+            throw new Error("injected storage write error");
+          }
+          Object.assign(syncValues, values);
+        },
+        async remove(keys: string | readonly string[]) {
+          const arr = typeof keys === "string" ? [keys] : [...keys];
+          for (const k of arr) {
+            syncLog.push(`remove:${k}`);
+            delete syncValues[k];
+          }
+        },
+        async getBytesInUse() {
+          return JSON.stringify(syncValues).length;
+        }
+      },
+      local: {
+        async get(keys?: string | readonly string[]) {
+          if (!keys) return { ...localValues };
+          const arr = typeof keys === "string" ? [keys] : keys;
+          return Object.fromEntries(
+            arr.filter((k) => k in localValues).map((k) => [k, localValues[k]])
+          );
+        },
+        async set(values: Record<string, unknown>) {
+          Object.assign(localValues, values);
+        },
+        async remove(keys: string | readonly string[]) {
+          const arr = typeof keys === "string" ? [keys] : keys;
+          for (const k of arr) delete localValues[k];
+        },
+        async getBytesInUse() {
+          return JSON.stringify(localValues).length;
+        }
+      },
+      session: {
+        async get(keys?: string | readonly string[]) {
+          if (!keys) return { ...sessionValues };
+          const arr = typeof keys === "string" ? [keys] : keys;
+          return Object.fromEntries(
+            arr
+              .filter((k) => k in sessionValues)
+              .map((k) => [k, sessionValues[k]])
+          );
+        },
+        async set(values: Record<string, unknown>) {
+          Object.assign(sessionValues, values);
+        },
+        async remove(keys: string | readonly string[]) {
+          const arr = typeof keys === "string" ? [keys] : keys;
+          for (const k of arr) delete sessionValues[k];
+        },
+        async getBytesInUse() {
+          return JSON.stringify(sessionValues).length;
+        }
+      }
+    };
+
+    const repo = createConfigurationRepository({
+      storage,
+      createDefault: () => defaultCfg
+    });
+    await repo.loadOrCreate();
+    const oldHead = syncValues["config:v1:head"] as {
+      shardKeys: string[];
+      revisionId: string;
+    };
+    expect(oldHead).toBeDefined();
+    const oldShardKey = oldHead.shardKeys[0]!;
+    // Scenario 1: First new-shard write failure
+    failOnSetCondition = (vals) =>
+      Object.keys(vals).some(
+        (k) =>
+          k.startsWith("config:v1:revision:") && !k.includes(oldHead.revisionId)
+      );
+    syncLog = [];
+
+    const nextCfg1 = structuredClone(defaultCfg);
+    await expect(repo.save(nextCfg1)).rejects.toThrow();
+    // Verify rollback log order: removal of staged new shard, restoration of old shard, restoration of old head LAST
+    const lastHeadSetIndex = syncLog.lastIndexOf("set:config:v1:head");
+    const lastOldShardSetIndex = syncLog.lastIndexOf(`set:${oldShardKey}`);
+    expect(lastOldShardSetIndex).toBeGreaterThan(-1);
+    expect(lastHeadSetIndex).toBeGreaterThan(lastOldShardSetIndex);
+
+    // Scenario 2: Head-write failure
+    failOnSetCondition = (vals) => "config:v1:head" in vals;
+    syncLog = [];
+    const nextCfg2 = structuredClone(defaultCfg);
+    nextCfg2.groups[0]!.name = "Updated Group 0 Again";
+    await expect(repo.save(nextCfg2)).rejects.toThrow();
+
+    const headSetIndex2 = syncLog.lastIndexOf("set:config:v1:head");
+    const oldShardSetIndex2 = syncLog.lastIndexOf(`set:${oldShardKey}`);
+    expect(oldShardSetIndex2).toBeGreaterThan(-1);
+    expect(headSetIndex2).toBeGreaterThan(oldShardSetIndex2);
+  });
+});

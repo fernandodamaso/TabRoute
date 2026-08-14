@@ -11,6 +11,7 @@ import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
 import { createFakeChromePort } from "../fakes/fakeChromePort";
 import type { ChromeTabSnapshot } from "../../src/chrome/types";
+import type { UUID } from "../../src/domain/types";
 
 function tab(overrides: Partial<ChromeTabSnapshot> = {}): ChromeTabSnapshot {
   return {
@@ -28,6 +29,10 @@ function tab(overrides: Partial<ChromeTabSnapshot> = {}): ChromeTabSnapshot {
     ...overrides
   };
 }
+
+const checkpoints = {
+  captureBefore: async () => undefined
+};
 
 describe("action recovery with operation guards", () => {
   it("writes an executing guard before groupTabs and a settling guard after verification", async () => {
@@ -56,9 +61,9 @@ describe("action recovery with operation guards", () => {
       {
         chrome: fake,
         session,
+        checkpoints,
         now: () => now,
-        createId: () =>
-          "00000000-0000-4000-8000-000000000099" as import("../../src/domain/types").UUID
+        createId: () => "00000000-0000-4000-8000-000000000099" as UUID
       }
     );
 
@@ -93,7 +98,7 @@ describe("action recovery with operation guards", () => {
         title: "Other",
         color: "grey"
       },
-      { chrome: fake, session, now: () => 1000 }
+      { chrome: fake, session, checkpoints, now: () => 1000 }
     );
 
     expect((await session.loadSession()).operationGuards).toHaveLength(1);
@@ -123,7 +128,7 @@ describe("action recovery with operation guards", () => {
           title: "Other",
           color: "grey"
         },
-        { chrome: fake, session, now: () => 1000 }
+        { chrome: fake, session, checkpoints, now: () => 1000 }
       )
     ).rejects.toThrow("groupTabs failed");
 
@@ -165,9 +170,9 @@ describe("action recovery with operation guards", () => {
       {
         chrome: fake,
         session,
+        checkpoints,
         now: () => now,
-        createId: () =>
-          "00000000-0000-4000-8000-000000000099" as import("../../src/domain/types").UUID
+        createId: () => "00000000-0000-4000-8000-000000000099" as UUID
       }
     );
 
@@ -180,12 +185,142 @@ describe("action recovery with operation guards", () => {
     expect(fake.callsFor("groupTabs").length).toBe(callsBefore);
     expect((await session.loadSession()).operationGuards).toHaveLength(0);
   });
+
+  it("retries an unchanged existing-group placement", async () => {
+    const session = createMemorySessionRepository();
+    const initial = tab({ chromeGroupId: -1 });
+    const fake = createFakeChromePort({
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+      tabs: [initial],
+      groups: [
+        {
+          id: 11,
+          windowId: 1,
+          title: "Other",
+          color: "grey",
+          collapsed: false,
+          shared: false
+        }
+      ],
+      capturedAt: 1
+    });
+    let attempts = 0;
+    const chrome = {
+      ...fake,
+      async groupTabs(input: Parameters<typeof fake.groupTabs>[0]) {
+        attempts += 1;
+        if (attempts === 1) throw new Error("Tabs cannot be edited right now");
+        return fake.groupTabs(input);
+      }
+    };
+    const result = await executeRoutePlan(
+      {
+        kind: "routeToGroup",
+        tab: initial,
+        managedGroupId: "00000000-0000-4000-8000-000000000001" as UUID,
+        groupInput: {
+          kind: "existing",
+          tabIds: [initial.id],
+          chromeGroupId: 11,
+          windowId: 1
+        },
+        title: "Other",
+        color: "grey"
+      },
+      { chrome, session, checkpoints, now: () => 1000 }
+    );
+    expect(result.kind).toBe("executed");
+    expect(attempts).toBe(2);
+  });
+
+  it("recovers a create-group mutation that applied before throwing", async () => {
+    const session = createMemorySessionRepository();
+    const initial = tab();
+    const fake = createFakeChromePort({
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+      tabs: [initial],
+      groups: [],
+      capturedAt: 1
+    });
+    let attempts = 0;
+    const chrome = {
+      ...fake,
+      async groupTabs(input: Parameters<typeof fake.groupTabs>[0]) {
+        attempts += 1;
+        const groupId = await fake.groupTabs(input);
+        if (attempts === 1) throw new Error("Tabs cannot be edited right now");
+        return groupId;
+      }
+    };
+    const result = await executeRoutePlan(
+      {
+        kind: "routeToGroup",
+        tab: initial,
+        managedGroupId: "00000000-0000-4000-8000-000000000001" as UUID,
+        groupInput: { kind: "create", tabIds: [initial.id], windowId: 1 },
+        title: "Work",
+        color: "blue"
+      },
+      { chrome, session, checkpoints, now: () => 1000 }
+    );
+    expect(result.kind).toBe("executed");
+    expect(attempts).toBe(1);
+    expect(fake.getInventory().tabs[0]?.chromeGroupId).toBe(
+      fake.getInventory().groups[0]?.id
+    );
+  });
+
+  it("recovers an update-group mutation that applied before throwing", async () => {
+    const session = createMemorySessionRepository();
+    const initial = tab();
+    const fake = createFakeChromePort({
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+      tabs: [initial],
+      groups: [],
+      capturedAt: 1
+    });
+    let attempts = 0;
+    const chrome = {
+      ...fake,
+      async updateGroup(
+        groupId: number,
+        patch: Parameters<typeof fake.updateGroup>[1]
+      ) {
+        attempts += 1;
+        await fake.updateGroup(groupId, patch);
+        if (attempts === 1) throw new Error("Tabs cannot be edited right now");
+      }
+    };
+    const result = await executeRoutePlan(
+      {
+        kind: "routeToGroup",
+        tab: initial,
+        managedGroupId: "00000000-0000-4000-8000-000000000001" as UUID,
+        groupInput: { kind: "create", tabIds: [initial.id], windowId: 1 },
+        title: "Work",
+        color: "blue"
+      },
+      { chrome, session, checkpoints, now: () => 1000 }
+    );
+    expect(result.kind).toBe("executed");
+    expect(attempts).toBe(1);
+    expect(fake.getInventory().groups[0]?.title).toBe("Work");
+  });
+
   it("retires a transient grouping retry after a fresh user ungroup", async () => {
     const session = createMemorySessionRepository();
     const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
-      tabs: [tab()],
+      tabs: [tab({ chromeGroupId: 10 })],
       groups: [
+        {
+          id: 10,
+          windowId: 1,
+          title: "Source",
+          color: "blue",
+          collapsed: false,
+          shared: false
+        },
         {
           id: 11,
           windowId: 1,
@@ -207,7 +342,7 @@ describe("action recovery with operation guards", () => {
             .getStorage()
             .inventory.tabs.map((candidate) => ({
               ...candidate,
-              chromeGroupId: -1
+              chromeGroupId: 12
             }));
           throw new Error("Tabs cannot be edited right now");
         }
@@ -222,7 +357,7 @@ describe("action recovery with operation guards", () => {
       executeRoutePlan(
         {
           kind: "routeToFallback",
-          tab: tab(),
+          tab: tab({ chromeGroupId: 10 }),
           managedGroupId: fallback.id,
           groupInput: {
             kind: "existing",
@@ -233,9 +368,47 @@ describe("action recovery with operation guards", () => {
           title: "Other",
           color: "grey"
         },
-        { chrome, session, now: () => 1000 }
+        { chrome, session, checkpoints, now: () => 1000 }
       )
     ).rejects.toThrow("postcondition contradicted");
     expect(attempts).toBe(1);
+  });
+
+  it("checkpoints automatic ungroup before creating a guard or mutating Chrome", async () => {
+    const session = createMemorySessionRepository();
+    const fake = createFakeChromePort({
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+      tabs: [tab({ chromeGroupId: 11 })],
+      groups: [
+        {
+          id: 11,
+          windowId: 1,
+          title: "Source",
+          color: "blue",
+          collapsed: false,
+          shared: false
+        }
+      ],
+      capturedAt: 1
+    });
+    const rejectingCheckpoints = {
+      captureBefore: async () => {
+        throw new Error("CHECKPOINT_CAPACITY");
+      }
+    };
+
+    await expect(
+      executeRoutePlan(
+        { kind: "ungroup", tab: tab({ chromeGroupId: 11 }) },
+        {
+          chrome: fake,
+          session,
+          checkpoints: rejectingCheckpoints,
+          now: () => 1000
+        }
+      )
+    ).rejects.toThrow("CHECKPOINT_CAPACITY");
+    expect(fake.callsFor("ungroupTabs")).toHaveLength(0);
+    expect((await session.loadSession()).operationGuards).toHaveLength(0);
   });
 });

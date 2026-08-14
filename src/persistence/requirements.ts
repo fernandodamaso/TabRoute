@@ -83,6 +83,9 @@ export function isTabInSharedGroup(
   return group?.shared === true;
 }
 
+export type LiveMemberUrlsResult =
+  { kind: "unavailable" } | { kind: "available"; urls: string[] };
+
 export function collectLiveMemberUrls(
   managedGroupId: UUID,
   configuration: Configuration,
@@ -93,11 +96,11 @@ export function collectLiveMemberUrls(
     chromeWindowId: number;
   }[],
   preferredWindowId?: number
-): string[] {
+): LiveMemberUrlsResult {
   const groupAssociations = associations.filter(
     (candidate) => candidate.managedGroupId === managedGroupId
   );
-  if (groupAssociations.length === 0) return [];
+  if (groupAssociations.length === 0) return { kind: "unavailable" };
 
   let association =
     preferredWindowId !== undefined
@@ -112,18 +115,21 @@ export function collectLiveMemberUrls(
       group.id === association.chromeGroupId &&
       group.windowId === association.chromeWindowId
   );
-  if (!chromeGroup || chromeGroup.shared) return [];
+  if (!chromeGroup || chromeGroup.shared) return { kind: "unavailable" };
 
-  return inventory.tabs
-    .filter(
-      (tab) =>
-        tab.windowId === association.chromeWindowId &&
-        tab.chromeGroupId === association.chromeGroupId &&
-        !tab.incognito &&
-        isRoutableUrl(tab.url)
-    )
-    .sort((left, right) => left.index - right.index)
-    .map((tab) =>
-      deriveCanonicalUrl(tab.url!, configuration.duplicateSettings)
-    );
+  return {
+    kind: "available",
+    urls: inventory.tabs
+      .filter(
+        (tab) =>
+          tab.windowId === association.chromeWindowId &&
+          tab.chromeGroupId === association.chromeGroupId &&
+          !tab.incognito &&
+          isRoutableUrl(tab.url)
+      )
+      .sort((left, right) => left.index - right.index)
+      .map((tab) =>
+        deriveCanonicalUrl(tab.url!, configuration.duplicateSettings)
+      )
+  };
 }
