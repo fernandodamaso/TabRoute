@@ -1,6 +1,7 @@
 import { executeActionPlan } from "../actions/executeActionPlan";
 import type { ActionEngineDeps } from "../actions/executeActionPlan";
 import { buildActionPlan } from "../actions/buildActionPlan";
+import { reconstructAssociations } from "../chrome/reconstructAssociations";
 import type { LiveChromePort } from "../chrome/types";
 import type {
   ChromeInventory,
@@ -22,12 +23,15 @@ import {
   type RestoreContext
 } from "../persistence/startupRestore";
 import {
+  beginStartupRestore,
   recordWindowClosure,
   settlePendingWindowClosures,
   STARTUP_RECOVERY_ALARM,
+  STARTUP_TIMING,
   advanceStartupSettlement,
   type AlarmScheduler
 } from "../persistence/startupCoordinator";
+import { persistentTabsForGroup } from "../persistence/requirements";
 
 export async function buildRestoreContext(input: {
   configuration: Configuration;
@@ -54,31 +58,40 @@ export async function executePersistentRepairs(input: {
   const repairActions = input.repairs.flatMap((repair) => repair.actions);
   if (repairActions.length === 0) return false;
 
+  const repairPlan = buildActionPlan("reconcile", repairActions);
+  const repairResult = await executeActionPlan(repairPlan, input.actionDeps);
+  if (repairResult.status !== "success") return false;
+
   const groupIds = [
     ...new Set(input.repairs.map((repair) => repair.targetManagedGroupId))
   ];
-  const inventory = await input.actionDeps.reads.readInventory();
+  const freshInventory = await input.actionDeps.reads.readInventory();
+  const freshAssociations = reconstructAssociations(
+    freshInventory,
+    input.actionDeps.configuration
+  );
   const ordering = groupIds.flatMap((managedGroupId) => {
     const group = input.actionDeps.configuration.groups.find(
       (candidate) => candidate.id === managedGroupId
     );
     if (!group) return [];
-    const association = input.associations.find(
+    const association = freshAssociations.find(
       (candidate) => candidate.managedGroupId === managedGroupId
     );
     if (!association) return [];
     return planPersistentTabOrdering(
       group,
       input.actionDeps.configuration,
-      inventory,
-      input.associations,
+      freshInventory,
+      freshAssociations,
       association.chromeWindowId
     );
   });
 
-  const plan = buildActionPlan("reconcile", [...repairActions, ...ordering]);
-  const result = await executeActionPlan(plan, input.actionDeps);
-  return result.status === "success";
+  if (ordering.length === 0) return true;
+  const orderingPlan = buildActionPlan("reconcile", ordering);
+  const orderingResult = await executeActionPlan(orderingPlan, input.actionDeps);
+  return orderingResult.status === "success";
 }
 
 export async function runPersistentRestore(input: {
@@ -88,7 +101,7 @@ export async function runPersistentRestore(input: {
   local: LocalRepository;
   associations: readonly import("../domain/types").ChromeAssociation[];
   actionDeps: ActionEngineDeps;
-}): Promise<void> {
+}): Promise<boolean> {
   const inventory = await input.chrome.readInventory();
   const context = await buildRestoreContext({
     configuration: input.configuration,
@@ -98,8 +111,9 @@ export async function runPersistentRestore(input: {
     associations: input.associations
   });
   const plan = planPersistentRestore(input.configuration, inventory, context);
-  if (!plan) return;
-  await executeActionPlan(plan, input.actionDeps);
+  if (!plan) return true;
+  const result = await executeActionPlan(plan, input.actionDeps);
+  return result.status === "success";
 }
 
 export async function handleWindowLifecycleEvent(input: {
@@ -184,7 +198,7 @@ export async function handleStartupCoordinatorEvent(input: {
   });
 
   if (outcome.kind === "settled") {
-    await runPersistentRestore({
+    const restored = await runPersistentRestore({
       configuration: input.configuration,
       chrome: input.actionDeps.reads as LiveChromePort,
       session: outcome.session,
@@ -192,7 +206,17 @@ export async function handleStartupCoordinatorEvent(input: {
       associations: input.associations,
       actionDeps: input.actionDeps
     });
-    return { ...outcome.session, startupRestore: undefined };
+    if (restored) return { ...outcome.session, startupRestore: undefined };
+
+    const retryAt = input.clock.now();
+    await input.alarms.scheduleOneShot(
+      STARTUP_RECOVERY_ALARM,
+      retryAt + STARTUP_TIMING.quietMs
+    );
+    return {
+      ...outcome.session,
+      startupRestore: beginStartupRestore(retryAt)
+    };
   }
 
   return outcome.session;
@@ -268,7 +292,12 @@ export async function updateOwnershipFromInventory(input: {
   const ownership = await input.local.loadWindowOwnership();
   const next = { ...ownership };
   for (const group of input.configuration.groups) {
-    if (!group.isPersistent) continue;
+    if (
+      !group.isPersistent &&
+      persistentTabsForGroup(input.configuration, group.id).length === 0
+    ) {
+      continue;
+    }
     const descriptor = captureOwnershipDescriptor(
       group.id,
       group,
