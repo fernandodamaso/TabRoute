@@ -25,7 +25,7 @@ function activityPort(): ActivityManagerPort {
       return { persistentTabsByGroup: {}, activity: [] };
     },
     async undo() {
-      return undefined;
+      return "success";
     },
     async clear() {
       return undefined;
