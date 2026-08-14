@@ -285,6 +285,8 @@ export function ManagerApp({
           <SnapshotsPage
             snapshots={state.viewFixture?.snapshots ?? []}
 
+            groups={state.configuration.groups}
+
             command={async (payload) => {
               const result = await state.runCommand(payload);
               await state.querySnapshots();
