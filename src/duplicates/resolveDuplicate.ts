@@ -2,6 +2,7 @@ import type {
   ChromeAssociation,
   ChromeInventory,
   Configuration,
+  DuplicatePolicy,
   ManagedGroup,
   Rule,
   RuntimeSession,
@@ -18,6 +19,8 @@ export interface DuplicateDecision {
   destination: UUID | "ungrouped" | null;
   moveSurvivor: boolean;
   focusSurvivor: boolean;
+  duplicatePolicy: DuplicatePolicy;
+  expectedDuplicateKey: string;
 }
 
 function isSharedMember(inventory: ChromeInventory, tab: TabSnapshot): boolean {
@@ -35,9 +38,12 @@ function effectivePlacement(
   if (destination === "ungrouped") return tab.chromeGroupId < 0;
   if (!destination) return false;
   const association = associations.find(
-    (candidate) => candidate.managedGroupId === destination
+    (candidate) =>
+      candidate.managedGroupId === destination &&
+      candidate.chromeWindowId === tab.windowId &&
+      candidate.chromeGroupId === tab.chromeGroupId
   );
-  return association?.chromeGroupId === tab.chromeGroupId;
+  return association !== undefined;
 }
 
 export function selectDuplicateSurvivor(
@@ -130,6 +136,8 @@ export function resolveDuplicate(input: {
     duplicatesToClose,
     destination: input.destination,
     moveSurvivor,
-    focusSurvivor: true
+    focusSurvivor: true,
+    duplicatePolicy: policy,
+    expectedDuplicateKey: key
   };
 }
