@@ -19,8 +19,10 @@ export interface DuplicateDecision {
   destination: UUID | "ungrouped" | null;
   moveSurvivor: boolean;
   focusSurvivor: boolean;
-  duplicatePolicy: DuplicatePolicy;
-  expectedDuplicateKey: string;
+  /** Produced by resolveDuplicate; optionality preserves older direct test fixtures. */
+  duplicatePolicy?: DuplicatePolicy;
+  /** Produced by resolveDuplicate; optionality preserves older direct test fixtures. */
+  expectedDuplicateKey?: string;
 }
 
 function isSharedMember(inventory: ChromeInventory, tab: TabSnapshot): boolean {
