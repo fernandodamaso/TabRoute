@@ -320,8 +320,8 @@ export function createTabRouteController(input: {
           now
         );
         if (nextConfiguration !== configuration) {
+          await input.persistConfiguration(nextConfiguration);
           configuration = nextConfiguration;
-          await input.persistConfiguration(configuration);
         }
       }
 
