@@ -59,6 +59,7 @@ export function captureSnapshot(
       (group) => group.id === managedGroupId
     );
     if (!managed) continue;
+    const ownership = context.ownership[managedGroupId];
     const memberTabs = memberTabsForManagedGroup(
       managedGroupId,
       inventory,
@@ -69,9 +70,9 @@ export function captureSnapshot(
       name: managed.name,
       emoji: managed.emoji,
       color: managed.color,
-      collapsed: managed.defaultCollapsed,
-      order: managed.defaultOrder,
-      ownership: context.ownership[managedGroupId],
+      collapsed: ownership?.collapsed ?? managed.defaultCollapsed,
+      order: ownership?.order ?? managed.defaultOrder,
+      ownership,
       tabs: memberTabs.flatMap((tab, index) => {
         if (tab.routing.kind !== "routable") return [];
         const policy = effectiveDuplicatePolicyForTab({
