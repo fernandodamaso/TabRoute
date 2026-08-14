@@ -55,9 +55,6 @@ describe("undo planner", () => {
   });
 
   it("derives managed, unmanaged, and ungrouped undo placement from tab inventory", () => {
-    const configuration = createDefaultConfiguration(
-      () => "00000000-0000-4000-8000-000000000001"
-    );
     const workId = "00000000-0000-4000-8000-000000000002" as UUID;
     const inventory = {
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],

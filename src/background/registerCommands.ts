@@ -1,5 +1,4 @@
 import { findTab, isRoutableUrl } from "../chrome/types";
-import type { UUID } from "../domain/types";
 import {
   findManagedGroupForTab,
   findPersistentTabId

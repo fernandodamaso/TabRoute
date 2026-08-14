@@ -3,8 +3,6 @@ import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { createUuid } from "../../src/domain/ids";
 import { executeUndo } from "../../src/activity/executeUndo";
 import { planUndoActions } from "../../src/activity/undoPlanner";
-import { executeActionPlan } from "../../src/actions/executeActionPlan";
-import { buildActionPlan } from "../../src/actions/buildActionPlan";
 import { createFakeChromePort } from "../fakes/fakeChromePort";
 import { createMemoryLocalRepository } from "../../src/state/localRepository";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";

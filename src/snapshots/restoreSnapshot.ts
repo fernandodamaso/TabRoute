@@ -95,9 +95,6 @@ export function planSnapshotRestore(
   const sortedGroups = [...snapshot.groups].sort((left, right) => left.order - right.order);
 
   for (const group of sortedGroups) {
-    const managed = context.configuration.groups.find(
-      (candidate) => candidate.id === group.managedGroupId
-    )!;
     const memberTabs = [...group.tabs].sort((left, right) => left.order - right.order);
     if (memberTabs.length === 0) continue;
 

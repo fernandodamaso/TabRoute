@@ -10,9 +10,7 @@ export interface RecordedAlarmScheduler extends AlarmScheduler {
   >;
 }
 
-export function createRecordedAlarmScheduler(
-  existing: ReadonlyArray<{ name: string; periodInMinutes?: number; scheduledTime?: number }> = []
-): RecordedAlarmScheduler {
+export function createRecordedAlarmScheduler(): RecordedAlarmScheduler {
   const calls: RecordedAlarmScheduler["calls"] = [];
   return {
     calls,

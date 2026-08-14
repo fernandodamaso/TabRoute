@@ -7,7 +7,6 @@ import type {
   ChromeTabSnapshot,
   Configuration,
   RuntimeSession,
-  UUID
 } from "../domain/types";
 import type { LocalRepository } from "../state/localRepository";
 import {
@@ -56,7 +55,7 @@ export async function executePersistentRepairs(input: {
   if (repairActions.length === 0) return false;
 
   const groupIds = [...new Set(input.repairs.map((repair) => repair.targetManagedGroupId))];
-  let inventory = await input.actionDeps.reads.readInventory();
+  const inventory = await input.actionDeps.reads.readInventory();
   const ordering = groupIds.flatMap((managedGroupId) => {
     const group = input.actionDeps.configuration.groups.find(
       (candidate) => candidate.id === managedGroupId

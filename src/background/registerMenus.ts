@@ -100,9 +100,8 @@ function createMenu(
   browser: typeof chrome,
   props: chrome.contextMenus.CreateProperties
 ): void {
-  const { onclick: _onclick, ...safe } = props as chrome.contextMenus.CreateProperties & {
-    onclick?: unknown;
-  };
+  const safe = { ...props };
+  delete safe.onclick;
   browser.contextMenus.create({
     ...safe,
     contexts: MENU_CONTEXTS

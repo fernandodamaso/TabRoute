@@ -42,8 +42,6 @@ import {
 
 import {
   settlePendingWindowClosures,
-  STARTUP_RECOVERY_ALARM,
-  WINDOW_SETTLEMENT_ALARM,
   type AlarmScheduler
 } from "../persistence/startupCoordinator";
 

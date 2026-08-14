@@ -163,7 +163,7 @@ export function settlePendingWindowClosures(input: {
   );
   if (ready.length === 0) return input.session;
 
-  let intentionallyClosedGroupIds = [...input.session.intentionallyClosedGroupIds];
+  const intentionallyClosedGroupIds = [...input.session.intentionallyClosedGroupIds];
   if (normalWindows.length > 0) {
     for (const pending of ready) {
       for (const managedGroupId of pending.managedGroupIds) {
