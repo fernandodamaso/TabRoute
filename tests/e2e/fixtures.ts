@@ -376,7 +376,11 @@ export async function compareCanonicalPngOnLinux(
   page: Page,
   frame: CanonicalFrame
 ): Promise<void> {
-  if (process.platform !== "linux") return;
+  if (
+    process.platform !== "linux" ||
+    process.env.TABROUTE_COMPARE_CANONICAL_FRAMES !== "1"
+  )
+    return;
   const expectedPath = path.join(CANONICAL_FRAMES_DIR, `${frame.stem}.png`);
   const expected = await readFile(expectedPath);
   const actual = Buffer.from(
