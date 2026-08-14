@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { executeActionPlan } from "../../src/actions/executeActionPlan";
 import { executeRoutePlan } from "../../src/actions/executeRoutePlan";
 import type { RoutePlan } from "../../src/actions/types";
-import { createDefaultConfiguration, createManagedGroup } from "../../src/domain/defaults";
+import {
+  createDefaultConfiguration,
+  createManagedGroup
+} from "../../src/domain/defaults";
 import { validateConfiguration } from "../../src/domain/schemas";
 import type {
   ChromeInventory,
@@ -208,9 +211,7 @@ describe("PR 10 remaining backend review regressions", () => {
 
     expect(succeeded).toBe(true);
     expect(
-      chrome
-        .callsFor("moveTabs")
-        .some((call) => call[1] === 1 && call[2] === 0)
+      chrome.callsFor("moveTabs").some((call) => call[1] === 1 && call[2] === 0)
     ).toBe(true);
   });
 
@@ -236,7 +237,10 @@ describe("PR 10 remaining backend review regressions", () => {
 
   it("does not install rule-created persistence in memory when durable persistence fails", async () => {
     const withGroup = createManagedGroup(
-      createDefaultConfiguration(() => fallbackId, () => 1),
+      createDefaultConfiguration(
+        () => fallbackId,
+        () => 1
+      ),
       { name: "Work", color: "blue" },
       () => workId,
       () => 1
@@ -268,7 +272,9 @@ describe("PR 10 remaining backend review regressions", () => {
       }
     });
 
-    await expect(controller.handleTabUpdated(tab)).rejects.toThrow("sync failed");
+    await expect(controller.handleTabUpdated(tab)).rejects.toThrow(
+      "sync failed"
+    );
     expect(controller.getConfiguration().persistentTabs).toHaveLength(0);
   });
 
@@ -307,7 +313,10 @@ describe("PR 10 remaining backend review regressions", () => {
 
   it("revalidates duplicate equivalence immediately before closing", async () => {
     const configuration: Configuration = {
-      ...createDefaultConfiguration(() => fallbackId, () => 1),
+      ...createDefaultConfiguration(
+        () => fallbackId,
+        () => 1
+      ),
       duplicateSettings: {
         globalPolicy: { kind: "exactUrl" },
         globalExclusions: [],
@@ -367,7 +376,10 @@ describe("PR 10 remaining backend review regressions", () => {
   });
 
   it("keeps a verified route successful when Activity storage fails", async () => {
-    const configuration = createDefaultConfiguration(() => fallbackId, () => 1);
+    const configuration = createDefaultConfiguration(
+      () => fallbackId,
+      () => 1
+    );
     const tab = rawTab(7, { active: true });
     const chrome = createFakeChromePort(inventory([tab]));
     const baseLocal = createMemoryLocalRepository();
@@ -400,8 +412,13 @@ describe("PR 10 remaining backend review regressions", () => {
   });
 
   it("gives each duplicate-key snapshot member a distinct tab reference", async () => {
-    const configuration = createDefaultConfiguration(() => fallbackId, () => 1);
-    const raw = inventory([rawTab(42, { url: "https://example.com/shared" })]);
+    const configuration = createDefaultConfiguration(
+      () => fallbackId,
+      () => 1
+    );
+    const raw = inventory([
+      rawTab(42, { url: "https://example.com/shared" })
+    ]);
     const runtime = await createMemorySessionRepository().loadSession();
     const { inventory: browserInventory } = observeInventory(raw, runtime);
     const snapshot: Snapshot = {
@@ -447,9 +464,8 @@ describe("PR 10 remaining backend review regressions", () => {
       createdAt: 1,
       updatedAt: 1
     };
-    const { planSnapshotRestore } = await import(
-      "../../src/snapshots/restoreSnapshot"
-    );
+    const { planSnapshotRestore } =
+      await import("../../src/snapshots/restoreSnapshot");
     const plan = planSnapshotRestore(snapshot, browserInventory, {
       configuration,
       associations: [],
@@ -529,7 +545,10 @@ describe("PR 10 remaining backend review regressions", () => {
   });
 
   it("reports a degraded snapshot restore as incomplete", async () => {
-    const configuration = createDefaultConfiguration(() => fallbackId, () => 1);
+    const configuration = createDefaultConfiguration(
+      () => fallbackId,
+      () => 1
+    );
     const chrome = createFakeChromePort(
       inventory([rawTab(7, { url: "https://example.com/a" })])
     );
@@ -580,7 +599,10 @@ describe("PR 10 remaining backend review regressions", () => {
       namedSnapshot(index + 1)
     );
     const local = createMemoryLocalRepository({ snapshots });
-    const configuration = createDefaultConfiguration(() => fallbackId, () => 1);
+    const configuration = createDefaultConfiguration(
+      () => fallbackId,
+      () => 1
+    );
     const chrome = createFakeChromePort(inventory([]));
 
     await handleSnapshotAlarm(SNAPSHOT_ALARMS.interval, {
