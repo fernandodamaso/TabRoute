@@ -10,6 +10,10 @@ import type {
 } from "../domain/types";
 import { appendActivityEntry } from "../activity/activityRepository";
 import {
+  deriveUndoPlacementFromTab,
+  planUndoRestore
+} from "../activity/undoPlanner";
+import {
   createActivityEntry,
   type LocalRepository
 } from "../state/localRepository";
@@ -69,7 +73,8 @@ async function recordRouteActivity(
   deps: RouteEngineDeps,
   plan: RoutePlan,
   result: "success" | "failure" | "degraded" | "retry",
-  errorCode?: string
+  errorCode?: string,
+  undoId?: UUID
 ): Promise<void> {
   if (!deps.local) return;
   await appendActivityEntry(
@@ -82,9 +87,46 @@ async function recordRouteActivity(
       affectedUrls: plan.tab.url ? [plan.tab.url] : [],
       source: "reconcile",
       ...(errorCode ? { errorCode } : {}),
+      ...(undoId ? { undoId } : {}),
       createdAt: deps.now?.() ?? Date.now()
     })
   );
+}
+
+async function persistRouteUndo(
+  deps: RouteEngineDeps,
+  plan: RoutePlan,
+  actionId: ActionId,
+  inventory: ChromeInventory
+): Promise<UUID | undefined> {
+  if (!deps.local || !deps.configuration) return undefined;
+  const sourceTab = findTab(inventory, plan.tab.id);
+  if (!sourceTab?.url || !isRoutableUrl(sourceTab.url)) return undefined;
+  try {
+    const session = await deps.session.loadSession();
+    const now = deps.now?.() ?? Date.now();
+    const undo = planUndoRestore({
+      payload: {
+        kind: "restorePlacement",
+        tabId: sourceTab.id,
+        expectedUrl: sourceTab.url,
+        placement: deriveUndoPlacementFromTab(
+          sourceTab,
+          inventory,
+          session.associations
+        )
+      },
+      session,
+      now,
+      undoTtlMs: deps.configuration.undoTtlMs,
+      browserSessionId: session.browserSessionId,
+      actionId
+    });
+    await deps.local.putUndo(undo);
+    return undo.id;
+  } catch {
+    return undefined;
+  }
 }
 
 async function saveExecutingGuard(
@@ -284,7 +326,8 @@ export async function executeRoutePlan(
       const verifiedAt = deps.now?.() ?? Date.now();
       await moveGuardToSettling(deps, executingGuard.id, verifiedAt, []);
       await Promise.all(retryEntries);
-      await recordRouteActivity(deps, plan, "success");
+      const undoId = await persistRouteUndo(deps, plan, actionId, fresh);
+      await recordRouteActivity(deps, plan, "success", undefined, undoId);
       return { kind: "executed", chromeGroupId: -1, inventory: verified };
     }
 
@@ -352,7 +395,8 @@ export async function executeRoutePlan(
       chromeGroupId
     ]);
     await Promise.all(retryEntries);
-    await recordRouteActivity(deps, plan, "success");
+    const undoId = await persistRouteUndo(deps, plan, actionId, fresh);
+    await recordRouteActivity(deps, plan, "success", undefined, undoId);
     return { kind: "executed", chromeGroupId, inventory: verified };
   } catch (error) {
     await removeGuard(deps, executingGuard.id);
