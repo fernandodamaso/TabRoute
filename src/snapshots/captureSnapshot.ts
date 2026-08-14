@@ -88,11 +88,12 @@ export function captureSnapshot(
             url: tab.routing.url,
             title: tab.title,
             duplicatePolicy: policy,
-            duplicateKey: buildDuplicateKey(
-              tab,
-              policy,
-              context.configuration.duplicateSettings
-            ),
+            duplicateKey:
+              buildDuplicateKey(
+                tab,
+                policy,
+                context.configuration.duplicateSettings
+              ) ?? null,
             order: index
           }
         ];
