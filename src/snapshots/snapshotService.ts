@@ -217,8 +217,11 @@ export async function restoreSnapshotFromRecord(input: {
     requireCheckpoint: true
   });
   const result = await executeActionPlan(actionPlan, input.actionDeps);
-  if (result.status === "failure") {
-    return { ok: false, code: result.errorCode ?? "RESTORE_FAILED" };
+  if (result.status !== "success") {
+    return {
+      ok: false,
+      code: result.errorCode ?? "RESTORE_INCOMPLETE"
+    };
   }
   return { ok: true };
 }
