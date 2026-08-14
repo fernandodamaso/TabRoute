@@ -305,8 +305,7 @@ describe("ordinary removal and worker-wake scrub", () => {
     expect(next.lastFocusedNormalWindowId).toBeUndefined();
     expect(next.operationGuards[0]?.postcondition).toEqual({
       kind: "tabPlacement",
-      tabIds: [8],
-      chromeGroupId: 11
+      tabIds: [8]
     });
     expect(next.operationGuards[1]?.postcondition).toEqual({
       kind: "managedGroupState",

@@ -78,12 +78,12 @@ describe("workbench lease lifecycle", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("fails closed when a run directory has a missing or malformed lease", async () => {
+  it("skips run directories without leases but rejects malformed leases", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-bad-lease-"));
     const artifacts = path.join(root, "artifacts");
     await mkdir(path.join(artifacts, "missing"), { recursive: true });
     const manager = new LeaseManager({ artifactRoot: artifacts, worktreePath: path.join(root, "worktree"), profileRoot: path.join(root, "profiles"), isProcessAlive: async () => true });
-    await expect(manager.countActive()).rejects.toThrow("WORKBENCH_CAPACITY");
+    await expect(manager.countActive()).resolves.toBe(0);
     await writeFile(path.join(artifacts, "missing", "lease.json"), "not-json");
     await expect(manager.countActive()).rejects.toThrow("WORKBENCH_CAPACITY");
     await rm(root, { recursive: true, force: true });

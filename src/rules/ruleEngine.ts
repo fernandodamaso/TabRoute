@@ -9,6 +9,7 @@ import type {
   RuleAction,
   UUID
 } from "../domain/types";
+import { matchesPattern } from "./patternMatcher";
 
 export interface RuleEvaluation {
   matches: boolean;
@@ -30,13 +31,6 @@ function isPaused(value: number | "restart" | undefined, at: number) {
   return value === "restart" || (typeof value === "number" && value > at);
 }
 
-function glob(value: string, pattern: string) {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*/g, ".*")
-    .replace(/\?/g, ".");
-  return new RegExp(`^${escaped}$`, "i").test(value);
-}
 
 function regex(value: string, pattern: string) {
   try {
@@ -99,7 +93,7 @@ function leaf(
         node.operator === "exact"
           ? tab.url === node.value
           : node.operator === "pattern"
-            ? glob(tab.url ?? "", node.value)
+            ? matchesPattern(tab.url ?? "", node.value)
             : regex(tab.url ?? "", node.value);
       specificityClass =
         node.operator === "exact" ? 7 : node.operator === "pattern" ? 5 : 1;
@@ -142,7 +136,7 @@ function leaf(
         node.operator === "exact"
           ? tab.openerUrl === node.value
           : node.operator === "pattern"
-            ? glob(tab.openerUrl ?? "", node.value)
+            ? matchesPattern(tab.openerUrl ?? "", node.value)
             : !!opener &&
               (opener.href === node.value ||
                 opener.hostname.endsWith(node.value));
@@ -153,7 +147,7 @@ function leaf(
         node.operator === "exact"
           ? opener?.hostname.toLowerCase() === node.value.toLowerCase()
           : node.operator === "pattern"
-            ? glob(opener?.hostname ?? "", node.value)
+            ? matchesPattern(opener?.hostname ?? "", node.value)
             : !!opener &&
               opener.hostname
                 .toLowerCase()
@@ -278,10 +272,15 @@ export function selectRule(input: {
   )
     return undefined;
   const candidates = input.configuration.rules.flatMap((rule) => {
+    const placement = placementAction(rule.actions);
     const target = input.configuration.groups.find(
       (group) => group.id === rule.targetGroupId
     );
-    if (!target || !target.enabled || isPaused(target.pausedUntil, at)) return [];
+    if (
+      placement === "group" &&
+      (!target || !target.enabled || isPaused(target.pausedUntil, at))
+    )
+      return [];
     const evaluation = evaluateRule(
       rule,
       input.tab,

@@ -263,13 +263,39 @@ export function createChromeLocalRepository(
     loadShutdownCheckpoint: () =>
       readBag(STORAGE_KEYS.localShutdownCheckpoint, null as ShutdownCheckpoint | null),
     saveShutdownCheckpoint: async (value) => {
+      memory.bags.snapshots = await readBag(
+        STORAGE_KEYS.localSnapshots,
+        [] as Snapshot[]
+      );
       memory.bags.checkpoint = await readBag(
         STORAGE_KEYS.localShutdownCheckpoint,
         null as ShutdownCheckpoint | null
       );
+      memory.bags.activity = await readBag(
+        STORAGE_KEYS.localActivity,
+        [] as ActivityEntry[]
+      );
+      memory.bags.undo = await readBag(
+        STORAGE_KEYS.localUndo,
+        {} as Record<string, UndoRecord>
+      );
+      memory.bags.ownership = await readBag(
+        STORAGE_KEYS.localWindowOwnership,
+        {} as Record<UUID, WindowOwnershipDescriptor>
+      );
       const result = await memory.saveShutdownCheckpoint(value);
-      if (result.ok) {
-        await writeBag(STORAGE_KEYS.localShutdownCheckpoint, memory.bags.checkpoint);
+      try {
+        await writeBag(STORAGE_KEYS.localSnapshots, memory.bags.snapshots);
+        await writeBag(STORAGE_KEYS.localActivity, memory.bags.activity);
+        await writeBag(STORAGE_KEYS.localUndo, memory.bags.undo);
+        await writeBag(STORAGE_KEYS.localWindowOwnership, memory.bags.ownership);
+        if (result.ok)
+          await writeBag(
+            STORAGE_KEYS.localShutdownCheckpoint,
+            memory.bags.checkpoint
+          );
+      } catch {
+        return { ok: false, code: "LOCAL_WRITE" };
       }
       return result;
     },

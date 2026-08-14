@@ -68,8 +68,16 @@ export class LeaseManager {
     const leases: LeaseRecord[] = [];
     for (const entry of entries) {
       if (!entry.isDirectory() || entry.name === ".lock.guard") continue;
+      const leasePath = path.join(this.root, entry.name, "lease.json");
+      let raw: string;
       try {
-        const parsed = JSON.parse(await fs.readFile(path.join(this.root, entry.name, "lease.json"), "utf8")) as LeaseRecord;
+        raw = await fs.readFile(leasePath, "utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw new Error("WORKBENCH_CAPACITY");
+      }
+      try {
+        const parsed = JSON.parse(raw) as LeaseRecord;
         if (!parsed || parsed.runId !== entry.name || typeof parsed.pid !== "number" || !Number.isInteger(parsed.pid) || typeof parsed.startedAt !== "string" || !Number.isFinite(Date.parse(parsed.startedAt)) || typeof parsed.heartbeat !== "string" || !Number.isFinite(Date.parse(parsed.heartbeat)) || typeof parsed.profilePath !== "string" || !parsed.profilePath || !["active", "abandoned", "completed"].includes(parsed.status)) throw new Error("WORKBENCH_CAPACITY");
         leases.push(parsed);
       } catch { throw new Error("WORKBENCH_CAPACITY"); }

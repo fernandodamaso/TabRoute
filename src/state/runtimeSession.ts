@@ -211,7 +211,11 @@ function remapPostconditionTabIds(
   removedTabId: number,
   addedTabId: number
 ): GuardPostcondition | undefined {
-  if (postcondition?.kind !== "tabPlacement") {
+  if (
+    postcondition?.kind !== "tabPlacement" &&
+    postcondition?.kind !== "tabsPresent" &&
+    postcondition?.kind !== "tabsAbsent"
+  ) {
     return postcondition;
   }
   return {
@@ -237,7 +241,18 @@ function scrubPostcondition(
       ...(windowId !== undefined && windowIds.has(windowId)
         ? { windowId }
         : {}),
-      ...(chromeGroupId !== undefined ? { chromeGroupId } : {})
+      ...(chromeGroupId !== undefined && groupIds.has(chromeGroupId)
+        ? { chromeGroupId }
+        : {})
+    };
+  }
+  if (
+    postcondition.kind === "tabsPresent" ||
+    postcondition.kind === "tabsAbsent"
+  ) {
+    return {
+      ...postcondition,
+      tabIds: postcondition.tabIds.filter((tabId) => tabIds.has(tabId))
     };
   }
   const { windowId, ...rest } = postcondition;

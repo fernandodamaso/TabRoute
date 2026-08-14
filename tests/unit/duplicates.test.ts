@@ -110,6 +110,38 @@ describe("duplicates", () => {
       )
     ).toBe("https://x.test/a");
   });
+  it("scopes pattern keys to matching normalized URLs", () => {
+    const settings = {
+      ...createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000001")
+        .duplicateSettings,
+      trackingParameters: ["utm_source"]
+    };
+    const policy = {
+      kind: "pattern" as const,
+      pattern: "https://docs.example/guide*"
+    };
+    expect(
+      buildDuplicateKey(
+        tab(1, {
+          routing: {
+            kind: "routable",
+            url: "https://docs.example/guide?utm_source=x"
+          }
+        }),
+        policy,
+        settings
+      )
+    ).toBe(policy.pattern);
+    expect(
+      buildDuplicateKey(
+        tab(2, {
+          routing: { kind: "routable", url: "https://other.example/guide" }
+        }),
+        policy,
+        settings
+      )
+    ).toBeNull();
+  });
 
   it("ungroup skips group override", () => {
     const global = createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000001").duplicateSettings;

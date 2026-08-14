@@ -1,5 +1,6 @@
 import type { DuplicatePolicy, DuplicateSettings } from "../domain/types";
 import type { TabSnapshot } from "../domain/types";
+import { matchesPattern } from "../rules/patternMatcher";
 
 export function isRoutableUrl(url: string | undefined): url is string {
   if (!url) return false;
@@ -49,8 +50,10 @@ export function buildDuplicateKey(
       return new URL(url).hostname;
     case "urlAndTitle":
       return `${normalizeUrl(url, settings)}|${tab.title}`;
-    case "pattern":
-      return policy.pattern;
+    case "pattern": {
+      const normalized = normalizeUrl(url, settings);
+      return matchesPattern(normalized, policy.pattern) ? policy.pattern : null;
+    }
     default:
       return null;
   }

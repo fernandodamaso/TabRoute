@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { createUuid } from "../../src/domain/ids";
 import {
+  createChromeLocalRepository,
   createMemoryLocalRepository,
   LOCAL_SOFT_BUDGET_BYTES,
   createActivityEntry
 } from "../../src/state/localRepository";
+import { STORAGE_KEYS } from "../../src/state/keys";
 import { createConfigurationSyncCoordinator } from "../../src/state/configurationSyncCoordinator";
 
 describe("storage repositories", () => {
@@ -62,6 +64,77 @@ describe("storage repositories", () => {
     expect(result.ok).toBe(true);
     expect(local.bags.undo.expired).toBeUndefined();
     expect(Object.keys(local.bags.undo)).toHaveLength(0);
+  });
+  it("durably hydrates and writes every pruned Local bag before checkpoint publication", async () => {
+    const now = 10_000;
+    const stored: Record<string, unknown> = {
+      [STORAGE_KEYS.localSnapshots]: [
+        {
+          schemaVersion: 1,
+          id: createUuid(),
+          name: "x".repeat(LOCAL_SOFT_BUDGET_BYTES),
+          kind: "automatic",
+          scope: { kind: "browser" },
+          groups: [],
+          createdAt: 1,
+          updatedAt: 1
+        }
+      ],
+      [STORAGE_KEYS.localActivity]: [
+        createActivityEntry({
+          action: "x".repeat(LOCAL_SOFT_BUDGET_BYTES),
+          result: "success",
+          affectedManagedGroupIds: [],
+          affectedUrls: [],
+          createdAt: 1
+        })
+      ],
+      [STORAGE_KEYS.localUndo]: {
+        expired: {
+          schemaVersion: 1,
+          id: createUuid(),
+          actionId: createUuid() as never,
+          browserSessionId: "session" as never,
+          payloads: [],
+          expiresAt: now - 1,
+          createdAt: 1
+        }
+      },
+      [STORAGE_KEYS.localWindowOwnership]: {},
+      [STORAGE_KEYS.localShutdownCheckpoint]: null
+    };
+    const area = {
+      async get(key?: string | readonly string[]) {
+        if (!key) return { ...stored };
+        const keys = typeof key === "string" ? [key] : key;
+        return Object.fromEntries(keys.map((item) => [item, stored[item]]));
+      },
+      async set(values: Record<string, unknown>) {
+        Object.assign(stored, values);
+      },
+      async remove() {}
+    };
+    const local = createChromeLocalRepository(area, area, area);
+    const checkpoint = {
+      schemaVersion: 1 as const,
+      snapshot: {
+        schemaVersion: 1 as const,
+        id: createUuid(),
+        name: "checkpoint",
+        kind: "checkpoint" as const,
+        scope: { kind: "browser" as const },
+        groups: [],
+        createdAt: now,
+        updatedAt: now
+      },
+      capturedAt: now
+    };
+    const result = await local.saveShutdownCheckpoint(checkpoint);
+    expect(result.ok).toBe(true);
+    expect(stored[STORAGE_KEYS.localSnapshots]).toEqual([]);
+    expect(stored[STORAGE_KEYS.localActivity]).toEqual([]);
+    expect(stored[STORAGE_KEYS.localUndo]).toEqual({});
+    expect(stored[STORAGE_KEYS.localShutdownCheckpoint]).toEqual(checkpoint);
   });
 
   it("named snapshots are never auto-deleted", async () => {

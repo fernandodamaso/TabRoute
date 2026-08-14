@@ -28,7 +28,10 @@ import {
   STARTUP_RECOVERY_ALARM,
   WINDOW_SETTLEMENT_ALARM
 } from "../../src/persistence/startupCoordinator";
-import { resolveHomeWindow } from "../../src/persistence/windowOwnership";
+import {
+  captureOwnershipDescriptor,
+  resolveHomeWindow
+} from "../../src/persistence/windowOwnership";
 import { createEmptyRuntimeSession } from "../../src/state/runtimeSession";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -607,6 +610,30 @@ describe("pin group commands", () => {
     );
     expect(second.persistentTabs.filter((tab) => tab.managedGroupId === groupId)).toHaveLength(1);
   });
+  it("reuses a target definition accepted by an existing pattern", () => {
+    const config = configuration({
+      persistentTabs: [
+        {
+          ...configuration().persistentTabs[0]!,
+          acceptedPatterns: ["https://docs.example.com/guide*"]
+        }
+      ],
+      duplicateSettings: {
+        ...configuration().duplicateSettings,
+        trackingParameters: ["utm_source"]
+      }
+    });
+    const next = makePersistentDefinition(
+      config,
+      groupId,
+      "https://docs.example.com/guide?utm_source=x",
+      () => 3,
+      () => "00000000-0000-4000-8000-000000000099"
+    );
+    expect(next).toBe(config);
+    expect(next.persistentTabs).toHaveLength(1);
+    expect(next.persistentTabs[0]?.id).toBe(persistentId);
+  });
 });
 
 describe("window ownership", () => {
@@ -643,6 +670,67 @@ describe("window ownership", () => {
     );
     expect(home).toBe(2);
   });
+  it("captures live group presentation and member-index order", () => {
+    const descriptor = captureOwnershipDescriptor(
+      groupId,
+      configuration().groups.find((group) => group.id === groupId)!,
+      {
+        windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+        tabs: [
+          {
+            id: 2,
+            windowId: 1,
+            index: 4,
+            chromeGroupId: 11,
+            url: "https://second.example/",
+            title: "Second",
+            pinned: false,
+            active: false,
+            incognito: false,
+            lastAccessed: 1
+          },
+          {
+            id: 1,
+            windowId: 1,
+            index: 1,
+            chromeGroupId: 11,
+            url: "https://first.example/",
+            title: "First",
+            pinned: false,
+            active: false,
+            incognito: false,
+            lastAccessed: 1
+          }
+        ],
+        groups: [
+          {
+            id: 11,
+            windowId: 1,
+            title: "Docs",
+            color: "blue",
+            collapsed: true,
+            shared: false
+          }
+        ],
+        capturedAt: 1
+      },
+      [
+        {
+          managedGroupId: groupId,
+          chromeGroupId: 11,
+          chromeWindowId: 1,
+          observedTitle: "Docs",
+          observedMemberUrls: [],
+          observedAt: 1
+        }
+      ]
+    );
+    expect(descriptor).toEqual({
+      memberUrls: ["https://first.example/", "https://second.example/"],
+      order: 1,
+      collapsed: true
+    });
+  });
 });
 
 describe("startup coordinator", () => {
@@ -666,23 +754,64 @@ describe("startup coordinator", () => {
           alarms.calls.push({ name, when });
         }
       },
-      clock: { now: () => 1000, waitInWorker: async () => undefined },
+      clock: { now: () => 1000 },
       chromeEvent: { kind: "startup" },
       timing: { quietMs: 10, maxMs: 100, recoveryAlarmMs: 200 }
     });
     expect(waiting.kind).toBe("waiting");
-    const settled = await advanceStartupSettlement({
+    let currentNow = 1010;
+    const firstScan = await advanceStartupSettlement({
       session: waiting.session,
       inventory,
       alarms: {
-        scheduleOneShot: async () => undefined
+        scheduleOneShot: async (name, when) => {
+          alarms.calls.push({ name, when });
+        }
       },
-      clock: { now: () => 5000, waitInWorker: async () => undefined },
+      clock: { now: () => currentNow },
       chromeEvent: { kind: "alarm", name: STARTUP_RECOVERY_ALARM },
       timing: { quietMs: 10, maxMs: 100, recoveryAlarmMs: 200 }
     });
+    expect(firstScan.kind).toBe("waiting");
+    expect(firstScan.session.startupRestore?.consecutiveQuietScans).toBe(1);
+    expect(alarms.calls[0]?.when).toBe(1010);
+    expect(alarms.calls[1]?.when).toBe(1020);
+    currentNow = 1020;
+    const secondScan = await advanceStartupSettlement({
+      session: firstScan.session,
+      inventory,
+      alarms: { scheduleOneShot: async () => undefined },
+      clock: { now: () => currentNow },
+      chromeEvent: { kind: "alarm", name: STARTUP_RECOVERY_ALARM },
+      timing: { quietMs: 10, maxMs: 100, recoveryAlarmMs: 200 }
+    });
+    expect(secondScan.kind).toBe("settled");
+  });
+  it("settles at the fifteen-second deadline without a worker wait", async () => {
+    const session = createEmptyRuntimeSession({ browserSessionId: "session" as never });
+    const calls: number[] = [];
+    const inventory = { windows: [], tabs: [], groups: [], capturedAt: 1 };
+    const started = await advanceStartupSettlement({
+      session,
+      inventory,
+      alarms: {
+        scheduleOneShot: async (_name, when) => {
+          calls.push(when);
+        }
+      },
+      clock: { now: () => 1000 },
+      chromeEvent: { kind: "startup" }
+    });
+    expect(started.kind).toBe("waiting");
+    expect(calls[0]).toBeLessThanOrEqual(16000);
+    const settled = await advanceStartupSettlement({
+      session: started.session,
+      inventory,
+      alarms: { scheduleOneShot: async () => undefined },
+      clock: { now: () => 16000 },
+      chromeEvent: { kind: "alarm", name: STARTUP_RECOVERY_ALARM }
+    });
     expect(settled.kind).toBe("settled");
-    expect(alarms.calls.some((call) => call.name === STARTUP_RECOVERY_ALARM)).toBe(true);
   });
 
   it("returns idle without startupRestore on ordinary tab events", async () => {
@@ -697,7 +826,7 @@ describe("startup coordinator", () => {
       session,
       inventory,
       alarms: { scheduleOneShot: async () => undefined },
-      clock: { now: () => 5000, waitInWorker: async () => undefined },
+      clock: { now: () => 5000 },
       chromeEvent: { kind: "tabCreated", tabId: 1 },
       timing: { quietMs: 10, maxMs: 100, recoveryAlarmMs: 200 }
     });
@@ -724,7 +853,7 @@ describe("startup coordinator", () => {
       session,
       inventory,
       alarms: { scheduleOneShot: async () => undefined },
-      clock: { now: () => 5000, waitInWorker: async () => undefined },
+      clock: { now: () => 5000 },
       chromeEvent: { kind: "alarm", name: WINDOW_SETTLEMENT_ALARM },
       timing: { quietMs: 100, maxMs: 10000, recoveryAlarmMs: 200 }
     });

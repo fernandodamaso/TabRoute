@@ -134,7 +134,8 @@ describe("buildExpectedFootprint", () => {
     expect(footprint.postcondition).toEqual({
       kind: "tabPlacement",
       tabIds: [7],
-      windowId: 1
+      windowId: 1,
+      grouped: true
     });
   });
 

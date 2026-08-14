@@ -58,7 +58,7 @@ export function resolveHomeWindow(
 
 export function captureOwnershipDescriptor(
   managedGroupId: UUID,
-  group: ManagedGroup,
+  _group: ManagedGroup,
   inventory: ChromeInventory,
   associations: readonly ChromeAssociation[]
 ): WindowOwnershipDescriptor | undefined {
@@ -66,14 +66,27 @@ export function captureOwnershipDescriptor(
     (candidate) => candidate.managedGroupId === managedGroupId
   );
   if (!association) return undefined;
-  const memberUrls = inventory.tabs
-    .filter((tab) => tab.chromeGroupId === association.chromeGroupId)
-    .map((tab) => tab.url ?? "")
-    .filter((url) => url.length > 0);
+  const liveGroup = inventory.groups.find(
+    (candidate) =>
+      candidate.id === association.chromeGroupId &&
+      candidate.windowId === association.chromeWindowId &&
+      !candidate.shared
+  );
+  if (!liveGroup) return undefined;
+  const members = inventory.tabs
+    .filter(
+      (tab) =>
+        tab.chromeGroupId === liveGroup.id &&
+        tab.windowId === liveGroup.windowId
+    )
+    .sort((left, right) => left.index - right.index);
+  if (members.length === 0) return undefined;
   return {
-    memberUrls,
-    order: group.defaultOrder,
-    collapsed: group.defaultCollapsed
+    memberUrls: members
+      .map((tab) => tab.url ?? "")
+      .filter((url) => url.length > 0),
+    order: members[0]!.index,
+    collapsed: liveGroup.collapsed
   };
 }
 

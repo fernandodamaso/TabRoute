@@ -9,22 +9,18 @@ import type { LiveChromePort } from "../chrome/types";
 import { isRoutableUrl } from "../chrome/types";
 
 import type {
-
   Configuration,
-
   ChromeInventory,
-
   ChromeTabSnapshot,
-
   ChromeEventHint
-
 } from "../domain/types";
 
 import { postconditionHolds, settleOperationGuards } from "../actions/operationGuards";
-
 import { executeRoutePlan } from "../actions/executeRoutePlan";
 import type { ActionEngineDeps } from "../actions/executeActionPlan";
 import { planRuleRoute } from "../actions/planActions";
+import { makePersistentDefinition } from "../persistence/persistentCommands";
+import { placementAction, selectRule } from "../rules/ruleEngine";
 
 import type { PreMutationCheckpointPort } from "../snapshots/checkpointService";
 
@@ -70,23 +66,15 @@ type QueueItem = ReconciliationRequest;
 
 
 export function createTabRouteController(input: {
-
   configuration: Configuration;
-
   chrome: LiveChromePort;
-
   session: SessionRepository;
-
   local: LocalRepository;
-
   checkpoints: PreMutationCheckpointPort;
-
+  persistConfiguration: (configuration: Configuration) => Promise<void>;
   alarms?: AlarmScheduler;
-
   now?: () => number;
-
   delay?: (ms: number) => Promise<void>;
-
 }) {
 
   const now = () => input.now?.() ?? Date.now();
@@ -354,8 +342,30 @@ export function createTabRouteController(input: {
 
 
     executing = true;
-
     try {
+      const selected = selectRule({
+        configuration,
+        tab: freshTab,
+        inventory,
+        associations
+      });
+      if (
+        selected &&
+        placementAction(selected.rule.actions) === "group" &&
+        selected.rule.actions.some((action) => action.kind === "makePersistent")
+      ) {
+        const nextConfiguration = makePersistentDefinition(
+          configuration,
+          selected.rule.targetGroupId,
+          freshTab.url!,
+          now
+        );
+        if (nextConfiguration !== configuration) {
+          configuration = nextConfiguration;
+          await input.persistConfiguration(configuration);
+        }
+      }
+
 
       const duplicateOutcome = await attemptDuplicateClose({
 
@@ -414,23 +424,16 @@ export function createTabRouteController(input: {
       if (planned.kind === "held" || planned.kind === "noop") return planned;
 
       const result = await executeRoutePlan(planned, {
-
         chrome: input.chrome,
-
         session: input.session,
-
+        local: input.local,
+        configuration,
         now
-
       });
-
       if (result.kind === "executed") {
-
         await input.session.saveAssociations(
-
           reconstructAssociations(result.inventory, configuration)
-
         );
-
       }
 
       return result;
@@ -662,17 +665,10 @@ export function createTabRouteController(input: {
       inventory,
 
       alarms: input.alarms ?? {
-
         scheduleOneShot: async () => undefined
-
       },
-
       clock: {
-
-        now,
-
-        waitInWorker: delay
-
+        now
       },
 
       configuration,

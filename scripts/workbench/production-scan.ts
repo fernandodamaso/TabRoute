@@ -10,6 +10,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { createArtifactStore, encodeUtf8 } from "./artifacts";
 
 const execFileAsync = promisify(execFile);
 
@@ -324,10 +325,18 @@ export async function writeProductionGateResult(
     "artifacts",
     runId
   );
-  await mkdir(artifactPath, { recursive: true });
+  const store = createArtifactStore({
+    root: artifactPath,
+    runId
+  });
   const resultPath = path.join(artifactPath, "production-gate.json");
   const result: ProductionGateResult = { ...input, resultPath };
-  await writeFile(resultPath, JSON.stringify(result, null, 2), "utf8");
+  await store.write(
+    "production-gate.json",
+    encodeUtf8(JSON.stringify(result, null, 2)),
+    "result"
+  );
+  await store.finalize("completed");
   const pointerPath = productionGatePointerPath(worktreePath);
   await mkdir(path.dirname(pointerPath), { recursive: true });
   await writeFile(pointerPath, resultPath, "utf8");

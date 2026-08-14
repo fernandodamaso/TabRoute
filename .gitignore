@@ -5,3 +5,6 @@ coverage/
 *.log
 .workbench/artifacts/
 .workbench/tmp/
+.workbench/gates/
+.workbench/failures/
+.workbench/popup-artifacts/

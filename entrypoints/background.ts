@@ -221,6 +221,7 @@ export default defineBackground(() => {
       session,
       local,
       checkpoints,
+      persistConfiguration: (nextConfiguration) => repository.save(nextConfiguration),
       alarms: chrome.alarms?.create
         ? {
             scheduleOneShot: async (name, when) => {

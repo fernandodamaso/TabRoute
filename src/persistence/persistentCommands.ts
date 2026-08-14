@@ -1,8 +1,11 @@
 import { createUuid } from "../domain/ids";
 import type { Configuration, PersistentTab, UUID } from "../domain/types";
-import { deriveCanonicalUrl, isValidCanonicalUrl } from "./acceptedUrl";
+import {
+  deriveCanonicalUrl,
+  isValidCanonicalUrl,
+  matchesAcceptedUrl
+} from "./acceptedUrl";
 import { persistentTabsForGroup } from "./requirements";
-
 export type PersistentTabDraft = Omit<
   PersistentTab,
   "schemaVersion" | "id" | "createdAt" | "updatedAt"
@@ -97,7 +100,8 @@ export function makePersistentDefinition(
   const canonicalUrl = deriveCanonicalUrl(url, configuration.duplicateSettings);
   const existing = configuration.persistentTabs.find(
     (tab) =>
-      tab.managedGroupId === managedGroupId && tab.canonicalUrl === canonicalUrl
+      tab.managedGroupId === managedGroupId &&
+      matchesAcceptedUrl(canonicalUrl, tab.canonicalUrl, tab.acceptedPatterns)
   );
   if (existing) return configuration;
   const order =

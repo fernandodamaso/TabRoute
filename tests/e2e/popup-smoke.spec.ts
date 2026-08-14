@@ -4,6 +4,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { buildExtension } from "../../scripts/workbench/build";
 import { launchExtensionSession } from "../../scripts/workbench/browser";
+import { createArtifactStore, encodeUtf8 } from "../../scripts/workbench/artifacts";
 const profileRoot = path.join(os.tmpdir(), "tabroute-workbench");
 
 async function resolveProductionBuildPath(): Promise<string> {
@@ -28,6 +29,10 @@ test("popup smoke renders ManagerApp at 520x600 without workbench controls", asy
     "artifacts",
     runId
   );
+  const artifactStore = createArtifactStore({
+    root: artifactPath,
+    runId
+  });
   const session = await launchExtensionSession({
     buildPath,
     profilePath,
@@ -52,12 +57,13 @@ test("popup smoke renders ManagerApp at 520x600 without workbench controls", asy
     expect(await page.locator("[data-workbench-marker]").count()).toBe(0);
     expect(await page.locator("[data-workbench-control]").count()).toBe(0);
 
-    await import("node:fs/promises").then((fs) =>
-      fs.mkdir(artifactPath, { recursive: true })
-    );
     const screenshotRelative = "screenshots/popup-smoke.png";
     const screenshotAbsolute = path.join(artifactPath, screenshotRelative);
-    await page.screenshot({ path: screenshotAbsolute, type: "png" });
+    await artifactStore.write(
+      screenshotRelative,
+      await page.screenshot({ type: "png" }),
+      "screenshot"
+    );
     await access(screenshotAbsolute);
 
     const result = {
@@ -70,9 +76,12 @@ test("popup smoke renders ManagerApp at 520x600 without workbench controls", asy
       screenshotPaths: [screenshotRelative]
     };
     const resultPath = path.join(artifactPath, "results.json");
-    await import("node:fs/promises").then((fs) =>
-      fs.writeFile(resultPath, JSON.stringify(result, null, 2), "utf8")
+    await artifactStore.write(
+      "results.json",
+      encodeUtf8(JSON.stringify(result, null, 2)),
+      "result"
     );
+    await artifactStore.finalize("completed");
     const persisted = JSON.parse(await readFile(resultPath, "utf8")) as {
       runId: string;
       extensionId: string;

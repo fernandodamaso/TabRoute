@@ -1,11 +1,51 @@
 import { describe, expect, it } from "vitest";
-import { capMetadata, createArtifactStore, encodeRequiredMetadata, encodeUtf8, orderOptionalEvidence, orderRetentionEvidence, orderTerminalRuns, rotateTextLog } from "../../scripts/workbench/artifacts";
+import {
+  capMetadata,
+  createArtifactStore,
+  encodeRequiredMetadata,
+  encodeUtf8,
+  orderOptionalEvidence,
+  orderRetentionEvidence,
+  orderTerminalRuns,
+  rotateTextLog
+} from "../../scripts/workbench/artifacts";
 import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createArtifactLimitFailure, REQUIRED_METADATA_RESERVATION_BYTES, type ArtifactLimitSource, type RunResultStartedMetadata } from "../../scripts/workbench/contracts";
+import {
+  createArtifactLimitFailure,
+  REQUIRED_METADATA_RESERVATION_BYTES,
+  type ArtifactLimitSource,
+  type RunResultStartedMetadata
+} from "../../scripts/workbench/contracts";
+import { LeaseManager } from "../../scripts/workbench/leases";
+import { writeProductionGateResult } from "../../scripts/workbench/production-scan";
 
 describe("workbench artifact retention", () => {
+  it("keeps auxiliary outputs out of the lease-managed artifact root", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-auxiliary-artifacts-"));
+    const worktree = path.join(root, "worktree");
+    const artifactRoot = path.join(worktree, ".workbench", "artifacts");
+    await mkdir(path.join(artifactRoot, "popup-run"), { recursive: true });
+    await mkdir(path.join(artifactRoot, "preflight-run"), {
+      recursive: true
+    });
+    const resultPath = await writeProductionGateResult(worktree, "gate-1", {
+      graph: "production",
+      workbenchBuildPath: "workbench",
+      productionBuildPath: "production",
+      productionScan: { ok: true }
+    });
+    expect(resultPath).toContain(path.join(".workbench", "artifacts"));
+    const manager = new LeaseManager({
+      artifactRoot,
+      worktreePath: worktree,
+      profileRoot: path.join(root, "profiles"),
+      isProcessAlive: async () => true
+    });
+    await expect(manager.countActive()).resolves.toBe(0);
+    await rm(root, { recursive: true, force: true });
+  });
   it("sorts terminal runs by terminalAt and then runId", () => {
     expect(orderTerminalRuns([
       { runId: "b", terminalAt: 10 }, { runId: "a", terminalAt: 10 }, { runId: "c", terminalAt: 5 }

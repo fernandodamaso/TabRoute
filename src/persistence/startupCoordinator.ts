@@ -16,15 +16,13 @@ export interface AlarmScheduler {
 
 export interface StartupCoordinatorClock {
   now(): number;
-  waitInWorker(delayMs: number): Promise<void>;
 }
 
 function isRelevantStartupEvent(event: ChromeEventHint): boolean {
   return (
     event.kind === "startup" ||
     event.kind === "tabCreated" ||
-    (event.kind === "tabUpdated" && event.urlChanged) ||
-    (event.kind === "alarm" && event.name === STARTUP_RECOVERY_ALARM)
+    (event.kind === "tabUpdated" && event.urlChanged)
   );
 }
 
@@ -35,6 +33,18 @@ export function beginStartupRestore(now: number): StartupRestoreState {
     lastRelevantEventAt: now,
     consecutiveQuietScans: 0
   };
+}
+
+async function scheduleNextQuietScan(
+  alarms: AlarmScheduler,
+  now: number,
+  deadlineAt: number,
+  quietMs: number
+) {
+  await alarms.scheduleOneShot(
+    STARTUP_RECOVERY_ALARM,
+    Math.min(now + quietMs, deadlineAt)
+  );
 }
 
 export async function advanceStartupSettlement(input: {
@@ -64,17 +74,17 @@ export async function advanceStartupSettlement(input: {
         consecutiveQuietScans: 0
       }
     };
-    await input.alarms.scheduleOneShot(
-      STARTUP_RECOVERY_ALARM,
-      now + timing.recoveryAlarmMs
+    await scheduleNextQuietScan(
+      input.alarms,
+      now,
+      now + timing.maxMs,
+      timing.quietMs
     );
     return { kind: "waiting", session };
   }
 
   const state = session.startupRestore;
-  if (!state) {
-    return { kind: "idle", session };
-  }
+  if (!state) return { kind: "idle", session };
 
   if (now >= state.deadlineAt) {
     return {
@@ -93,24 +103,41 @@ export async function advanceStartupSettlement(input: {
         consecutiveQuietScans: 0
       }
     };
+    await scheduleNextQuietScan(
+      input.alarms,
+      now,
+      state.deadlineAt,
+      timing.quietMs
+    );
     return { kind: "waiting", session };
   }
 
-  const quietElapsed = now - session.startupRestore!.lastRelevantEventAt;
+  const quietElapsed = now - state.lastRelevantEventAt;
   if (quietElapsed < timing.quietMs) {
+    await scheduleNextQuietScan(
+      input.alarms,
+      state.lastRelevantEventAt,
+      state.deadlineAt,
+      timing.quietMs
+    );
     return { kind: "waiting", session };
   }
 
-  const scans = (session.startupRestore!.consecutiveQuietScans + 1) as 0 | 1 | 2;
+  const scans = (state.consecutiveQuietScans + 1) as 0 | 1 | 2;
   if (scans < 2) {
     session = {
       ...session,
       startupRestore: {
-        ...session.startupRestore!,
+        ...state,
         consecutiveQuietScans: scans
       }
     };
-    await input.clock.waitInWorker(timing.quietMs);
+    await scheduleNextQuietScan(
+      input.alarms,
+      now,
+      state.deadlineAt,
+      timing.quietMs
+    );
     return { kind: "waiting", session };
   }
 
@@ -119,8 +146,8 @@ export async function advanceStartupSettlement(input: {
     session: { ...session, startupRestore: undefined },
     inventory: input.inventory
   };
-}
 
+}
 export function settlePendingWindowClosures(input: {
   session: RuntimeSession;
   inventory: ChromeInventory;

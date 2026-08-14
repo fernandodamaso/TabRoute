@@ -300,3 +300,63 @@ describe("controller lifecycle", () => {
     expect(fake.callsFor("groupTabs").length).toBe(1);
   });
 });
+  it("persists a rule-driven target definition exactly once before routing", async () => {
+    const base = createDefaultConfiguration(
+      () => "00000000-0000-4000-8000-000000000001"
+    );
+    const targetGroup = base.groups.find((group) => group.isFallback)!;
+    const configuration = {
+      ...base,
+      duplicateSettings: {
+        ...base.duplicateSettings,
+        trackingParameters: ["utm_source"]
+      },
+      rules: [
+        {
+          schemaVersion: 1 as const,
+          id: "00000000-0000-4000-8000-000000000010" as UUID,
+          targetGroupId: targetGroup.id,
+          priority: 10,
+          positive: {
+            kind: "host" as const,
+            operator: "exact" as const,
+            value: "docs.example"
+          },
+          negative: [],
+          actions: [{ kind: "group" as const }, { kind: "makePersistent" as const }],
+          enabled: true,
+          createdAt: 1,
+          updatedAt: 1
+        }
+      ]
+    };
+    const currentTab = tab({
+      url: "https://docs.example/guide#section?utm_source=x"
+    });
+    const fake = createFakeChromePort({
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+      tabs: [currentTab],
+      groups: [],
+      capturedAt: 1
+    });
+    const persisted: typeof configuration[] = [];
+    const controller = createTestController({
+      configuration,
+      chrome: fake,
+      now: () => 1000,
+      persistConfiguration: async (next) => {
+        persisted.push(next as typeof configuration);
+      }
+    });
+    await controller.handleTabUpdated(currentTab);
+    await controller.handleTabUpdated(currentTab);
+    expect(persisted).toHaveLength(1);
+    expect(
+      persisted[0]!.persistentTabs.filter(
+        (persistent) => persistent.managedGroupId === targetGroup.id
+      )
+    ).toHaveLength(1);
+    expect(persisted[0]!.persistentTabs[0]?.canonicalUrl).toBe(
+      "https://docs.example/guide"
+    );
+  });

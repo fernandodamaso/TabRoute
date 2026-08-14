@@ -8,6 +8,9 @@ import type {
   OperationGuard,
   UUID
 } from "../domain/types";
+import { appendActivityEntry } from "../activity/activityRepository";
+import { createActivityEntry, type LocalRepository } from "../state/localRepository";
+import type { Configuration } from "../domain/types";
 import type { SessionRepository } from "../state/sessionRepository";
 import {
   GUARD_HARD_MS,
@@ -17,10 +20,11 @@ import {
 } from "./operationGuards";
 import { executeWithRetry } from "./retryPolicy";
 import type { RoutePlan, RouteResult } from "./types";
-
 export interface RouteEngineDeps {
   chrome: ChromeReadPort & ChromeMutationPort;
   session: SessionRepository;
+  local?: LocalRepository;
+  configuration?: Configuration;
   now?: () => number;
   createId?: () => UUID;
   delay?: (ms: number) => Promise<void>;
@@ -53,6 +57,27 @@ function createGuard(input: {
     settleAfter: input.settleAfter,
     expiresAt: input.startedAt + GUARD_HARD_MS
   };
+}
+async function recordRouteActivity(
+  deps: RouteEngineDeps,
+  plan: RoutePlan,
+  result: "success" | "failure" | "degraded" | "retry",
+  errorCode?: string
+): Promise<void> {
+  if (!deps.local) return;
+  await appendActivityEntry(
+    deps.local,
+    createActivityEntry({
+      action: `Automatic ${plan.kind} route`,
+      result,
+      affectedManagedGroupIds:
+        plan.kind === "ungroup" ? [] : [plan.managedGroupId],
+      affectedUrls: plan.tab.url ? [plan.tab.url] : [],
+      source: "reconcile",
+      ...(errorCode ? { errorCode } : {}),
+      createdAt: deps.now?.() ?? Date.now()
+    })
+  );
 }
 
 async function saveExecutingGuard(
@@ -134,8 +159,15 @@ export async function executeRoutePlan(
   const tab = findTab(fresh, plan.tab.id);
   if (!tab || tab.incognito) return { kind: "held", reason: "incognito" };
   if (!isRoutableUrl(tab.url)) return { kind: "held", reason: "not-routable" };
-
+  const retryEntries: Promise<void>[] = [];
+  const onRetry = () => {
+    retryEntries.push(recordRouteActivity(deps, plan, "retry"));
+  };
   const executingGuard = await saveExecutingGuard(deps, plan, actionId, now, createId);
+  let expectedChromeGroupId =
+    plan.kind === "routeToGroup" && plan.groupInput.kind === "existing"
+      ? plan.groupInput.chromeGroupId
+      : undefined;
 
   let verifyTabId = plan.tab.id;
 
@@ -160,13 +192,14 @@ export async function executeRoutePlan(
     const footprint = buildExpectedFootprint(plan);
     if (footprint.postcondition?.kind === "tabPlacement") {
       const postcondition = footprint.postcondition;
-      if (
-        postcondition.chromeGroupId !== undefined &&
-        subject.chromeGroupId >= 0 &&
-        subject.chromeGroupId !== postcondition.chromeGroupId
-      ) {
+      const expectedGroupId =
+        expectedChromeGroupId ?? postcondition.chromeGroupId;
+      if (expectedGroupId !== undefined)
+        return subject.chromeGroupId === expectedGroupId
+          ? undefined
+          : "contradiction";
+      if (plan.groupInput.kind === "create" && subject.chromeGroupId < 0)
         return "contradiction";
-      }
     }
     return undefined;
   }
@@ -181,7 +214,8 @@ export async function executeRoutePlan(
         () => chrome.ungroupTabs([tab.id]),
         refreshInventory,
         delay,
-        shouldAbortRetry
+        shouldAbortRetry,
+        onRetry
       );
       const verified = await refreshInventory();
       const verifiedTab = findTab(verified, verifyTabId);
@@ -189,15 +223,18 @@ export async function executeRoutePlan(
         throw new Error("Action Engine ungroup postcondition failed");
       const verifiedAt = deps.now?.() ?? Date.now();
       await moveGuardToSettling(deps, executingGuard.id, verifiedAt, []);
+      await Promise.all(retryEntries);
+      await recordRouteActivity(deps, plan, "success");
       return { kind: "executed", chromeGroupId: -1, inventory: verified };
     }
-
     const chromeGroupId = await executeWithRetry(
       () => chrome.groupTabs(plan.groupInput),
       refreshInventory,
       delay,
-      shouldAbortRetry
+      shouldAbortRetry,
+      onRetry
     );
+    expectedChromeGroupId = chromeGroupId;
     await executeWithRetry(
       () =>
         chrome.updateGroup(chromeGroupId, {
@@ -207,7 +244,8 @@ export async function executeRoutePlan(
         }),
       refreshInventory,
       delay,
-      shouldAbortRetry
+      shouldAbortRetry,
+      onRetry
     );
     const verified = await refreshInventory();
     const verifiedTab = findTab(verified, verifyTabId);
@@ -215,9 +253,18 @@ export async function executeRoutePlan(
       throw new Error("Action Engine postcondition failed");
     const verifiedAt = deps.now?.() ?? Date.now();
     await moveGuardToSettling(deps, executingGuard.id, verifiedAt, [chromeGroupId]);
+    await Promise.all(retryEntries);
+    await recordRouteActivity(deps, plan, "success");
     return { kind: "executed", chromeGroupId, inventory: verified };
   } catch (error) {
     await removeGuard(deps, executingGuard.id);
+    await Promise.all(retryEntries);
+    await recordRouteActivity(
+      deps,
+      plan,
+      "failure",
+      error instanceof Error ? error.message : "ROUTE_FAILED"
+    );
     throw error;
   }
 }

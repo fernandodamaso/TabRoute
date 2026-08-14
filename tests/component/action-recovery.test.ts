@@ -177,4 +177,57 @@ describe("action recovery with operation guards", () => {
     expect(fake.callsFor("groupTabs").length).toBe(callsBefore);
     expect((await session.loadSession()).operationGuards).toHaveLength(0);
   });
+  it("retires a transient grouping retry after a fresh user ungroup", async () => {
+    const session = createMemorySessionRepository();
+    const fake = createFakeChromePort({
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+      tabs: [tab()],
+      groups: [
+        {
+          id: 11,
+          windowId: 1,
+          title: "Other",
+          color: "grey",
+          collapsed: false,
+          shared: false
+        }
+      ],
+      capturedAt: 1
+    });
+    let attempts = 0;
+    const chrome = {
+      ...fake,
+      async groupTabs(input: Parameters<typeof fake.groupTabs>[0]) {
+        attempts += 1;
+        if (attempts === 1) {
+          fake.getStorage().inventory.tabs = fake
+            .getStorage()
+            .inventory.tabs.map((candidate) => ({
+              ...candidate,
+              chromeGroupId: -1
+            }));
+          throw new Error("Tabs cannot be edited right now");
+        }
+        return fake.groupTabs(input);
+      }
+    };
+    const configuration = createDefaultConfiguration(
+      () => "00000000-0000-4000-8000-000000000001"
+    );
+    const fallback = configuration.groups.find((group) => group.isFallback)!;
+    await expect(
+      executeRoutePlan(
+        {
+          kind: "routeToFallback",
+          tab: tab(),
+          managedGroupId: fallback.id,
+          groupInput: { kind: "existing", tabIds: [7], chromeGroupId: 11, windowId: 1 },
+          title: "Other",
+          color: "grey"
+        },
+        { chrome, session, now: () => 1000 }
+      )
+    ).rejects.toThrow("postcondition contradicted");
+    expect(attempts).toBe(1);
+  });
 });

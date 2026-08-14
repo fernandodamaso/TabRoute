@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultConfiguration, createManagedGroup } from "../../src/domain/defaults";
+import {
+  createDefaultConfiguration,
+  createManagedGroup
+} from "../../src/domain/defaults";
 import { resolveDuplicate } from "../../src/duplicates/resolveDuplicate";
 import { observeInventory } from "../../src/duplicates/observations";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
@@ -8,7 +11,12 @@ import { createFakeChromePort } from "../fakes/fakeChromePort";
 import { createTestController } from "../helpers/controllerPersistence";
 import { executeUndo } from "../../src/activity/executeUndo";
 import { renderGroupTitle } from "../../src/groups/displayTitle";
-import type { ChromeTabSnapshot, Configuration, TabSnapshot, UUID } from "../../src/domain/types";
+import type {
+  ChromeTabSnapshot,
+  Configuration,
+  TabSnapshot,
+  UUID
+} from "../../src/domain/types";
 
 const groupId = "00000000-0000-4000-8000-000000000002" as UUID;
 const fallbackId = "00000000-0000-4000-8000-000000000001";
@@ -23,7 +31,10 @@ function duplicateConfiguration(): Configuration {
   };
 }
 
-function routableTab(id: number, overrides: Partial<TabSnapshot> = {}): TabSnapshot {
+function routableTab(
+  id: number,
+  overrides: Partial<TabSnapshot> = {}
+): TabSnapshot {
   return {
     id,
     windowId: 1,
@@ -41,7 +52,10 @@ function routableTab(id: number, overrides: Partial<TabSnapshot> = {}): TabSnaps
   };
 }
 
-function chromeTab(id: number, overrides: Partial<ChromeTabSnapshot> = {}): ChromeTabSnapshot {
+function chromeTab(
+  id: number,
+  overrides: Partial<ChromeTabSnapshot> = {}
+): ChromeTabSnapshot {
   return {
     id,
     windowId: overrides.windowId ?? 1,
@@ -116,9 +130,14 @@ describe("controller duplicates", () => {
     const configuration = duplicateConfiguration();
     const sessionRepo = createMemorySessionRepository();
     const session = await sessionRepo.loadSession();
-    const tabs = [routableTab(1, { lastAccessed: 1 }), routableTab(2, { lastAccessed: 3 })];
+    const tabs = [
+      routableTab(1, { lastAccessed: 1 }),
+      routableTab(2, { lastAccessed: 3 })
+    ];
     const inventory = {
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" as const }],
+      windows: [
+        { id: 1, focused: true, incognito: false, type: "normal" as const }
+      ],
       tabs,
       groups: [],
       capturedAt: 1
@@ -224,10 +243,16 @@ describe("controller duplicates", () => {
       ],
       capturedAt: 1
     });
-    const controller = createTestController({ configuration, chrome: fake, now: () => 1000 });
+    const controller = createTestController({
+      configuration,
+      chrome: fake,
+      now: () => 1000
+    });
 
     await controller.handleTabUpdated(chromeTab(1, { lastAccessed: 2 }));
-    await controller.handleTabUpdated(chromeTab(2, { lastAccessed: 1, chromeGroupId: 99 }));
+    await controller.handleTabUpdated(
+      chromeTab(2, { lastAccessed: 1, chromeGroupId: 99 })
+    );
 
     expect(fake.callsFor("removeTabs")).toEqual([]);
     expect(fake.getInventory().tabs).toHaveLength(2);
@@ -249,7 +274,10 @@ describe("controller duplicates", () => {
     });
     const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
-      tabs: [chromeTab(1, { lastAccessed: 1 }), chromeTab(2, { lastAccessed: 3 })],
+      tabs: [
+        chromeTab(1, { lastAccessed: 1 }),
+        chromeTab(2, { lastAccessed: 3 })
+      ],
       groups: [],
       capturedAt: 1
     });
@@ -279,28 +307,46 @@ describe("controller duplicates", () => {
       groups: [],
       capturedAt: 1
     });
-    const controller = createTestController({ configuration, chrome: fake, now: () => 1000 });
+    const controller = createTestController({
+      configuration,
+      chrome: fake,
+      now: () => 1000
+    });
 
-    await controller.handleTabUpdated(chromeTab(2, { windowId: 2, lastAccessed: 4 }));
+    await controller.handleTabUpdated(
+      chromeTab(2, { windowId: 2, lastAccessed: 4 })
+    );
 
     expect(fake.getInventory().tabs.map((tab) => tab.id)).toEqual([2]);
-    expect(fake.callsFor("removeTabs")).toEqual([[ [1] ]]);
+    expect(fake.callsFor("removeTabs")).toEqual([[[1]]]);
   });
 
   it("does not remove the survivor when duplicate close fails", async () => {
     const configuration = duplicateConfiguration();
     const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
-      tabs: [chromeTab(1, { lastAccessed: 1 }), chromeTab(2, { lastAccessed: 3 })],
+      tabs: [
+        chromeTab(1, { lastAccessed: 1 }),
+        chromeTab(2, { lastAccessed: 3 })
+      ],
       groups: [],
       capturedAt: 1
     });
     fake.setError("removeTabs", new Error("close failed"));
-    const controller = createTestController({ configuration, chrome: fake, now: () => 1000 });
+    const controller = createTestController({
+      configuration,
+      chrome: fake,
+      now: () => 1000
+    });
 
     await controller.handleTabUpdated(chromeTab(2, { lastAccessed: 3 }));
 
-    expect(fake.getInventory().tabs.map((tab) => tab.id).sort()).toEqual([1, 2]);
+    expect(
+      fake
+        .getInventory()
+        .tabs.map((tab) => tab.id)
+        .sort()
+    ).toEqual([1, 2]);
   });
 
   it("undo after duplicate close restores tab to its managed group", async () => {
@@ -310,7 +356,9 @@ describe("controller duplicates", () => {
       { name: "Work", color: "blue" },
       () => "00000000-0000-4000-8000-000000000020"
     );
-    const workGroup = configuration.groups.find((group) => group.name === "Work")!;
+    const workGroup = configuration.groups.find(
+      (group) => group.name === "Work"
+    )!;
     const workTitle = renderGroupTitle(workGroup);
     const local = createMemoryLocalRepository();
     const session = createMemorySessionRepository();
@@ -357,9 +405,11 @@ describe("controller duplicates", () => {
 
     expect(fake.getInventory().tabs.map((tab) => tab.id)).toEqual([2]);
     const activity = await local.listActivity(undefined, 10);
-    const undoId = activity[0]?.undoId;
+    const undoId = activity.find((entry) => entry.undoId)?.undoId;
     expect(undoId).toBeTruthy();
-    const undo = (await local.listUndo()).find((record) => record.id === undoId);
+    const undo = (await local.listUndo()).find(
+      (record) => record.id === undoId
+    );
     expect(undo?.payloads[0]).toMatchObject({
       placement: {
         kind: "managedGroup",

@@ -221,6 +221,8 @@ export interface ActivityEntry {
   result: "success" | "retry" | "degraded" | "failure";
   affectedManagedGroupIds: UUID[];
   affectedUrls: string[];
+  actionId?: ActionId;
+  source?: string;
   errorCode?: string;
   undoId?: UUID;
   createdAt: number;
@@ -305,7 +307,16 @@ export type GuardPostcondition =
       tabIds: number[];
       windowId?: number;
       chromeGroupId?: number;
+      grouped?: true;
       ungrouped?: true;
+    }
+  | {
+      kind: "tabsPresent";
+      tabIds: number[];
+    }
+  | {
+      kind: "tabsAbsent";
+      tabIds: number[];
     }
   | {
       kind: "managedGroupState";

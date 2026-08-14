@@ -1,6 +1,6 @@
 # TabRoute — v1 Design Specification
 
-**Status:** Approved design; implementation is deliberately out of scope for this change.
+**Status:** Approved design; implementation is authorized by the checked-in `docs/superpowers/plans/2026-08-08-tabroute.md` implementation plan.
 
 **Product goal:** TabRoute is a Chrome-only Manifest V3 extension that turns automatic grouping, duplicate handling, persistent group tabs, and snapshots into one predictable tab-management system.
 

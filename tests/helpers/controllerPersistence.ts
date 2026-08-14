@@ -38,6 +38,7 @@ export function createTestController(input: {
   session?: SessionRepository;
   local?: LocalRepository;
   now?: () => number;
+  persistConfiguration?: (configuration: Configuration) => Promise<void>;
 }) {
   const persistence = createControllerPersistence({
     configuration: input.configuration,
@@ -50,6 +51,7 @@ export function createTestController(input: {
     session: persistence.session,
     local: persistence.local,
     checkpoints: persistence.checkpoints,
+    persistConfiguration: input.persistConfiguration ?? (async () => undefined),
     now: input.now
   });
 }
