@@ -1,3 +1,4 @@
+import { isRoutableUrl } from "../chrome/types";
 import { createUuid } from "../domain/ids";
 import { renderGroupTitle } from "../groups/displayTitle";
 import { buildActionPlan } from "../actions/buildActionPlan";
@@ -7,6 +8,7 @@ import type {
   BrowserSessionId,
   ChromeAssociation,
   ChromeInventory,
+  ChromeTabSnapshot,
   Configuration,
   RuntimeSession,
   TabSnapshot,
@@ -329,7 +331,7 @@ function appendPlacementActions(
 }
 
 function buildLivePlacementActions(
-  tab: TabSnapshot,
+  tab: ChromeTabSnapshot,
   resolved: ResolvedUndoPlacement,
   configuration: Configuration
 ): PlannedAction[] {
@@ -477,8 +479,9 @@ export function planUndoActions(input: {
     if (
       !tab ||
       tab.incognito ||
-      tab.routing.kind !== "routable" ||
-      tab.routing.url !== input.payload.expectedUrl
+      !tab.url ||
+      !isRoutableUrl(tab.url) ||
+      tab.url !== input.payload.expectedUrl
     ) {
       return { status: "unavailable" };
     }
