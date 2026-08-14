@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import type { Configuration } from "../../../domain/types";
+import { useEffect, useRef, useState } from "react";
+import type { Configuration, DuplicatePolicy } from "../../../domain/types";
 import { exportPortableConfiguration } from "../../../settings/portableConfiguration";
 import type { ManagerCommandPayload, ManagerResponse } from "../types";
 
@@ -17,14 +17,37 @@ export function SettingsPage({
   onOpenDiagnostics
 }: SettingsPageProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
+  const intervalEditingRef = useRef(false);
+  const patternEditingRef = useRef(false);
   const [intervalDraft, setIntervalDraft] = useState(
     String(configuration.snapshotIntervalMinutes)
   );
+  const [patternDraft, setPatternDraft] = useState(
+    configuration.duplicateSettings.globalPolicy.kind === "pattern"
+      ? configuration.duplicateSettings.globalPolicy.pattern
+      : ""
+  );
   const [importError, setImportError] = useState<string>();
 
+  useEffect(() => {
+    if (!intervalEditingRef.current) {
+      setIntervalDraft(String(configuration.snapshotIntervalMinutes));
+    }
+  }, [configuration.snapshotIntervalMinutes]);
+
+  useEffect(() => {
+    if (
+      !patternEditingRef.current &&
+      configuration.duplicateSettings.globalPolicy.kind === "pattern"
+    ) {
+      setPatternDraft(configuration.duplicateSettings.globalPolicy.pattern);
+    }
+  }, [configuration.duplicateSettings.globalPolicy]);
+
   async function exportConfigurationFile() {
-    await command({ kind: "exportConfiguration" });
-    const blob = new Blob([exportPortableConfiguration(configuration)], {
+    const result = await command({ kind: "exportConfiguration" });
+    if (!result.ok) return;
+    const blob = new Blob([exportPortableConfiguration(result.configuration)], {
       type: "application/json"
     });
     const url = URL.createObjectURL(blob);
@@ -33,6 +56,15 @@ export function SettingsPage({
     anchor.download = "tabroute-configuration.json";
     anchor.click();
     URL.revokeObjectURL(url);
+  }
+
+  function duplicatePolicyForSelection(kind: string): DuplicatePolicy {
+    if (kind === "pattern") {
+      return { kind: "pattern", pattern: patternDraft.trim() || "*" };
+    }
+    return {
+      kind: kind as Exclude<DuplicatePolicy["kind"], "pattern">
+    } as DuplicatePolicy;
   }
 
   return (
@@ -83,14 +115,7 @@ export function SettingsPage({
                   kind: "setDuplicateSettings",
                   settings: {
                     ...configuration.duplicateSettings,
-                    globalPolicy: {
-                      kind: event.target.value as
-                        | "allow"
-                        | "exactUrl"
-                        | "fragmentlessUrl"
-                        | "domain"
-                        | "urlAndTitle"
-                    }
+                    globalPolicy: duplicatePolicyForSelection(event.target.value)
                   }
                 })
               }
@@ -100,8 +125,43 @@ export function SettingsPage({
               <option value="fragmentlessUrl">Fragmentless URL</option>
               <option value="domain">Domain</option>
               <option value="urlAndTitle">URL and title</option>
+              <option value="pattern">Pattern</option>
             </select>
           </label>
+          {configuration.duplicateSettings.globalPolicy.kind === "pattern" ? (
+            <label>
+              Duplicate pattern
+              <input
+                aria-label="Duplicate pattern"
+                type="text"
+                value={patternDraft}
+                onFocus={() => {
+                  patternEditingRef.current = true;
+                }}
+                onChange={(event) => setPatternDraft(event.target.value)}
+                onBlur={() => {
+                  patternEditingRef.current = false;
+                  const pattern = patternDraft.trim();
+                  if (!pattern) {
+                    setPatternDraft(
+                      configuration.duplicateSettings.globalPolicy.kind ===
+                        "pattern"
+                        ? configuration.duplicateSettings.globalPolicy.pattern
+                        : ""
+                    );
+                    return;
+                  }
+                  void command({
+                    kind: "setDuplicateSettings",
+                    settings: {
+                      ...configuration.duplicateSettings,
+                      globalPolicy: { kind: "pattern", pattern }
+                    }
+                  });
+                }}
+              />
+            </label>
+          ) : null}
         </section>
 
         <section className="manager-card" aria-label="Snapshots settings">
@@ -113,8 +173,12 @@ export function SettingsPage({
               type="number"
               min="1"
               value={intervalDraft}
+              onFocus={() => {
+                intervalEditingRef.current = true;
+              }}
               onChange={(event) => setIntervalDraft(event.target.value)}
               onBlur={() => {
+                intervalEditingRef.current = false;
                 const minutes = Number(intervalDraft);
                 if (!Number.isFinite(minutes) || minutes <= 0) {
                   setIntervalDraft(
