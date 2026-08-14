@@ -1,7 +1,7 @@
 import { createUuid } from "../domain/ids";
 import { renderGroupTitle } from "../groups/displayTitle";
 import { buildActionPlan } from "../actions/buildActionPlan";
-import type { ActionPlan, PlannedAction } from "../actions/types";
+import type { ActionPlan, PlannedAction, TabRef } from "../actions/types";
 import type {
   ActionId,
   BrowserSessionId,
@@ -328,6 +328,92 @@ function appendPlacementActions(
   return { actions, degraded };
 }
 
+function buildLivePlacementActions(
+  tab: TabSnapshot,
+  resolved: ResolvedUndoPlacement,
+  configuration: Configuration
+): PlannedAction[] {
+  const actions: PlannedAction[] = [];
+  const ref: TabRef = { kind: "live", tabId: tab.id };
+  let lastId: ActionId | undefined;
+
+  function dependencies(): ActionId[] {
+    return lastId ? [lastId] : [];
+  }
+
+  function push(action: PlannedAction) {
+    actions.push(action);
+    lastId = action.id;
+  }
+
+  if (resolved.kind === "ungrouped") {
+    if (tab.chromeGroupId >= 0) {
+      push({
+        id: createUuid() as unknown as ActionId,
+        dependsOn: [],
+        kind: "ungroupTabs",
+        tabs: [ref]
+      });
+    }
+    push({
+      id: createUuid() as unknown as ActionId,
+      dependsOn: dependencies(),
+      kind: "moveTabs",
+      tabs: [ref],
+      windowId: resolved.windowId,
+      index: resolved.index
+    });
+    return actions;
+  }
+
+  if (tab.windowId !== resolved.windowId) {
+    push({
+      id: createUuid() as unknown as ActionId,
+      dependsOn: [],
+      kind: "moveTabs",
+      tabs: [ref],
+      windowId: resolved.windowId,
+      index: -1
+    });
+  }
+
+  if (resolved.kind === "managedGroup") {
+    const group = configuration.groups.find(
+      (candidate) => candidate.id === resolved.managedGroupId
+    );
+    if (!group) return [];
+    push({
+      id: createUuid() as unknown as ActionId,
+      dependsOn: dependencies(),
+      kind: "assignTabsToManagedGroup",
+      tabs: [ref],
+      managedGroupId: group.id,
+      windowId: resolved.windowId,
+      title: renderGroupTitle(group),
+      color: group.color
+    });
+  } else {
+    push({
+      id: createUuid() as unknown as ActionId,
+      dependsOn: dependencies(),
+      kind: "assignTabsToUnmanagedGroup",
+      tabs: [ref],
+      chromeGroupId: resolved.chromeGroupId,
+      windowId: resolved.windowId
+    });
+  }
+
+  push({
+    id: createUuid() as unknown as ActionId,
+    dependsOn: dependencies(),
+    kind: "moveTabs",
+    tabs: [ref],
+    windowId: resolved.windowId,
+    index: resolved.index
+  });
+  return actions;
+}
+
 export function planUndoActions(input: {
   payload: UndoPayload;
   windowId: number;
@@ -385,7 +471,31 @@ export function planUndoActions(input: {
   }
 
   if (input.payload.kind === "restorePlacement") {
-    return { status: "unavailable" };
+    const tab = input.inventory.tabs.find(
+      (candidate) => candidate.id === input.payload.tabId
+    );
+    if (
+      !tab ||
+      tab.incognito ||
+      tab.routing.kind !== "routable" ||
+      tab.routing.url !== input.payload.expectedUrl
+    ) {
+      return { status: "unavailable" };
+    }
+    const resolved = resolveUndoPlacement(
+      input.payload.placement,
+      input.windowId,
+      input.configuration,
+      input.inventory,
+      associations
+    );
+    const actions = buildLivePlacementActions(
+      tab,
+      resolved,
+      input.configuration
+    );
+    if (actions.length === 0) return { status: "unavailable" };
+    return buildActionPlan("undo", actions, { requireCheckpoint: false });
   }
 
   return { status: "unavailable" };
