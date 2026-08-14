@@ -3,7 +3,10 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { createManagerMessageRouter } from "../../src/background/managerMessageRouter";
-import { createDefaultConfiguration, createManagedGroup } from "../../src/domain/defaults";
+import {
+  createDefaultConfiguration,
+  createManagedGroup
+} from "../../src/domain/defaults";
 import type { Configuration, ManagedGroup, UUID } from "../../src/domain/types";
 import { SettingsPage } from "../../src/ui/manager/pages/SettingsPage";
 import { SnapshotsPage } from "../../src/ui/manager/pages/SnapshotsPage";
@@ -70,7 +73,10 @@ function routerDependencies(configuration: Configuration) {
 
 describe("PR 10 remaining manager review regressions", () => {
   it("propagates unavailable Undo instead of reporting manager success", async () => {
-    const configuration = createDefaultConfiguration(() => fallbackId, () => 1);
+    const configuration = createDefaultConfiguration(
+      () => fallbackId,
+      () => 1
+    );
     const deps = routerDependencies(configuration);
     const router = createManagerMessageRouter({
       ...deps,
@@ -93,7 +99,10 @@ describe("PR 10 remaining manager review regressions", () => {
   });
 
   it("reschedules snapshot alarms after a local interval change", async () => {
-    const configuration = createDefaultConfiguration(() => fallbackId, () => 1);
+    const configuration = createDefaultConfiguration(
+      () => fallbackId,
+      () => 1
+    );
     const deps = routerDependencies(configuration);
     const refreshAlarms = vi.fn(async (_next: Configuration) => undefined);
     const router = createManagerMessageRouter({
@@ -113,7 +122,10 @@ describe("PR 10 remaining manager review regressions", () => {
 
   it("exports the fresh configuration returned by the background", async () => {
     const user = userEvent.setup();
-    const stale = createDefaultConfiguration(() => fallbackId, () => 1);
+    const stale = createDefaultConfiguration(
+      () => fallbackId,
+      () => 1
+    );
     const fresh: Configuration = { ...stale, automationEnabled: false };
     let exportedBlob: Blob | undefined;
     Object.defineProperty(URL, "createObjectURL", {
@@ -128,11 +140,13 @@ describe("PR 10 remaining manager review regressions", () => {
       value: vi.fn()
     });
     const originalCreateElement = document.createElement.bind(document);
-    vi.spyOn(document, "createElement").mockImplementation((tagName: string) => {
-      const element = originalCreateElement(tagName);
-      if (tagName === "a") element.click = vi.fn();
-      return element;
-    });
+    vi.spyOn(document, "createElement").mockImplementation(
+      (tagName: string) => {
+        const element = originalCreateElement(tagName);
+        if (tagName === "a") element.click = vi.fn();
+        return element;
+      }
+    );
     render(
       <SettingsPage
         configuration={stale}
@@ -152,9 +166,13 @@ describe("PR 10 remaining manager review regressions", () => {
   });
 
   it("synchronizes the interval draft after imported configuration changes", () => {
-    const configuration = createDefaultConfiguration(() => fallbackId, () => 1);
+    const configuration = createDefaultConfiguration(
+      () => fallbackId,
+      () => 1
+    );
     const props = {
-      command: async (_payload: ManagerCommandPayload) => success(configuration),
+      command: async (_payload: ManagerCommandPayload) =>
+        success(configuration),
       onOpenSnapshots: () => undefined,
       onOpenDiagnostics: () => undefined
     };
@@ -179,7 +197,10 @@ describe("PR 10 remaining manager review regressions", () => {
   it("exposes and edits the global pattern duplicate policy", async () => {
     const user = userEvent.setup();
     const configuration: Configuration = {
-      ...createDefaultConfiguration(() => fallbackId, () => 1),
+      ...createDefaultConfiguration(
+        () => fallbackId,
+        () => 1
+      ),
       duplicateSettings: {
         globalPolicy: { kind: "pattern", pattern: "https://*.example.com/*" },
         globalExclusions: [],
@@ -226,7 +247,10 @@ describe("PR 10 remaining manager review regressions", () => {
   it("offers named snapshot capture for an individual managed group", async () => {
     const user = userEvent.setup();
     const configuration = createManagedGroup(
-      createDefaultConfiguration(() => fallbackId, () => 1),
+      createDefaultConfiguration(
+        () => fallbackId,
+        () => 1
+      ),
       { name: "Work", color: "blue" },
       () => groupId,
       () => 1
@@ -246,7 +270,10 @@ describe("PR 10 remaining manager review regressions", () => {
     } as unknown as Parameters<typeof SnapshotsPage>[0];
     render(<SnapshotsPage {...props} />);
 
-    await user.type(screen.getByRole("textbox", { name: "Snapshot name" }), "Work only");
+    await user.type(
+      screen.getByRole("textbox", { name: "Snapshot name" }),
+      "Work only"
+    );
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Snapshot scope" }),
       groupId
