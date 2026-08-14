@@ -177,8 +177,26 @@ function buildReturnActions(
   managedGroup: ManagedGroup,
   windowId: number
 ): PlannedAction[] {
+  const ref = tabRef(tab.id);
   const assignId = actionId();
-  return [buildAssignAction(tabRef(tab.id), managedGroup, windowId, assignId)];
+  const assign = buildAssignAction(ref, managedGroup, windowId, assignId);
+  if (tab.windowId === windowId) return [assign];
+
+  const moveId = actionId();
+  return [
+    {
+      id: moveId,
+      dependsOn: [],
+      kind: "moveTabs",
+      tabs: [ref],
+      windowId,
+      index: -1
+    },
+    {
+      ...assign,
+      dependsOn: [moveId]
+    }
+  ];
 }
 
 export function calculatePersistentRepairs(
