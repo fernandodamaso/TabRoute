@@ -24,8 +24,11 @@ function newDraft(
   const leaf = prefill
     ? ({ kind: "host", operator: "exact", value: prefill.host } as const)
     : defaultLeaf();
+  const targetGroupId =
+    configuration.groups.find((group) => group.enabled)?.id ??
+    configuration.fallbackGroupId;
   return {
-    targetGroupId: configuration.groups[0]!.id,
+    targetGroupId,
     priority: 0,
     required: [leaf],
     exceptions: [],
