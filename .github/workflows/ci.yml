@@ -53,9 +53,6 @@ jobs:
       - name: Round 3 regression checkpoint
         run: npx vitest run tests/unit/pr10-review-regressions-round3.test.ts
 
-      - name: Format check
-        run: npm run format:check
-
       - name: Unit and component tests
         run: npm test -- --run
 
@@ -79,3 +76,6 @@ jobs:
 
       - name: Scan production zip tree
         run: npm run verify:zip
+
+      - name: Format check
+        run: npm run format:check
