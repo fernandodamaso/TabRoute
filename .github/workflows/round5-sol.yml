@@ -39,229 +39,206 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def replace(path: str, old: str, new: str, expected: int = 1) -> None:
+          def replace_once(path: str, old: str, new: str) -> None:
               file = Path(path)
               text = file.read_text()
               count = text.count(old)
-              if count != expected:
-                  raise SystemExit(
-                      f"{path}: expected {expected} matches for {old[:70]!r}, found {count}"
-                  )
-              file.write_text(text.replace(old, new))
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match for {old[:60]!r}, found {count}")
+              file.write_text(text.replace(old, new, 1))
 
-          replace(
-              "src/controller/persistentRepairRunner.ts",
+          def replace_between(path: str, start_marker: str, end_marker: str, replacement: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              start = text.find(start_marker)
+              if start < 0:
+                  raise SystemExit(f"{path}: start marker not found: {start_marker!r}")
+              end = text.find(end_marker, start)
+              if end < 0:
+                  raise SystemExit(f"{path}: end marker not found: {end_marker!r}")
+              file.write_text(text[:start] + replacement + text[end:])
+
+          runner = "src/controller/persistentRepairRunner.ts"
+          replace_once(
+              runner,
               'import { persistentTabsForGroup } from "../persistence/requirements";',
               'import {\n  isGroupEligibleForRepair,\n  persistentTabsForGroup\n} from "../persistence/requirements";'
           )
-          replace(
-              "src/controller/persistentRepairRunner.ts",
+          replace_once(
+              runner,
               '  const inventory = await input.chrome.readInventory();\n  const context = await buildRestoreContext({',
-              '''  const inventory = await input.chrome.readInventory();
-          const hasNormalWindow = inventory.windows.some(
-            (window) => window.type === "normal" && !window.incognito
-          );
-          const hasEligibleRestoreTarget =
-            input.configuration.restorePersistentGroups &&
-            input.configuration.groups.some(
-              (group) =>
-                group.enabled &&
-                !group.isFallback &&
-                (group.isPersistent ||
-                  persistentTabsForGroup(input.configuration, group.id).length > 0) &&
-                isGroupEligibleForRepair(
-                  input.configuration,
-                  group.id,
-                  input.session.intentionallyClosedGroupIds
-                )
-            );
-          if (!hasNormalWindow && hasEligibleRestoreTarget) return false;
-
-          const context = await buildRestoreContext({'''
+              '  const inventory = await input.chrome.readInventory();\n'
+              '  const hasNormalWindow = inventory.windows.some(\n'
+              '    (window) => window.type === "normal" && !window.incognito\n'
+              '  );\n'
+              '  const hasEligibleRestoreTarget =\n'
+              '    input.configuration.restorePersistentGroups &&\n'
+              '    input.configuration.groups.some(\n'
+              '      (group) =>\n'
+              '        group.enabled &&\n'
+              '        !group.isFallback &&\n'
+              '        (group.isPersistent ||\n'
+              '          persistentTabsForGroup(input.configuration, group.id).length > 0) &&\n'
+              '        isGroupEligibleForRepair(\n'
+              '          input.configuration,\n'
+              '          group.id,\n'
+              '          input.session.intentionallyClosedGroupIds\n'
+              '        )\n'
+              '    );\n'
+              '  if (!hasNormalWindow && hasEligibleRestoreTarget) return false;\n\n'
+              '  const context = await buildRestoreContext({'
           )
 
-          replace(
-              "src/persistence/requirements.ts",
+          requirements = "src/persistence/requirements.ts"
+          replace_between(
+              requirements,
+              "export function matchesPersistentDefinition(",
+              "\n\nexport function isGroupEligibleForRepair(",
               '''export function matchesPersistentDefinition(
-          tab: TabSnapshot | { url?: string; routing?: TabSnapshot["routing"] },
-          definition: PersistentTab
-          ): boolean {
-          const url = tabUrl(tab);
-          if (!url || !isRoutableUrl(url)) return false;
-          return matchesAcceptedUrl(
-            url,
-            definition.canonicalUrl,
-            definition.acceptedPatterns
-          );
-          }''',
-              '''export function matchesPersistentDefinition(
-          tab: TabSnapshot | { url?: string; routing?: TabSnapshot["routing"] },
-          definition: PersistentTab,
-          duplicateSettings: Configuration["duplicateSettings"]
-          ): boolean {
-          const url = tabUrl(tab);
-          if (!url || !isRoutableUrl(url)) return false;
-          if (
-            matchesAcceptedUrl(
-              url,
-              definition.canonicalUrl,
-              definition.acceptedPatterns
-            )
-          ) {
-            return true;
-          }
-          const canonicalUrl = deriveCanonicalUrl(url, duplicateSettings);
-          return matchesAcceptedUrl(
-            canonicalUrl,
-            definition.canonicalUrl,
-            definition.acceptedPatterns
-          );
-          }'''
+  tab: TabSnapshot | { url?: string; routing?: TabSnapshot["routing"] },
+  definition: PersistentTab,
+  duplicateSettings?: Configuration["duplicateSettings"]
+): boolean {
+  const url = tabUrl(tab);
+  if (!url || !isRoutableUrl(url)) return false;
+  if (
+    matchesAcceptedUrl(
+      url,
+      definition.canonicalUrl,
+      definition.acceptedPatterns
+    )
+  ) {
+    return true;
+  }
+  if (!duplicateSettings) return false;
+  const canonicalUrl = deriveCanonicalUrl(url, duplicateSettings);
+  return matchesAcceptedUrl(
+    canonicalUrl,
+    definition.canonicalUrl,
+    definition.acceptedPatterns
+  );
+}'''
           )
 
-          replace(
-              "src/persistence/startupRestore.ts",
-              'import { matchesAcceptedUrl } from "./acceptedUrl";\n',
-              ''
-          )
-          replace(
-              "src/persistence/startupRestore.ts",
+          startup = "src/persistence/startupRestore.ts"
+          replace_once(startup, 'import { matchesAcceptedUrl } from "./acceptedUrl";\n', '')
+          replace_between(
+              startup,
+              "function findMatchingNonSharedTab(",
+              "\n\nfunction acceptableHomeMemberTabIds(",
               '''function findMatchingNonSharedTab(
-          definition: PersistentTab,
-          inventory: ChromeInventory,
-          associations: readonly ChromeAssociation[]
-          ): ChromeTabSnapshot | undefined {
-          const matchingTabs = inventory.tabs.filter((tab) => {
-            if (isTabInSharedGroup(tab, inventory)) return false;
-            return matchesPersistentDefinition(tabSnapshotFromChrome(tab), definition);
-          });''',
-              '''function findMatchingNonSharedTab(
-          definition: PersistentTab,
-          inventory: ChromeInventory,
-          associations: readonly ChromeAssociation[],
-          duplicateSettings: Configuration["duplicateSettings"]
-          ): ChromeTabSnapshot | undefined {
-          const matchingTabs = inventory.tabs.filter((tab) => {
-            if (isTabInSharedGroup(tab, inventory)) return false;
-            return matchesPersistentDefinition(
-              tabSnapshotFromChrome(tab),
-              definition,
-              duplicateSettings
-            );
-          });'''
+  definition: PersistentTab,
+  inventory: ChromeInventory,
+  associations: readonly ChromeAssociation[],
+  duplicateSettings: Configuration["duplicateSettings"]
+): ChromeTabSnapshot | undefined {
+  const matchingTabs = inventory.tabs.filter((tab) => {
+    if (isTabInSharedGroup(tab, inventory)) return false;
+    return matchesPersistentDefinition(
+      tabSnapshotFromChrome(tab),
+      definition,
+      duplicateSettings
+    );
+  });
+  return (
+    matchingTabs.find((tab) =>
+      isInTargetManagedGroup(tab, definition, inventory, associations)
+    ) ?? matchingTabs[0]
+  );
+}'''
           )
-          replace(
-              "src/persistence/startupRestore.ts",
+          replace_once(
+              startup,
               '    context.associations\n  );\n\n  if (matchingTab) {',
               '    context.associations,\n    context.configuration.duplicateSettings\n  );\n\n  if (matchingTab) {'
           )
-          replace(
-              "src/persistence/startupRestore.ts",
-              '''    const url = matchingTab.url ?? "";
-          const canonicalMatch =
-            url === definition.canonicalUrl ||
-            matchesAcceptedUrl(
-              url,
-              definition.canonicalUrl,
-              definition.acceptedPatterns
-            );''',
+          replace_between(
+              startup,
+              '    const url = matchingTab.url ?? "";',
+              "\n    const inCorrectGroup =",
               '''    const canonicalMatch = matchesPersistentDefinition(
-            tabSnapshotFromChrome(matchingTab),
-            definition,
-            context.configuration.duplicateSettings
-          );'''
+      tabSnapshotFromChrome(matchingTab),
+      definition,
+      context.configuration.duplicateSettings
+    );'''
           )
-          replace(
-              "src/persistence/startupRestore.ts",
+          replace_once(
+              startup,
               '    if (!matchesPersistentDefinition(snapshot, definition) && !inTargetGroup) {',
-              '''    if (
-            !matchesPersistentDefinition(
-              snapshot,
-              definition,
-              context.configuration.duplicateSettings
-            ) &&
-            !inTargetGroup
-          ) {'''
+              '    if (\n'
+              '      !matchesPersistentDefinition(\n'
+              '        snapshot,\n'
+              '        definition,\n'
+              '        context.configuration.duplicateSettings\n'
+              '      ) &&\n'
+              '      !inTargetGroup\n'
+              '    ) {'
           )
-          replace(
-              "src/persistence/startupRestore.ts",
-              '''      return matchesPersistentDefinition(
-                tabSnapshotFromChrome(candidate),
-                definition
-              );''',
-              '''      return matchesPersistentDefinition(
-                tabSnapshotFromChrome(candidate),
-                definition,
-                configuration.duplicateSettings
-              );'''
+          replace_once(
+              startup,
+              '      return matchesPersistentDefinition(\n        tabSnapshotFromChrome(candidate),\n        definition\n      );',
+              '      return matchesPersistentDefinition(\n'
+              '        tabSnapshotFromChrome(candidate),\n'
+              '        definition,\n'
+              '        configuration.duplicateSettings\n'
+              '      );'
           )
-          replace(
-              "src/persistence/startupRestore.ts",
-              '''    const association = context.associations.find(
-              (candidate) => candidate.managedGroupId === group.id
-            );
-          ''',
-              ''
-          )
-          replace(
-              "src/persistence/startupRestore.ts",
+
+          file = Path(startup)
+          text = file.read_text()
+          association_start = text.find("    const association = context.associations.find(\n", text.find("export function planPersistentRestore("))
+          if association_start < 0:
+              raise SystemExit("startupRestore: ownership association block not found")
+          ownership_start = text.find("    const ownership = context.ownership[group.id];", association_start)
+          if ownership_start < 0:
+              raise SystemExit("startupRestore: ownership marker not found")
+          text = text[:association_start] + text[ownership_start:]
+          file.write_text(text)
+
+          replace_once(
+              startup,
               '    if (association && ownership) {\n      const moveId = actionId();',
-              '''    if (ownership) {
-            const lastAssign = [...actions]
-              .reverse()
-              .find(
-                (action) =>
-                  action.kind === "assignTabsToManagedGroup" &&
-                  action.managedGroupId === group.id
-              );
-            const moveId = actionId();'''
+              '    if (ownership) {\n'
+              '      const lastAssign = [...actions]\n'
+              '        .reverse()\n'
+              '        .find(\n'
+              '          (action) =>\n'
+              '            action.kind === "assignTabsToManagedGroup" &&\n'
+              '            action.managedGroupId === group.id\n'
+              '        );\n'
+              '      const moveId = actionId();'
           )
-          replace(
-              "src/persistence/startupRestore.ts",
+          replace_once(
+              startup,
               '        dependsOn: [],\n        kind: "moveManagedGroup",',
               '        dependsOn: lastAssign ? [lastAssign.id] : [],\n        kind: "moveManagedGroup",'
           )
-          replace(
-              "src/persistence/startupRestore.ts",
-              '''        id: updateId,
-            dependsOn: [],
-            kind: "updateManagedGroup",
-            managedGroupId: group.id,
-            patch: { collapsed: ownership.collapsed }''',
-              '''        id: updateId,
-            dependsOn: [moveId],
-            kind: "updateManagedGroup",
-            managedGroupId: group.id,
-            windowId: homeWindow,
-            patch: { collapsed: ownership.collapsed }'''
+          replace_once(
+              startup,
+              '        id: updateId,\n        dependsOn: [],\n        kind: "updateManagedGroup",\n        managedGroupId: group.id,\n        patch: { collapsed: ownership.collapsed }',
+              '        id: updateId,\n'
+              '        dependsOn: [moveId],\n'
+              '        kind: "updateManagedGroup",\n'
+              '        managedGroupId: group.id,\n'
+              '        windowId: homeWindow,\n'
+              '        patch: { collapsed: ownership.collapsed }'
           )
-          replace(
-              "src/persistence/startupRestore.ts",
+          replace_once(
+              startup,
               '    if (!matchesPersistentDefinition(snapshot, definition)) continue;',
-              '''    if (
-            !matchesPersistentDefinition(
-              snapshot,
-              definition,
-              context.configuration.duplicateSettings
-            )
-          )
-            continue;'''
-          )
-
-          replace(
-              "tests/unit/persistence.test.ts",
-              '''        },
-              def
-            )''',
-              '''        },
-              def,
-              configuration().duplicateSettings
-            )'''
+              '    if (\n'
+              '      !matchesPersistentDefinition(\n'
+              '        snapshot,\n'
+              '        definition,\n'
+              '        context.configuration.duplicateSettings\n'
+              '      )\n'
+              '    )\n'
+              '      continue;'
           )
           PY
 
       - name: Format changed files
-        run: npx prettier --write src/controller/persistentRepairRunner.ts src/persistence/requirements.ts src/persistence/startupRestore.ts tests/unit/persistence.test.ts
+        run: npx prettier --write src/controller/persistentRepairRunner.ts src/persistence/requirements.ts src/persistence/startupRestore.ts
 
       - name: Typecheck
         run: npm run typecheck
@@ -283,6 +260,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/controller/persistentRepairRunner.ts src/persistence/requirements.ts src/persistence/startupRestore.ts tests/unit/persistence.test.ts
+          git add src/controller/persistentRepairRunner.ts src/persistence/requirements.ts src/persistence/startupRestore.ts
           git commit -m "fix: address round 5 PR review findings"
           git push origin HEAD:review/round5-sol
