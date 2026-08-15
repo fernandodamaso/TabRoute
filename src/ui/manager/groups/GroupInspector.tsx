@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { ManagedGroup, PersistentTab } from "../../../domain/types";
 import { renderGroupTitle } from "../../../groups/displayTitle";
 import { persistentTabsForGroup } from "../../../persistence/requirements";
@@ -44,6 +45,16 @@ export function GroupInspector({
       return { ok: response.ok };
     }
   });
+  const [nameDraft, setNameDraft] = useState(group.name);
+  const [emojiDraft, setEmojiDraft] = useState(group.emoji ?? "");
+  const [colorDraft, setColorDraft] = useState(group.color);
+
+  useEffect(() => {
+    setNameDraft(group.name);
+    setEmojiDraft(group.emoji ?? "");
+    setColorDraft(group.color);
+  }, [group.id, group.name, group.emoji, group.color]);
+
   const persistentTabs = persistentTabsForGroup(configuration, group.id);
   const fixtureState = viewFixture?.state;
   const sectionState =
@@ -81,8 +92,12 @@ export function GroupInspector({
           Name
           <input
             aria-label="Name"
-            value={group.name}
-            onChange={(event) => autosave.update({ name: event.target.value })}
+            value={nameDraft}
+            onChange={(event) => {
+              const name = event.target.value;
+              setNameDraft(name);
+              autosave.update({ name });
+            }}
             onBlur={autosave.flush}
           />
         </label>
@@ -90,10 +105,12 @@ export function GroupInspector({
           Emoji
           <input
             aria-label="Emoji"
-            value={group.emoji ?? ""}
-            onChange={(event) =>
-              autosave.update({ emoji: event.target.value || undefined })
-            }
+            value={emojiDraft}
+            onChange={(event) => {
+              const emoji = event.target.value;
+              setEmojiDraft(emoji);
+              autosave.update({ emoji: emoji || undefined });
+            }}
             onBlur={autosave.flush}
           />
         </label>
@@ -101,13 +118,12 @@ export function GroupInspector({
           Chrome color
           <select
             aria-label="Chrome color"
-            value={group.color}
-            onChange={(event) =>
-              autosave.update(
-                { color: event.target.value as ManagedGroup["color"] },
-                true
-              )
-            }
+            value={colorDraft}
+            onChange={(event) => {
+              const color = event.target.value as ManagedGroup["color"];
+              setColorDraft(color);
+              autosave.update({ color }, true);
+            }}
           >
             {colors.map((color) => (
               <option key={color} value={color}>
