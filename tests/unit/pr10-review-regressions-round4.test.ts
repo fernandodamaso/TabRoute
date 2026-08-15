@@ -256,9 +256,9 @@ describe("PR 10 round 4 review regressions", () => {
       intentionallyClosedGroupIds: []
     };
 
-    expect(calculatePersistentRepairs(definition, inventory, context, 1)).toEqual(
-      []
-    );
+    expect(
+      calculatePersistentRepairs(definition, inventory, context, 1)
+    ).toEqual([]);
   });
 
   it("rejects malformed exact URL and opener URL rule conditions", () => {

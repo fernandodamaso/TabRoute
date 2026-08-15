@@ -3,7 +3,11 @@ import {
   createDefaultConfiguration,
   createManagedGroup
 } from "../../src/domain/defaults";
-import type { Configuration, PersistentTab, UUID } from "../../src/domain/types";
+import type {
+  Configuration,
+  PersistentTab,
+  UUID
+} from "../../src/domain/types";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
 import { createMemoryLocalRepository } from "../../src/state/localRepository";
 import { createFakeChromePort } from "../fakes/fakeChromePort";
