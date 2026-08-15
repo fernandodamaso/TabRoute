@@ -43,7 +43,7 @@ export function useManagerState(
       const result = await transport.request({ kind: "manager-query" });
       if (result.ok) {
         setConfiguration(result.configuration);
-        if (result.viewFixture) setViewFixture(result.viewFixture);
+        setViewFixture(result.viewFixture);
         setStatus("ready");
       } else {
         setStatus("error");
@@ -72,7 +72,7 @@ export function useManagerState(
     try {
       const result = await transport.request({
         kind: "activity-query",
-        limit: 50
+        limit: 500
       });
       if (result.ok) {
         setConfiguration(result.configuration);
