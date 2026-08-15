@@ -232,16 +232,25 @@ export function refreshMenus(
 
 let menusRegistered = false;
 
+export function registerMenuClickListener(
+  browser: typeof chrome,
+  host: MenuCommandHost
+): void {
+  if (menusRegistered) return;
+  menusRegistered = true;
+  browser.contextMenus.onClicked.addListener((info, tab) => {
+    return handleMenuClick(browser, host, info, tab).catch((error: unknown) => {
+      console.error("TabRoute context menu command failed", error);
+    }) as unknown as void;
+  });
+}
+
 export async function registerMenus(
   browser: typeof chrome,
   host: MenuCommandHost
 ): Promise<void> {
+  registerMenuClickListener(browser, host);
   await refreshMenus(browser, host);
-  if (menusRegistered) return;
-  menusRegistered = true;
-  browser.contextMenus.onClicked.addListener((info, tab) => {
-    return handleMenuClick(browser, host, info, tab) as unknown as void;
-  });
 }
 
 /** @internal test helper */
