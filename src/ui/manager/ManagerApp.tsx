@@ -216,6 +216,17 @@ export function ManagerApp({
     setSettingsPanel(panel);
   };
 
+  const connectionStatus =
+    state.status === "loading"
+      ? "Loading"
+      : state.status === "reconnecting"
+        ? "Reconnecting"
+        : state.status === "error"
+          ? state.hasConfirmedConfiguration
+            ? "Connection issue"
+            : "Unavailable"
+          : "Ready";
+
   return (
     <ManagerShell
       route={route}
@@ -228,15 +239,30 @@ export function ManagerApp({
         if (nextRoute !== "settings") setSettingsPanel("root");
       }}
 
-      status={
-        state.status === "error"
-          ? "Offline preview"
-          : state.status === "loading"
-            ? "Loading"
-            : "Ready"
-      }
+      status={connectionStatus}
     >
-      {route === "groups" ? (
+      {!state.hasConfirmedConfiguration ? (
+        <section className="manager-readiness" aria-label="Manager connection">
+          <h1>
+            {state.status === "error"
+              ? "Manager unavailable"
+              : "Connecting to TabRoute"}
+          </h1>
+          <p>
+            {state.status === "error"
+              ? (state.lastError?.message ??
+                "The background service is not ready yet.")
+              : state.status === "reconnecting"
+                ? "The background service is starting. Retrying the read-only manager query…"
+                : "Loading your saved TabRoute configuration…"}
+          </p>
+          {state.status === "error" ? (
+            <button type="button" onClick={() => void state.query()}>
+              Retry connection
+            </button>
+          ) : null}
+        </section>
+      ) : route === "groups" ? (
         <GroupsPage
           configuration={state.configuration}
 
