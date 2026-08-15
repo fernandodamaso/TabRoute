@@ -130,10 +130,45 @@ export function createFakeChromePort(
     async moveTabs(tabIds, windowId, index) {
       record("moveTabs", [tabIds, windowId, index]);
       maybeThrow("moveTabs");
-      storage.inventory.tabs = storage.inventory.tabs.map((candidate) => {
-        if (!tabIds.includes(candidate.id)) return candidate;
-        return { ...candidate, windowId, index };
-      });
+      const movingIds = new Set(tabIds);
+      const moving = tabIds
+        .map((tabId) => storage.inventory.tabs.find((tab) => tab.id === tabId))
+        .filter((tab): tab is ChromeTabSnapshot => tab !== undefined);
+      const stationary = storage.inventory.tabs.filter(
+        (tab) => !movingIds.has(tab.id)
+      );
+      const destination = stationary
+        .filter((tab) => tab.windowId === windowId)
+        .sort((left, right) => left.index - right.index);
+      const insertionIndex =
+        index < 0
+          ? destination.length
+          : Math.min(Math.max(index, 0), destination.length);
+      const destinationOrdered = [
+        ...destination.slice(0, insertionIndex),
+        ...moving.map((tab) => ({ ...tab, windowId })),
+        ...destination.slice(insertionIndex)
+      ].map((tab, nextIndex) => ({ ...tab, index: nextIndex }));
+      const destinationIds = new Set(destinationOrdered.map((tab) => tab.id));
+      const otherWindows = stationary
+        .filter((tab) => !destinationIds.has(tab.id))
+        .reduce<ChromeTabSnapshot[]>((accumulator, tab) => {
+          accumulator.push(tab);
+          return accumulator;
+        }, []);
+      const normalizedOtherWindows = storage.inventory.windows.flatMap(
+        (window) =>
+          window.id === windowId
+            ? []
+            : otherWindows
+                .filter((tab) => tab.windowId === window.id)
+                .sort((left, right) => left.index - right.index)
+                .map((tab, nextIndex) => ({ ...tab, index: nextIndex }))
+      );
+      storage.inventory.tabs = [
+        ...normalizedOtherWindows,
+        ...destinationOrdered
+      ];
     },
     async updateGroup(groupId, patch) {
       record("updateGroup", [groupId, patch]);
