@@ -4,26 +4,27 @@ on:
   pull_request:
     branches:
       - main
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  remediate:
-    name: Apply round 4 remediation
+  verify:
+    name: Verify
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
 
     steps:
-      - name: Checkout PR head
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: fernandoyarrum/fdm-603-package-and-verify-chrome-v1
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -37,124 +38,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Apply reviewed fixes
-        run: |
-          python - <<'PY'
-          from pathlib import Path
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
 
-          def replace_once(path, old, new):
-              file = Path(path)
-              text = file.read_text()
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"{path}: expected one match, found {count}")
-              file.write_text(text.replace(old, new, 1))
-
-          replace_once(
-              "src/controller/executeUserCommand.ts",
-              'import type { SessionRepository } from "../state/sessionRepository";\nimport type { CommandResult, UserCommand } from "./userCommands";',
-              'import type { SessionRepository } from "../state/sessionRepository";\nimport {\n  setGlobalRestartPause,\n  setGroupRestartPause,\n  setRuleRestartPause\n} from "../state/restartPauses";\nimport type { CommandResult, UserCommand } from "./userCommands";'
-          )
-
-          replace_once(
-              "src/controller/executeUserCommand.ts",
-              '''    case "setPause": {\n      let next = configuration;\n      const pausedUntil =\n        command.duration.kind === "resume"\n          ? undefined\n          : command.duration.kind === "restart"\n            ? "restart"\n            : command.duration.timestamp;\n      if (command.target.kind === "global") {\n        next = {\n          ...configuration,\n          globalPausedUntil: pausedUntil,\n          updatedAt: now()\n        };\n      } else if (command.target.kind === "group") {\n        const targetId = command.target.id;\n        next = {\n          ...configuration,\n          groups: configuration.groups.map((group) =>\n            group.id !== targetId\n              ? group\n              : { ...group, pausedUntil, updatedAt: now() }\n          ),\n          updatedAt: now()\n        };\n      } else {\n        const targetId = command.target.id;\n        next = {\n          ...configuration,\n          rules: configuration.rules.map((rule) =>\n            rule.id !== targetId\n              ? rule\n              : { ...rule, pausedUntil, updatedAt: now() }\n          ),\n          updatedAt: now()\n        };\n      }\n      await persist(deps, next);\n      return { ok: true };\n    }''',
-              '''    case "setPause": {\n      let next = configuration;\n      const pausedUntil =\n        command.duration.kind === "until"\n          ? command.duration.timestamp\n          : undefined;\n      if (command.target.kind === "global") {\n        next = {\n          ...configuration,\n          globalPausedUntil: pausedUntil,\n          updatedAt: now()\n        };\n      } else if (command.target.kind === "group") {\n        const targetId = command.target.id;\n        next = {\n          ...configuration,\n          groups: configuration.groups.map((group) =>\n            group.id !== targetId\n              ? group\n              : { ...group, pausedUntil, updatedAt: now() }\n          ),\n          updatedAt: now()\n        };\n      } else {\n        const targetId = command.target.id;\n        next = {\n          ...configuration,\n          rules: configuration.rules.map((rule) =>\n            rule.id !== targetId\n              ? rule\n              : { ...rule, pausedUntil, updatedAt: now() }\n          ),\n          updatedAt: now()\n        };\n      }\n      await persist(deps, next);\n      const restartPaused = command.duration.kind === "restart";\n      if (command.target.kind === "global") {\n        await setGlobalRestartPause(deps.session, restartPaused);\n      } else if (command.target.kind === "group") {\n        await setGroupRestartPause(deps.session, command.target.id, restartPaused);\n      } else {\n        await setRuleRestartPause(deps.session, command.target.id, restartPaused);\n      }\n      return { ok: true };\n    }'''
-          )
-
-          replace_once(
-              "entrypoints/background.ts",
-              'import { createChromeSessionRepository } from "../src/state/sessionRepository";\nimport { createChromeLocalRepository } from "../src/state/localRepository";',
-              'import { createChromeSessionRepository } from "../src/state/sessionRepository";\nimport {\n  loadRestartPauseState,\n  overlayRestartPauses\n} from "../src/state/restartPauses";\nimport { createChromeLocalRepository } from "../src/state/localRepository";'
-          )
-
-          replace_once(
-              "entrypoints/background.ts",
-              '''      async readMenuContext() {\n        const configuration = controller!.getConfiguration();\n        const inventory = await controller!.actionDeps().reads.readInventory();\n        const runtime = await session.loadSession();''',
-              '''      async readMenuContext() {\n        const portableConfiguration = controller!.getConfiguration();\n        const restartPauses = await loadRestartPauseState(session);\n        const configuration = overlayRestartPauses(\n          portableConfiguration,\n          restartPauses\n        );\n        const inventory = await controller!.actionDeps().reads.readInventory();\n        const runtime = await session.loadSession();'''
-          )
-
-          replace_once(
-              "src/persistence/persistentCommands.ts",
-              '''  const memberSet = new Set(canonicalMembers);\n  let next: Configuration = {''',
-              '''  const matchesPinnedMember = (tab: PersistentTab) =>\n    canonicalMembers.some((canonicalUrl) =>\n      matchesAcceptedUrl(canonicalUrl, tab.canonicalUrl, tab.acceptedPatterns)\n    );\n  let next: Configuration = {'''
-          )
-
-          replace_once(
-              "src/persistence/persistentCommands.ts",
-              '''    persistentTabs: configuration.persistentTabs.filter(\n      (tab) =>\n        tab.managedGroupId !== managedGroupId || memberSet.has(tab.canonicalUrl)\n    ),''',
-              '''    persistentTabs: configuration.persistentTabs.filter(\n      (tab) => tab.managedGroupId !== managedGroupId || matchesPinnedMember(tab)\n    ),'''
-          )
-
-          replace_once(
-              "src/persistence/persistentCommands.ts",
-              '''    const existing = next.persistentTabs.find(\n      (tab) =>\n        tab.managedGroupId === managedGroupId &&\n        tab.canonicalUrl === canonicalUrl\n    );''',
-              '''    const existing = next.persistentTabs.find(\n      (tab) =>\n        tab.managedGroupId === managedGroupId &&\n        matchesAcceptedUrl(canonicalUrl, tab.canonicalUrl, tab.acceptedPatterns)\n    );'''
-          )
-
-          replace_once(
-              "src/domain/types.ts",
-              '''      chromeGroupId?: number;\n      grouped?: true;\n      ungrouped?: true;''',
-              '''      chromeGroupId?: number;\n      grouped?: true;\n      ungrouped?: true;\n      active?: true;\n      focusedWindow?: true;'''
-          )
-
-          replace_once(
-              "src/actions/operationGuards.ts",
-              '''    case "focusTab":\n      return {\n        operation: "focusTab",\n        expectedEventKinds: ["tabActivated"],\n        postcondition: {\n          kind: "tabPlacement",\n          tabIds,\n          windowId: action.windowId\n        },\n        tabIds,\n        chromeGroupIds\n      };''',
-              '''    case "focusTab":\n      return {\n        operation: "focusTab",\n        expectedEventKinds: ["tabActivated"],\n        postcondition: {\n          kind: "tabPlacement",\n          tabIds,\n          windowId: action.windowId,\n          active: true,\n          focusedWindow: true\n        },\n        tabIds,\n        chromeGroupIds\n      };'''
-          )
-
-          replace_once(
-              "src/actions/operationGuards.ts",
-              '''    if (postcondition.ungrouped) {\n      if (tab.chromeGroupId >= 0) return false;\n      continue;\n    }''',
-              '''    if (postcondition.active && !tab.active) return false;\n    if (postcondition.ungrouped) {\n      if (tab.chromeGroupId >= 0) return false;\n      continue;\n    }'''
-          )
-
-          replace_once(
-              "src/actions/operationGuards.ts",
-              '''  }\n  return true;\n}\nfunction eventMatchesGuard(''',
-              '''  }\n  if (postcondition.focusedWindow) {\n    if (postcondition.windowId === undefined) return false;\n    const window = inventory.windows.find(\n      (candidate) => candidate.id === postcondition.windowId\n    );\n    if (!window?.focused) return false;\n  }\n  return true;\n}\nfunction eventMatchesGuard('''
-          )
-
-          replace_once(
-              "src/controller/controller.ts",
-              'import { makePersistentDefinition } from "../persistence/persistentCommands";',
-              'import { makePersistentDefinition } from "../persistence/persistentCommands";\nimport { matchesAcceptedUrl } from "../persistence/acceptedUrl";'
-          )
-
-          replace_once(
-              "src/controller/controller.ts",
-              '''      const observation = session.tabObservations.find(\n        (record) => record.tabId === event.tabId\n      );\n\n      if (observation?.lastObservedUrl) {''',
-              '''      const observation = session.tabObservations.find(\n        (record) => record.tabId === event.tabId\n      );\n      const pendingPersistentGroupRemoval =\n        observation?.lastObservedUrl !== undefined &&\n        configuration.persistentTabs.some((definition) => {\n          if (\n            !matchesAcceptedUrl(\n              observation.lastObservedUrl,\n              definition.canonicalUrl,\n              definition.acceptedPatterns\n            )\n          ) {\n            return false;\n          }\n          const association = sessionWithAssociations.associations.find(\n            (candidate) =>\n              candidate.managedGroupId === definition.managedGroupId &&\n              candidate.chromeWindowId === event.windowId\n          );\n          return (\n            association !== undefined &&\n            !inventory.groups.some(\n              (group) => group.id === association.chromeGroupId\n            )\n          );\n        });\n\n      if (observation?.lastObservedUrl && !pendingPersistentGroupRemoval) {'''
-          )
-
-          replace_once(
-              "src/persistence/startupRestore.ts",
-              '''function findMatchingNonSharedTab(\n  definition: PersistentTab,\n  inventory: ChromeInventory\n): ChromeTabSnapshot | undefined {\n  for (const tab of inventory.tabs) {\n    if (isTabInSharedGroup(tab, inventory)) continue;\n    const snapshot = tabSnapshotFromChrome(tab);\n    if (matchesPersistentDefinition(snapshot, definition)) return tab;\n  }\n  return undefined;\n}''',
-              '''function findMatchingNonSharedTab(\n  definition: PersistentTab,\n  inventory: ChromeInventory,\n  associations: readonly ChromeAssociation[]\n): ChromeTabSnapshot | undefined {\n  const matchingTabs = inventory.tabs.filter((tab) => {\n    if (isTabInSharedGroup(tab, inventory)) return false;\n    return matchesPersistentDefinition(tabSnapshotFromChrome(tab), definition);\n  });\n  return (\n    matchingTabs.find((tab) =>\n      isInTargetManagedGroup(tab, definition, inventory, associations)\n    ) ?? matchingTabs[0]\n  );\n}'''
-          )
-
-          replace_once(
-              "src/persistence/startupRestore.ts",
-              '  const matchingTab = findMatchingNonSharedTab(definition, inventory);',
-              '  const matchingTab = findMatchingNonSharedTab(\n    definition,\n    inventory,\n    context.associations\n  );'
-          )
-
-          replace_once(
-              "src/domain/schemas.ts",
-              '''const conditionNode: z.ZodTypeAny = z.lazy(() =>\n  z.union([\n    z.strictObject({\n      kind: z.enum(["all", "any"]),\n      children: z.array(conditionNode).min(1)\n    }),\n    z.strictObject({\n      kind: z.literal("url"),\n      operator: z.enum(["exact", "pattern", "regex"]),\n      value: z.string().min(1)\n    }),\n    z.strictObject({\n      kind: z.literal("host"),\n      operator: z.enum(["exact", "suffix"]),\n      value: z.string().min(1)\n    }),\n    z.strictObject({\n      kind: z.literal("path"),\n      operator: z.enum(["exact", "prefix"]),\n      value: z.string().min(1)\n    }),\n    z.strictObject({\n      kind: z.literal("title"),\n      operator: z.enum(["contains", "exact", "regex"]),\n      value: z.string().min(1)\n    }),\n    z.strictObject({ kind: z.literal("pinned"), value: z.boolean() }),\n    z.strictObject({\n      kind: z.enum(["openerUrl", "openerHost"]),\n      operator: z.enum(["exact", "pattern", "suffix"]),\n      value: z.string().min(1)\n    }),\n    z.strictObject({ kind: z.literal("currentGroup"), placement })\n  ])\n);''',
-              '''const httpUrlValue = z.string().min(1).refine(\n  (value) => {\n    try {\n      const url = new URL(value);\n      return url.protocol === "http:" || url.protocol === "https:";\n    } catch {\n      return false;\n    }\n  },\n  { message: "exact URL conditions require an absolute HTTP(S) URL" }\n);\nconst conditionNode: z.ZodTypeAny = z.lazy(() =>\n  z.union([\n    z.strictObject({\n      kind: z.enum(["all", "any"]),\n      children: z.array(conditionNode).min(1)\n    }),\n    z.strictObject({\n      kind: z.literal("url"),\n      operator: z.literal("exact"),\n      value: httpUrlValue\n    }),\n    z.strictObject({\n      kind: z.literal("url"),\n      operator: z.enum(["pattern", "regex"]),\n      value: z.string().min(1)\n    }),\n    z.strictObject({\n      kind: z.literal("host"),\n      operator: z.enum(["exact", "suffix"]),\n      value: z.string().min(1)\n    }),\n    z.strictObject({\n      kind: z.literal("path"),\n      operator: z.enum(["exact", "prefix"]),\n      value: z.string().min(1)\n    }),\n    z.strictObject({\n      kind: z.literal("title"),\n      operator: z.enum(["contains", "exact", "regex"]),\n      value: z.string().min(1)\n    }),\n    z.strictObject({ kind: z.literal("pinned"), value: z.boolean() }),\n    z.strictObject({\n      kind: z.literal("openerUrl"),\n      operator: z.literal("exact"),\n      value: httpUrlValue\n    }),\n    z.strictObject({\n      kind: z.literal("openerUrl"),\n      operator: z.enum(["pattern", "suffix"]),\n      value: z.string().min(1)\n    }),\n    z.strictObject({\n      kind: z.literal("openerHost"),\n      operator: z.enum(["exact", "pattern", "suffix"]),\n      value: z.string().min(1)\n    }),\n    z.strictObject({ kind: z.literal("currentGroup"), placement })\n  ])\n);'''
-          )
-
-          replace_once(
-              "src/actions/executeActionPlan.ts",
-              '''  await appendActivityEntry(\n    deps.local,\n    createActivityEntry({\n      action: `Automatic ${plan.source} plan`,\n      result: result.status,\n      affectedManagedGroupIds: affected.managedGroupIds,\n      affectedUrls: affected.urls,\n      actionId: plan.id,\n      source: plan.source,\n      ...(result.errorCode ? { errorCode: result.errorCode } : {}),\n      createdAt: deps.now()\n    })\n  );''',
-              '''  try {\n    await appendActivityEntry(\n      deps.local,\n      createActivityEntry({\n        action: `Automatic ${plan.source} plan`,\n        result: result.status,\n        affectedManagedGroupIds: affected.managedGroupIds,\n        affectedUrls: affected.urls,\n        actionId: plan.id,\n        source: plan.source,\n        ...(result.errorCode ? { errorCode: result.errorCode } : {}),\n        createdAt: deps.now()\n      })\n    );\n  } catch {\n    // Activity is diagnostic evidence; it must not change a completed action result.\n  }'''
-          )
-          PY
-
-      - name: Format changed source
-        run: npx prettier --write entrypoints/background.ts src/actions/executeActionPlan.ts src/actions/operationGuards.ts src/controller/controller.ts src/controller/executeUserCommand.ts src/domain/schemas.ts src/domain/types.ts src/persistence/persistentCommands.ts src/persistence/startupRestore.ts
+      - name: Validate Chrome reference docs
+        run: npm run docs:chrome:validate
 
       - name: Typecheck
         run: npm run typecheck
@@ -162,13 +50,29 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Round 4 regression tests
-        run: npx vitest run tests/unit/pr10-review-regressions-round4.test.ts tests/component/pr10-review-regressions-round4-controller.test.ts
+      - name: Format check
+        run: npm run format:check
 
-      - name: Commit remediation
-        run: |
-          git config user.name "Fernando Dâmaso"
-          git config user.email "fernando.yarrum@gmail.com"
-          git add entrypoints/background.ts src/actions/executeActionPlan.ts src/actions/operationGuards.ts src/controller/controller.ts src/controller/executeUserCommand.ts src/domain/schemas.ts src/domain/types.ts src/persistence/persistentCommands.ts src/persistence/startupRestore.ts
-          git commit -m "fix: address round 4 PR review findings"
-          git push origin HEAD:fernandoyarrum/fdm-603-package-and-verify-chrome-v1
+      - name: Unit and component tests
+        run: npm test -- --run
+
+      - name: Coverage
+        run: npm run test:coverage
+
+      - name: Workbench fixture e2e
+        run: npm run test:workbench
+
+      - name: Production extension gate
+        run: npm run test:extension
+
+      - name: Popup smoke
+        run: npm run smoke:popup
+
+      - name: Build Chrome extension
+        run: npm run build
+
+      - name: Zip Chrome package
+        run: npm run zip
+
+      - name: Scan production zip tree
+        run: npm run verify:zip
