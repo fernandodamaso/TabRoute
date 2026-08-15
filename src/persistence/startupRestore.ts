@@ -15,7 +15,6 @@ import type {
   UUID,
   WindowOwnershipDescriptor
 } from "../domain/types";
-import { matchesAcceptedUrl } from "./acceptedUrl";
 import {
   isGroupEligibleForRepair,
   isTabInSharedGroup,
@@ -82,11 +81,16 @@ function findTabInManagedGroup(
 function findMatchingNonSharedTab(
   definition: PersistentTab,
   inventory: ChromeInventory,
-  associations: readonly ChromeAssociation[]
+  associations: readonly ChromeAssociation[],
+  duplicateSettings: Configuration["duplicateSettings"]
 ): ChromeTabSnapshot | undefined {
   const matchingTabs = inventory.tabs.filter((tab) => {
     if (isTabInSharedGroup(tab, inventory)) return false;
-    return matchesPersistentDefinition(tabSnapshotFromChrome(tab), definition);
+    return matchesPersistentDefinition(
+      tabSnapshotFromChrome(tab),
+      definition,
+      duplicateSettings
+    );
   });
   return (
     matchingTabs.find((tab) =>
@@ -227,18 +231,16 @@ export function calculatePersistentRepairs(
   const matchingTab = findMatchingNonSharedTab(
     definition,
     inventory,
-    context.associations
+    context.associations,
+    context.configuration.duplicateSettings
   );
 
   if (matchingTab) {
-    const url = matchingTab.url ?? "";
-    const canonicalMatch =
-      url === definition.canonicalUrl ||
-      matchesAcceptedUrl(
-        url,
-        definition.canonicalUrl,
-        definition.acceptedPatterns
-      );
+    const canonicalMatch = matchesPersistentDefinition(
+      tabSnapshotFromChrome(matchingTab),
+      definition,
+      context.configuration.duplicateSettings
+    );
     const inCorrectGroup = isInTargetManagedGroup(
       matchingTab,
       definition,
@@ -336,7 +338,14 @@ export function planRepairForTab(
       inventory,
       context.associations
     );
-    if (!matchesPersistentDefinition(snapshot, definition) && !inTargetGroup) {
+    if (
+      !matchesPersistentDefinition(
+        snapshot,
+        definition,
+        context.configuration.duplicateSettings
+      ) &&
+      !inTargetGroup
+    ) {
       continue;
     }
 
@@ -380,7 +389,8 @@ export function planPersistentTabOrdering(
       if (isTabInSharedGroup(candidate, inventory)) return false;
       return matchesPersistentDefinition(
         tabSnapshotFromChrome(candidate),
-        definition
+        definition,
+        configuration.duplicateSettings
       );
     });
     if (!tab) continue;
@@ -448,15 +458,19 @@ export function planPersistentRestore(
       )
     );
 
-    const association = context.associations.find(
-      (candidate) => candidate.managedGroupId === group.id
-    );
     const ownership = context.ownership[group.id];
-    if (association && ownership) {
+    if (ownership) {
+      const lastAssign = [...actions]
+        .reverse()
+        .find(
+          (action) =>
+            action.kind === "assignTabsToManagedGroup" &&
+            action.managedGroupId === group.id
+        );
       const moveId = actionId();
       actions.push({
         id: moveId,
-        dependsOn: [],
+        dependsOn: lastAssign ? [lastAssign.id] : [],
         kind: "moveManagedGroup",
         managedGroupId: group.id,
         windowId: homeWindow,
@@ -465,9 +479,10 @@ export function planPersistentRestore(
       const updateId = actionId();
       actions.push({
         id: updateId,
-        dependsOn: [],
+        dependsOn: [moveId],
         kind: "updateManagedGroup",
         managedGroupId: group.id,
+        windowId: homeWindow,
         patch: { collapsed: ownership.collapsed }
       });
     }
@@ -485,7 +500,14 @@ export function repairsForClosedTab(
   const snapshot = tabSnapshotFromChrome(closedTab);
   const repairs: PersistentRepair[] = [];
   for (const definition of context.configuration.persistentTabs) {
-    if (!matchesPersistentDefinition(snapshot, definition)) continue;
+    if (
+      !matchesPersistentDefinition(
+        snapshot,
+        definition,
+        context.configuration.duplicateSettings
+      )
+    )
+      continue;
     if (
       !isGroupEligibleForRepair(
         context.configuration,

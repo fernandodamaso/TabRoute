@@ -31,7 +31,10 @@ import {
   advanceStartupSettlement,
   type AlarmScheduler
 } from "../persistence/startupCoordinator";
-import { persistentTabsForGroup } from "../persistence/requirements";
+import {
+  isGroupEligibleForRepair,
+  persistentTabsForGroup
+} from "../persistence/requirements";
 
 export async function buildRestoreContext(input: {
   configuration: Configuration;
@@ -106,6 +109,25 @@ export async function runPersistentRestore(input: {
   actionDeps: ActionEngineDeps;
 }): Promise<boolean> {
   const inventory = await input.chrome.readInventory();
+  const hasNormalWindow = inventory.windows.some(
+    (window) => window.type === "normal" && !window.incognito
+  );
+  const hasEligibleRestoreTarget =
+    input.configuration.restorePersistentGroups &&
+    input.configuration.groups.some(
+      (group) =>
+        group.enabled &&
+        !group.isFallback &&
+        (group.isPersistent ||
+          persistentTabsForGroup(input.configuration, group.id).length > 0) &&
+        isGroupEligibleForRepair(
+          input.configuration,
+          group.id,
+          input.session.intentionallyClosedGroupIds
+        )
+    );
+  if (!hasNormalWindow && hasEligibleRestoreTarget) return false;
+
   const context = await buildRestoreContext({
     configuration: input.configuration,
     inventory,
