@@ -265,7 +265,7 @@ describe("action engine", () => {
         {
           id: 3,
           windowId: 1,
-          index: 2,
+          index: 0,
           chromeGroupId: 10,
           url: "https://docs.example.com/guide",
           title: "Guide",
@@ -277,7 +277,7 @@ describe("action engine", () => {
         {
           id: 4,
           windowId: 1,
-          index: 3,
+          index: 1,
           chromeGroupId: 10,
           url: "https://docs.example.com/api",
           title: "API",
@@ -309,7 +309,7 @@ describe("action engine", () => {
           { kind: "live", tabId: 3 }
         ],
         windowId: 1,
-        index: 2
+        index: 0
       }
     ]);
     const result = await executeActionPlan(plan, engineDeps(fake));
