@@ -10,6 +10,10 @@ import {
   createManagerMessageRouter,
   createSnapshotManagerPort
 } from "../src/background/managerMessageRouter";
+import {
+  applyManagedGroupPresentationEdit,
+  isGuardedGroupPresentationEcho
+} from "../src/background/groupPresentation";
 import { createPreMutationCheckpointService } from "../src/snapshots/checkpointService";
 import {
   CONFIGURATION_SYNC_RETRY_ALARM,
@@ -33,6 +37,7 @@ import {
 } from "../src/snapshots/snapshotScheduler";
 import {
   STARTUP_RECOVERY_ALARM,
+  STARTUP_TIMING,
   WINDOW_SETTLEMENT_ALARM
 } from "../src/persistence/startupCoordinator";
 import {
@@ -120,6 +125,7 @@ export default defineBackground(() => {
   let managerRouter: ReturnType<typeof createManagerMessageRouter> | undefined;
   let controller: ReturnType<typeof createTabRouteController> | undefined;
   let menuHost: MenuCommandHost | undefined;
+  let startupQuietGeneration = 0;
   const bufferedEvents: ChromeEventHint[] = [];
 
   async function rebuildMenus() {
@@ -182,6 +188,30 @@ export default defineBackground(() => {
     }
   };
 
+  const startupAlarmScheduler = {
+    scheduleOneShot: async (name: string, when: number) => {
+      const delayMs = Math.max(when - Date.now(), 0);
+      if (
+        name === STARTUP_RECOVERY_ALARM &&
+        delayMs < STARTUP_TIMING.recoveryAlarmMs
+      ) {
+        const generation = ++startupQuietGeneration;
+        setTimeout(() => {
+          if (generation !== startupQuietGeneration) return;
+          enqueueLifecycleEvent({ kind: "alarm", name });
+        }, delayMs);
+        if (chrome.alarms?.create) {
+          await chrome.alarms.create(name, {
+            when: Date.now() + STARTUP_TIMING.recoveryAlarmMs
+          });
+        }
+        return;
+      }
+      if (!chrome.alarms?.create) return;
+      await chrome.alarms.create(name, { when });
+    }
+  };
+
   async function scheduleWindowSettlementFromSession() {
     if (!chrome.alarms?.create) return;
     const loaded = await session.loadSession();
@@ -231,13 +261,7 @@ export default defineBackground(() => {
       checkpoints,
       persistConfiguration: (nextConfiguration) =>
         repository.save(nextConfiguration),
-      alarms: chrome.alarms?.create
-        ? {
-            scheduleOneShot: async (name, when) => {
-              await chrome.alarms.create(name, { when });
-            }
-          }
-        : undefined
+      alarms: startupAlarmScheduler
     });
     await controller.onWorkerWake();
     await ensureSnapshotAlarms(
@@ -278,6 +302,7 @@ export default defineBackground(() => {
       activity,
       snapshots,
       diagnostics,
+      session,
       inventory: {
         readInventory: () => controller!.actionDeps().reads.readInventory(),
         loadPreferredWindowId: async () => {
@@ -289,6 +314,12 @@ export default defineBackground(() => {
       },
       refreshAlarms: (nextConfiguration) =>
         ensureSnapshotAlarms(nextConfiguration, chromeAlarmScheduler),
+      applyGroupPresentation: async (presentation) => {
+        await applyManagedGroupPresentationEdit({
+          ...presentation,
+          actionDeps: controller!.actionDeps()
+        });
+      },
       consumePendingRuleDraft: async () => {
         const draft = await readPendingRuleDraft(session);
         if (!draft) return undefined;
@@ -512,13 +543,19 @@ export default defineBackground(() => {
     void (async () => {
       await ready;
       if (!controller) return;
-      const association = (await session.loadAssociations()).find(
+      const snapshot = toGroupSnapshot(group);
+      const runtime = await session.loadSession();
+      if (isGuardedGroupPresentationEcho(runtime, group.id)) {
+        if (snapshot)
+          enqueueLifecycleEvent({ kind: "groupUpdated", group: snapshot });
+        return;
+      }
+      const association = runtime.associations.find(
         (candidate) =>
           candidate.chromeGroupId === group.id &&
           candidate.chromeWindowId === group.windowId
       );
       if (!association) {
-        const snapshot = toGroupSnapshot(group);
         if (snapshot)
           enqueueLifecycleEvent({ kind: "groupUpdated", group: snapshot });
         return;
@@ -530,8 +567,7 @@ export default defineBackground(() => {
         group.title ?? "",
         (group.color ?? "grey") as ChromeGroupColor
       );
-      if (JSON.stringify(next) === JSON.stringify(current)) {
-        const snapshot = toGroupSnapshot(group);
+      if (next === current) {
         if (snapshot)
           enqueueLifecycleEvent({ kind: "groupUpdated", group: snapshot });
         return;
