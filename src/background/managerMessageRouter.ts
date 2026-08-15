@@ -3,10 +3,7 @@ import {
   getAvailableUndo,
   listActivityEntries
 } from "../activity/activityRepository";
-import {
-  executeUndo,
-  type UndoExecutionResult
-} from "../activity/executeUndo";
+import { executeUndo, type UndoExecutionResult } from "../activity/executeUndo";
 import type { ActionEngineDeps } from "../actions/executeActionPlan";
 import {
   createManagedGroup,
@@ -562,7 +559,9 @@ function domainFailure(error: unknown): ManagerResponse {
   return failure(kind, error);
 }
 
-function undoFailure(result: Exclude<UndoExecutionResult, "success">): ManagerResponse {
+function undoFailure(
+  result: Exclude<UndoExecutionResult, "success">
+): ManagerResponse {
   const kind: ManagerFailureKind =
     result === "degraded" ? "persistence" : "reference";
   const code = `UNDO_${result.toUpperCase()}`;
@@ -800,7 +799,10 @@ export function createManagerMessageRouter(input: {
     viewFixture?: ManagerViewFixture
   ): Promise<ManagerSuccess> {
     const pauseState = await loadRestartPauseState(session);
-    return success(overlayRestartPauses(configuration, pauseState), viewFixture);
+    return success(
+      overlayRestartPauses(configuration, pauseState),
+      viewFixture
+    );
   }
 
   async function overlayResponse(
@@ -851,7 +853,9 @@ export function createManagerMessageRouter(input: {
           if (message.command.kind === "undo") {
             if (!isUuid(message.command.undoId))
               throw new Error("undo id must be a UUID");
-            const undoResult = await input.activity.undo(message.command.undoId);
+            const undoResult = await input.activity.undo(
+              message.command.undoId
+            );
             if (undoResult !== "success") return undoFailure(undoResult);
             const viewFixture = await input.activity.query(undefined, 500);
             return managerSuccess(current, viewFixture);

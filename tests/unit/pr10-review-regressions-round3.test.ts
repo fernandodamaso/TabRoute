@@ -216,6 +216,8 @@ describe("PR 10 fresh review regressions", () => {
     });
 
     expect(result).toMatchObject({ ok: false, code: "REFERENCE" });
-    expect((await local.getSnapshot(snapshot.id))?.groups).toEqual(snapshot.groups);
+    expect((await local.getSnapshot(snapshot.id))?.groups).toEqual(
+      snapshot.groups
+    );
   });
 });

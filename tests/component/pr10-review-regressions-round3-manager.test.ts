@@ -172,14 +172,18 @@ describe("PR 10 manager restart-pause and presentation regressions", () => {
     const sameSessionQuery = await router.handle({ kind: "manager-query" });
     expect(sameSessionQuery.ok).toBe(true);
     if (sameSessionQuery.ok) {
-      expect(sameSessionQuery.configuration.rules[0]?.pausedUntil).toBe("restart");
+      expect(sameSessionQuery.configuration.rules[0]?.pausedUntil).toBe(
+        "restart"
+      );
     }
 
     const restarted = makeRouter({
       initial: getCurrent(),
       session: createMemorySessionRepository()
     });
-    const afterRestart = await restarted.router.handle({ kind: "manager-query" });
+    const afterRestart = await restarted.router.handle({
+      kind: "manager-query"
+    });
     expect(afterRestart.ok).toBe(true);
     if (afterRestart.ok) {
       expect(afterRestart.configuration.rules[0]?.pausedUntil).toBeUndefined();

@@ -13,7 +13,9 @@ export interface RestartPauseState {
 
 function uuidList(value: unknown): UUID[] {
   return Array.isArray(value)
-    ? value.filter((candidate): candidate is UUID => typeof candidate === "string")
+    ? value.filter(
+        (candidate): candidate is UUID => typeof candidate === "string"
+      )
     : [];
 }
 

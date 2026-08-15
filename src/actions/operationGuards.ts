@@ -336,7 +336,10 @@ export function postconditionHolds(
       tab.windowId !== postcondition.windowId
     )
       return false;
-    if (ordered.startIndex !== undefined && tab.index !== ordered.startIndex + offset)
+    if (
+      ordered.startIndex !== undefined &&
+      tab.index !== ordered.startIndex + offset
+    )
       return false;
     if (postcondition.ungrouped) {
       if (tab.chromeGroupId >= 0) return false;

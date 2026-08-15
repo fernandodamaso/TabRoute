@@ -148,7 +148,7 @@ export function persistentManagedGroupsInWindow(
       );
       return Boolean(
         group?.isPersistent ||
-          persistentTabsForGroup(configuration, managedGroupId).length > 0
+        persistentTabsForGroup(configuration, managedGroupId).length > 0
       );
     }
   );
