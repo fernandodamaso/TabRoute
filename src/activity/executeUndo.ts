@@ -73,7 +73,7 @@ export async function executeUndo(input: {
     ...input.deps,
     configuration: input.configuration
   });
-  if (result.status === "failure") return "degraded";
+  if (result.status !== "success") return "degraded";
   await input.local.deleteUndo(input.undoId);
   return degradedBeforeExecute ? "degraded" : "success";
 }
