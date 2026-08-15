@@ -27,12 +27,24 @@ export function tabUrl(
 
 export function matchesPersistentDefinition(
   tab: TabSnapshot | { url?: string; routing?: TabSnapshot["routing"] },
-  definition: PersistentTab
+  definition: PersistentTab,
+  duplicateSettings?: Configuration["duplicateSettings"]
 ): boolean {
   const url = tabUrl(tab);
   if (!url || !isRoutableUrl(url)) return false;
+  if (
+    matchesAcceptedUrl(
+      url,
+      definition.canonicalUrl,
+      definition.acceptedPatterns
+    )
+  ) {
+    return true;
+  }
+  if (!duplicateSettings) return false;
+  const canonicalUrl = deriveCanonicalUrl(url, duplicateSettings);
   return matchesAcceptedUrl(
-    url,
+    canonicalUrl,
     definition.canonicalUrl,
     definition.acceptedPatterns
   );
