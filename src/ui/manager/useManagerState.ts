@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createDefaultConfiguration } from "../../domain/defaults";
 import type { Configuration } from "../../domain/types";
 import { createChromeManagerTransport } from "./chromeManagerTransport";
+import { requestInitialManagerQuery } from "./managerQueryRetry";
 import type {
   ManagerCommandPayload,
+  ManagerFailure,
   ManagerMessage,
   ManagerResponse,
   ManagerTransport,
@@ -28,30 +30,54 @@ function thrownTransportFailure(error: unknown): ManagerResponse {
   };
 }
 
+function managerNotReadyFailure(): ManagerResponse {
+  return {
+    ok: false,
+    error: {
+      kind: "transport",
+      code: "MANAGER_NOT_READY",
+      message: "Manager configuration has not loaded yet"
+    }
+  };
+}
+
 export function useManagerState(
   transport: ManagerTransport = browserManagerTransport
 ) {
   const [configuration, setConfiguration] =
     useState<Configuration>(previewConfiguration);
   const [viewFixture, setViewFixture] = useState<ManagerViewFixture>();
-  const [status, setStatus] = useState<"loading" | "ready" | "error">(
-    "loading"
-  );
+  const [status, setStatus] = useState<
+    "loading" | "reconnecting" | "ready" | "error"
+  >("loading");
+  const [lastError, setLastError] = useState<ManagerFailure["error"]>();
+  const [hasConfirmedConfiguration, setHasConfirmedConfiguration] =
+    useState(false);
+  const confirmedConfigurationRef = useRef(false);
 
   const query = useCallback(async (): Promise<ManagerResponse> => {
+    setStatus(confirmedConfigurationRef.current ? "reconnecting" : "loading");
     try {
-      const result = await transport.request({ kind: "manager-query" });
+      const result = await requestInitialManagerQuery(transport, {
+        onRetry: () => setStatus("reconnecting")
+      });
       if (result.ok) {
+        confirmedConfigurationRef.current = true;
+        setHasConfirmedConfiguration(true);
         setConfiguration(result.configuration);
         setViewFixture(result.viewFixture);
+        setLastError(undefined);
         setStatus("ready");
       } else {
+        setLastError(result.error);
         setStatus("error");
       }
       return result;
     } catch (error) {
+      const result = thrownTransportFailure(error);
+      if (!result.ok) setLastError(result.error);
       setStatus("error");
-      return thrownTransportFailure(error);
+      return result;
     }
   }, [transport]);
 
@@ -103,6 +129,7 @@ export function useManagerState(
 
   const command = useCallback(
     async (message: ManagerMessage): Promise<ManagerResponse> => {
+      if (!confirmedConfigurationRef.current) return managerNotReadyFailure();
       try {
         const result = await transport.request(message);
         if (result.ok) {
@@ -128,6 +155,8 @@ export function useManagerState(
     setConfiguration,
     viewFixture,
     status,
+    lastError,
+    hasConfirmedConfiguration,
     query,
     queryActivity,
     querySnapshots,
