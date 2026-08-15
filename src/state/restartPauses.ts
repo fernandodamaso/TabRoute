@@ -34,15 +34,14 @@ async function updateIds(
   id: UUID,
   paused: boolean
 ): Promise<void> {
-  await session.updateRuntime((runtime) => {
-    const ids = uuidList(runtime[key]);
-    const next = paused
-      ? ids.includes(id)
-        ? ids
-        : [...ids, id]
-      : ids.filter((candidate) => candidate !== id);
-    return { ...runtime, [key]: next };
-  });
+  const runtime = await session.loadRuntime();
+  const ids = uuidList(runtime[key]);
+  const next = paused
+    ? ids.includes(id)
+      ? ids
+      : [...ids, id]
+    : ids.filter((candidate) => candidate !== id);
+  await session.updateRuntime({ [key]: next });
 }
 
 export function setRuleRestartPause(
@@ -65,10 +64,7 @@ export async function setGlobalRestartPause(
   session: SessionRepository,
   paused: boolean
 ): Promise<void> {
-  await session.updateRuntime((runtime) => ({
-    ...runtime,
-    [GLOBAL_KEY]: paused
-  }));
+  await session.updateRuntime({ [GLOBAL_KEY]: paused });
 }
 
 export function overlayRestartPauses(
