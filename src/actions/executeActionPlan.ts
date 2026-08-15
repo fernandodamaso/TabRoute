@@ -112,6 +112,31 @@ function resolvedActionTabIds(
     : { tabIds };
 }
 
+function managedAssociationForAction(
+  action: Extract<
+    PlannedAction,
+    {
+      kind:
+        | "assignTabsToManagedGroup"
+        | "updateManagedGroup"
+        | "moveManagedGroup";
+    }
+  >,
+  associations: readonly ChromeAssociation[]
+): ChromeAssociation | undefined {
+  const candidates = associations.filter(
+    (candidate) => candidate.managedGroupId === action.managedGroupId
+  );
+  const targetWindowId = action.windowId;
+  if (targetWindowId !== undefined) {
+    const target = candidates.find(
+      (candidate) => candidate.chromeWindowId === targetWindowId
+    );
+    if (target) return target;
+  }
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
 function knownActionGroupIds(
   action: PlannedAction,
   associations: readonly ChromeAssociation[],
@@ -265,11 +290,7 @@ function groupInputForAssign(
   if (tabs.some((tab) => !tab)) throw new Error("assign tab missing");
   if (tabs.some((tab) => tab!.windowId !== action.windowId))
     throw new Error("assign tab window mismatch");
-  const existing = associations.find(
-    (association) =>
-      association.managedGroupId === action.managedGroupId &&
-      association.chromeWindowId === action.windowId
-  );
+  const existing = managedAssociationForAction(action, associations);
   const group =
     existing &&
     inventory.groups.find(
@@ -556,10 +577,7 @@ async function executePlannedAction(
       retryAction.kind === "assignTabsToManagedGroup" ||
       retryAction.kind === "updateManagedGroup" ||
       retryAction.kind === "moveManagedGroup"
-        ? associations.find(
-            (candidate) =>
-              candidate.managedGroupId === retryAction.managedGroupId
-          )
+        ? managedAssociationForAction(retryAction, associations)
         : undefined;
     const targetChromeGroupId =
       retryAction.kind === "assignTabsToManagedGroup"
@@ -715,6 +733,7 @@ async function executePlannedAction(
         dependsOn: [],
         kind: "updateManagedGroup",
         managedGroupId: action.managedGroupId,
+        windowId: action.windowId,
         patch: {
           title: action.title,
           color: action.color,
@@ -847,9 +866,7 @@ async function executePlannedAction(
       return { status: "success" };
     }
     case "updateManagedGroup": {
-      const association = associations.find(
-        (candidate) => candidate.managedGroupId === action.managedGroupId
-      );
+      const association = managedAssociationForAction(action, associations);
       if (!association)
         return { status: "failure", errorCode: "GROUP_MISSING" };
       await executeWithRetry(
@@ -860,12 +877,13 @@ async function executePlannedAction(
         shouldAbortRetry,
         onRetry
       );
-      return { status: "success" };
+      return {
+        status: "success",
+        output: { chromeGroupId: association.chromeGroupId }
+      };
     }
     case "moveManagedGroup": {
-      const association = associations.find(
-        (candidate) => candidate.managedGroupId === action.managedGroupId
-      );
+      const association = managedAssociationForAction(action, associations);
       if (!association)
         return { status: "failure", errorCode: "GROUP_MISSING" };
       await executeWithRetry(
@@ -880,7 +898,10 @@ async function executePlannedAction(
         shouldAbortRetry,
         onRetry
       );
-      return { status: "success" };
+      return {
+        status: "success",
+        output: { chromeGroupId: association.chromeGroupId }
+      };
     }
     case "reorderTabs": {
       const tabIds = action.tabs
