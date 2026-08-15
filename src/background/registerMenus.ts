@@ -110,16 +110,35 @@ function availabilityForTab(
 function createMenu(
   browser: typeof chrome,
   props: chrome.contextMenus.CreateProperties
-): void {
+): Promise<void> {
   const safe = { ...props };
   delete safe.onclick;
-  browser.contextMenus.create({
-    ...safe,
-    contexts: MENU_CONTEXTS
+  return new Promise((resolve, reject) => {
+    browser.contextMenus.create(
+      {
+        ...safe,
+        contexts: MENU_CONTEXTS
+      },
+      () => {
+        const lastError = browser.runtime.lastError;
+        if (lastError) {
+          reject(
+            new Error(
+              lastError.message ||
+                `Failed to create context menu ${String(props.id)}`
+            )
+          );
+          return;
+        }
+        resolve();
+      }
+    );
   });
 }
 
-export async function refreshMenus(
+let menuRefreshTail: Promise<void> = Promise.resolve();
+
+async function runMenuRefresh(
   browser: typeof chrome,
   host: MenuCommandHost
 ): Promise<void> {
@@ -127,12 +146,12 @@ export async function refreshMenus(
   const availability = availabilityForTab(context, undefined);
   await browser.contextMenus.removeAll();
 
-  createMenu(browser, {
+  await createMenu(browser, {
     id: MENU_IDS.createRule,
     title: "Create rule from this tab",
     enabled: availability.routable
   });
-  createMenu(browser, {
+  await createMenu(browser, {
     id: MENU_IDS.makePersistent,
     title: "Make persistent in this group",
     enabled:
@@ -140,60 +159,75 @@ export async function refreshMenus(
       !availability.shared &&
       availability.managedGroupId !== undefined
   });
-  createMenu(browser, {
+  await createMenu(browser, {
     id: MENU_IDS.removePersistent,
     title: "Remove persistent tab",
     enabled: availability.persistentTabId !== undefined
   });
-  createMenu(browser, {
+  await createMenu(browser, {
     id: MENU_IDS.excludeDuplicate,
     title: "Exclude from duplicates",
     enabled: availability.routable
   });
-  createMenu(browser, {
+  await createMenu(browser, {
     id: MENU_IDS.moveSubmenu,
     title: "Move to group",
     enabled: availability.routable
   });
   for (const group of context.configuration.groups) {
     if (group.isFallback || !group.enabled) continue;
-    createMenu(browser, {
+    await createMenu(browser, {
       id: moveGroupMenuId(group.id),
       parentId: MENU_IDS.moveSubmenu,
       title: renderGroupTitle(group),
       enabled: availability.routable
     });
   }
-  createMenu(browser, {
+  await createMenu(browser, {
     id: MENU_IDS.moveOther,
     title: "Move to Other",
     enabled: availability.routable
   });
-  createMenu(browser, {
+  await createMenu(browser, {
     id: MENU_IDS.pauseScope,
     title: availability.pauseTitle,
     enabled: true
   });
-  createMenu(browser, {
+  await createMenu(browser, {
     id: MENU_IDS.pinGroup,
     title: "Pin Group",
     enabled: !availability.shared && availability.managedGroupId !== undefined
   });
-  createMenu(browser, {
+  await createMenu(browser, {
     id: MENU_IDS.collapseGroup,
     title: "Collapse group",
     enabled: !availability.shared && availability.managedGroupId !== undefined
   });
-  createMenu(browser, {
+  await createMenu(browser, {
     id: MENU_IDS.expandGroup,
     title: "Expand group",
     enabled: !availability.shared && availability.managedGroupId !== undefined
   });
-  createMenu(browser, {
+  await createMenu(browser, {
     id: MENU_IDS.saveSnapshot,
     title: "Save snapshot",
     enabled: availability.canSaveSnapshot
   });
+}
+
+export function refreshMenus(
+  browser: typeof chrome,
+  host: MenuCommandHost
+): Promise<void> {
+  const queued = menuRefreshTail.then(
+    () => runMenuRefresh(browser, host),
+    () => runMenuRefresh(browser, host)
+  );
+  menuRefreshTail = queued.then(
+    () => undefined,
+    () => undefined
+  );
+  return queued;
 }
 
 let menusRegistered = false;
@@ -213,6 +247,7 @@ export async function registerMenus(
 /** @internal test helper */
 export function resetMenuRegistrationForTests(): void {
   menusRegistered = false;
+  menuRefreshTail = Promise.resolve();
 }
 
 async function handleMenuClick(
