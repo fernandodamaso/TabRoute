@@ -50,6 +50,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Round 3 regression checkpoint
+        run: npx vitest run tests/unit/pr10-review-regressions-round3.test.ts
+
       - name: Format check
         run: npm run format:check
 
