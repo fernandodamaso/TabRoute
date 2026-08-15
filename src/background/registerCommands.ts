@@ -34,7 +34,9 @@ export function registerCommands(
   if (commandsRegistered) return;
   commandsRegistered = true;
   browser.commands.onCommand.addListener((command, tab) => {
-    return handleCommand(browser, host, command, tab) as unknown as void;
+    return handleCommand(browser, host, command, tab).catch((error: unknown) => {
+      console.error("TabRoute manifest command failed", error);
+    }) as unknown as void;
   });
 }
 
