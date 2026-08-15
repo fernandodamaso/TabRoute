@@ -5,10 +5,25 @@ import type {
   ChromeTabSnapshot,
   UUID
 } from "../domain/types";
-import type { ActionPlan } from "./types";
+import type { RoutePlan } from "./types";
 import { renderGroupTitle } from "../groups/displayTitle";
 import { isRoutableUrl } from "../chrome/types";
 import { placementAction, selectRule } from "../rules/ruleEngine";
+
+function hasUnassociatedRenderedTarget(input: {
+  inventory: ChromeInventory;
+  windowId: number;
+  title: string;
+  association: ChromeAssociation | undefined;
+}): boolean {
+  if (input.association) return false;
+  return input.inventory.groups.some(
+    (group) =>
+      !group.shared &&
+      group.windowId === input.windowId &&
+      group.title === input.title
+  );
+}
 
 export function planFallbackRoute(input: {
   inventory: ChromeInventory;
@@ -16,7 +31,7 @@ export function planFallbackRoute(input: {
   configuration: Configuration;
   associations: readonly ChromeAssociation[];
 }):
-  | ActionPlan
+  | RoutePlan
   | {
       kind: "held";
       reason: "not-routable" | "incognito" | "unmanaged-placement";
@@ -41,6 +56,16 @@ export function planFallbackRoute(input: {
     (group) => group.id === configuration.fallbackGroupId
   );
   if (!fallback) throw new Error("fallback group is missing");
+  if (
+    hasUnassociatedRenderedTarget({
+      inventory,
+      windowId: tab.windowId,
+      title: renderGroupTitle(fallback),
+      association: targetAssociation
+    })
+  ) {
+    return { kind: "held", reason: "unmanaged-placement" };
+  }
   const existing =
     targetAssociation &&
     inventory.groups.find(
@@ -73,7 +98,7 @@ export function planRuleRoute(input: {
   associations: readonly ChromeAssociation[];
   intentionallyClosedGroupIds?: readonly UUID[];
 }):
-  | ActionPlan
+  | RoutePlan
   | {
       kind: "held";
       reason: "not-routable" | "incognito" | "unmanaged-placement" | "paused";
@@ -81,12 +106,13 @@ export function planRuleRoute(input: {
   | { kind: "noop"; reason: "already-in-target" | "already-ungrouped" } {
   const selected = selectRule(input);
   if (!selected) return planFallbackRoute(input);
+  const placement = placementAction(selected.rule.actions);
   if (
+    placement === "group" &&
     input.intentionallyClosedGroupIds?.includes(selected.rule.targetGroupId)
   ) {
     return planFallbackRoute(input);
   }
-  const placement = placementAction(selected.rule.actions);
   if (placement === "ungroup") {
     if (input.tab.chromeGroupId < 0)
       return { kind: "noop", reason: "already-ungrouped" };
@@ -113,7 +139,7 @@ export function planManagedGroupRoute(input: {
   targetGroupId: UUID;
   collapsed?: boolean;
 }):
-  | ActionPlan
+  | RoutePlan
   | {
       kind: "held";
       reason: "not-routable" | "incognito" | "unmanaged-placement" | "paused";
@@ -138,6 +164,16 @@ export function planManagedGroupRoute(input: {
   );
   if (targetAssociation?.chromeGroupId === tab.chromeGroupId)
     return { kind: "noop", reason: "already-in-target" };
+  if (
+    hasUnassociatedRenderedTarget({
+      inventory,
+      windowId: tab.windowId,
+      title: renderGroupTitle(target),
+      association: targetAssociation
+    })
+  ) {
+    return { kind: "held", reason: "unmanaged-placement" };
+  }
   const existing =
     targetAssociation &&
     inventory.groups.find(

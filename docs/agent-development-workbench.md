@@ -11,7 +11,7 @@ Project instructions in `AGENTS.md` and `skills/chrome-tab-manager/SKILL.md` poi
 | `build:workbench` | Build the workbench graph only                                             |
 | `workbench`       | Run fixture mode (`--mode fixture`) against isolated Chromium              |
 | `workbench:real`  | Run real mode (`--mode real`, `wb:default` only) against isolated Chromium |
-| `test:workbench`  | Playwright fixture coverage for all 15 scenarios                           |
+| `test:workbench`  | Playwright fixture coverage for all 17 scenarios                           |
 | `test:extension`  | Production gate build/scan plus real MV3 options tests                     |
 | `smoke:popup`     | Production popup smoke at 520×600 without workbench markers                |
 
@@ -44,7 +44,7 @@ The runner and artifact layer expose exactly six stable failure codes:
 ## Viewport and scenarios
 
 - Manager preview is **520×600** (`data-manager-viewport="520x600"` on popup; `.workbench-preview` in the host).
-- Fifteen fixture scenarios: `wb:default`, `wb:empty-groups`, `wb:dense-groups`, `wb:enabled-group`, `wb:disabled-group`, `wb:empty-persistent-tabs`, `wb:populated-persistent-tabs`, `wb:mixed-rules-overview`, `wb:new-rule`, `wb:edit-rule`, `wb:confirmation-overlay`, `wb:loading`, `wb:slow`, `wb:validation-error`, `wb:offline`. Activity and Settings are routes exercised through the host, not separate scenario ids.
+- Seventeen fixture scenarios: `wb:default`, `wb:empty-groups`, `wb:dense-groups`, `wb:enabled-group`, `wb:disabled-group`, `wb:empty-persistent-tabs`, `wb:populated-persistent-tabs`, `wb:mixed-rules-overview`, `wb:new-rule`, `wb:edit-rule`, `wb:confirmation-overlay`, `wb:loading`, `wb:slow`, `wb:validation-error`, `wb:offline`, `wb:sync-incomplete`, `wb:local-budget`. Activity and Settings are routes exercised through the host, not separate scenario ids.
 
 ## Removal path
 
@@ -62,6 +62,19 @@ The runner and artifact layer expose exactly six stable failure codes:
 - Never attach to the user's Chrome, a fixed extension id, `chrome://extensions`, toolbar UI, Computer Use, or manual storage seeding from tests.
 - Each run uses a fresh persistent profile under the OS temp directory, a run-scoped build under `.workbench/tmp/<run-id>/`, derived extension ids, leases, and bounded artifacts under `.workbench/artifacts/<run-id>/`.
 - `test:extension` builds **both** graphs, scans production, writes `ProductionGateResult`, then runs real assertions only against the production build path recorded in `.workbench/tmp/last-production-gate-result-path`.
+
+## Canonical frame evidence
+
+The committed canonical PNG/JSON files are release evidence for the manager's
+520×600 structural contract. `npm run test:extension` validates the structure
+on every platform; it does not require a local Linux installation. Pixel-level
+comparison is an opt-in diagnostic for a matching rendering environment:
+
+```text
+TABROUTE_COMPARE_CANONICAL_FRAMES=1 npm run test:extension
+```
+
+Do not install WSL or Linux tooling solely to run the local extension gate.
 
 ## Future UI issue checklist
 

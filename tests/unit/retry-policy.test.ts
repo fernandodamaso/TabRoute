@@ -53,24 +53,41 @@ describe("executeWithRetry", () => {
     const refresh = vi.fn().mockResolvedValue(undefined);
     const delay = vi.fn().mockResolvedValue(undefined);
 
-    await expect(
-      executeWithRetry(operation, refresh, delay)
-    ).rejects.toThrow("Tabs cannot be edited right now");
+    await expect(executeWithRetry(operation, refresh, delay)).rejects.toThrow(
+      "Tabs cannot be edited right now"
+    );
     expect(operation).toHaveBeenCalledTimes(3);
     expect(refresh).toHaveBeenCalledTimes(2);
   });
 
   it("never retries permission errors", async () => {
-    const operation = vi
-      .fn()
-      .mockRejectedValue(new Error("permission denied"));
+    const operation = vi.fn().mockRejectedValue(new Error("permission denied"));
     const refresh = vi.fn();
     const delay = vi.fn();
 
-    await expect(
-      executeWithRetry(operation, refresh, delay)
-    ).rejects.toThrow("permission denied");
+    await expect(executeWithRetry(operation, refresh, delay)).rejects.toThrow(
+      "permission denied"
+    );
     expect(operation).toHaveBeenCalledTimes(1);
     expect(refresh).not.toHaveBeenCalled();
+  });
+  it("recovers a gone mutation when refreshed state is already satisfied", async () => {
+    const operation = vi.fn().mockRejectedValue(new Error("No tab with id 7"));
+    const refresh = vi.fn().mockResolvedValue({ recovered: true });
+    const shouldAbort = vi.fn().mockReturnValue("satisfied" as const);
+    const recovered = vi.fn().mockReturnValue("recovered");
+
+    await expect(
+      executeWithRetry(
+        operation,
+        refresh,
+        vi.fn().mockResolvedValue(undefined),
+        shouldAbort,
+        undefined,
+        recovered
+      )
+    ).resolves.toBe("recovered");
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(recovered).toHaveBeenCalledTimes(1);
   });
 });

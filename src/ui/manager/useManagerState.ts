@@ -3,6 +3,7 @@ import { createDefaultConfiguration } from "../../domain/defaults";
 import type { Configuration } from "../../domain/types";
 import { createChromeManagerTransport } from "./chromeManagerTransport";
 import type {
+  ManagerCommandPayload,
   ManagerMessage,
   ManagerResponse,
   ManagerTransport,
@@ -21,15 +22,21 @@ function thrownTransportFailure(error: unknown): ManagerResponse {
     error: {
       kind: "transport",
       code: "UNEXPECTED_TRANSPORT_THROW",
-      message: error instanceof Error ? error.message : "Manager transport failed"
+      message:
+        error instanceof Error ? error.message : "Manager transport failed"
     }
   };
 }
 
-export function useManagerState(transport: ManagerTransport = browserManagerTransport) {
-  const [configuration, setConfiguration] = useState<Configuration>(previewConfiguration);
+export function useManagerState(
+  transport: ManagerTransport = browserManagerTransport
+) {
+  const [configuration, setConfiguration] =
+    useState<Configuration>(previewConfiguration);
   const [viewFixture, setViewFixture] = useState<ManagerViewFixture>();
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "error">(
+    "loading"
+  );
 
   const query = useCallback(async (): Promise<ManagerResponse> => {
     try {
@@ -48,14 +55,12 @@ export function useManagerState(transport: ManagerTransport = browserManagerTran
     }
   }, [transport]);
 
-  useEffect(() => { void query(); }, [query]);
-
-  const command = useCallback(async (message: ManagerMessage): Promise<ManagerResponse> => {
+  const querySnapshots = useCallback(async (): Promise<ManagerResponse> => {
     try {
-      const result = await transport.request(message);
+      const result = await transport.request({ kind: "snapshots-query" });
       if (result.ok) {
         setConfiguration(result.configuration);
-        setViewFixture(result.viewFixture);
+        if (result.viewFixture) setViewFixture(result.viewFixture);
       }
       return result;
     } catch (error) {
@@ -63,12 +68,71 @@ export function useManagerState(transport: ManagerTransport = browserManagerTran
     }
   }, [transport]);
 
+  const queryActivity = useCallback(async (): Promise<ManagerResponse> => {
+    try {
+      const result = await transport.request({
+        kind: "activity-query",
+        limit: 500
+      });
+      if (result.ok) {
+        setConfiguration(result.configuration);
+        if (result.viewFixture) setViewFixture(result.viewFixture);
+      }
+      return result;
+    } catch (error) {
+      return thrownTransportFailure(error);
+    }
+  }, [transport]);
+
+  const queryDiagnostics = useCallback(async (): Promise<ManagerResponse> => {
+    try {
+      const result = await transport.request({ kind: "diagnostics-query" });
+      if (result.ok) {
+        setConfiguration(result.configuration);
+        if (result.viewFixture) setViewFixture(result.viewFixture);
+      }
+      return result;
+    } catch (error) {
+      return thrownTransportFailure(error);
+    }
+  }, [transport]);
+
+  useEffect(() => {
+    void query();
+  }, [query]);
+
+  const command = useCallback(
+    async (message: ManagerMessage): Promise<ManagerResponse> => {
+      try {
+        const result = await transport.request(message);
+        if (result.ok) {
+          setConfiguration(result.configuration);
+          if (result.viewFixture) setViewFixture(result.viewFixture);
+        }
+        return result;
+      } catch (error) {
+        return thrownTransportFailure(error);
+      }
+    },
+    [transport]
+  );
+
+  const runCommand = useCallback(
+    async (payload: ManagerCommandPayload): Promise<ManagerResponse> =>
+      command({ kind: "manager-command", command: payload }),
+    [command]
+  );
+
   return {
     configuration,
     setConfiguration,
     viewFixture,
     status,
     query,
-    command
+    queryActivity,
+    querySnapshots,
+    queryDiagnostics,
+    command,
+    runCommand
   };
 }

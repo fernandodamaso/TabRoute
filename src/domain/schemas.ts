@@ -2,10 +2,7 @@ import { z } from "zod";
 import type { Configuration, ConditionNode } from "./types";
 
 const uuid = z.string().uuid();
-const pauseValue = z.union([
-  z.number().int().nonnegative(),
-  z.literal("restart")
-]);
+const pauseValue = z.number().int().nonnegative();
 const duplicatePolicy = z.union([
   z.strictObject({ kind: z.literal("allow") }),
   z.strictObject({ kind: z.literal("exactUrl") }),
@@ -19,15 +16,34 @@ const placement = z.union([
   z.strictObject({ kind: z.literal("unmanaged") }),
   z.strictObject({ kind: z.literal("ungrouped") })
 ]);
+const httpUrlValue = z
+  .string()
+  .min(1)
+  .refine(
+    (value) => {
+      try {
+        const url = new URL(value);
+        return url.protocol === "http:" || url.protocol === "https:";
+      } catch {
+        return false;
+      }
+    },
+    { message: "exact URL conditions require an absolute HTTP(S) URL" }
+  );
 const conditionNode: z.ZodTypeAny = z.lazy(() =>
   z.union([
     z.strictObject({
       kind: z.enum(["all", "any"]),
-      children: z.array(conditionNode)
+      children: z.array(conditionNode).min(1)
     }),
     z.strictObject({
       kind: z.literal("url"),
-      operator: z.enum(["exact", "pattern", "regex"]),
+      operator: z.literal("exact"),
+      value: httpUrlValue
+    }),
+    z.strictObject({
+      kind: z.literal("url"),
+      operator: z.enum(["pattern", "regex"]),
       value: z.string().min(1)
     }),
     z.strictObject({
@@ -47,7 +63,17 @@ const conditionNode: z.ZodTypeAny = z.lazy(() =>
     }),
     z.strictObject({ kind: z.literal("pinned"), value: z.boolean() }),
     z.strictObject({
-      kind: z.enum(["openerUrl", "openerHost"]),
+      kind: z.literal("openerUrl"),
+      operator: z.literal("exact"),
+      value: httpUrlValue
+    }),
+    z.strictObject({
+      kind: z.literal("openerUrl"),
+      operator: z.enum(["pattern", "suffix"]),
+      value: z.string().min(1)
+    }),
+    z.strictObject({
+      kind: z.literal("openerHost"),
       operator: z.enum(["exact", "pattern", "suffix"]),
       value: z.string().min(1)
     }),
@@ -58,7 +84,10 @@ const ruleAction = z.union([
   z.strictObject({ kind: z.literal("group") }),
   z.strictObject({ kind: z.literal("ungroup") }),
   z.strictObject({ kind: z.literal("makePersistent") }),
-  z.strictObject({ kind: z.literal("setDuplicatePolicy"), policy: duplicatePolicy }),
+  z.strictObject({
+    kind: z.literal("setDuplicatePolicy"),
+    policy: duplicatePolicy
+  }),
   z.strictObject({ kind: z.literal("setCollapsed"), collapsed: z.boolean() })
 ]);
 const managedGroup = z.strictObject({
@@ -82,6 +111,7 @@ const managedGroup = z.strictObject({
   isPersistent: z.boolean(),
   defaultOrder: z.number().int(),
   defaultCollapsed: z.boolean(),
+  duplicatePolicy: duplicatePolicy.optional(),
   pausedUntil: pauseValue.optional(),
   createdAt: z.number(),
   updatedAt: z.number()
@@ -174,6 +204,47 @@ function collectRegexes(node: ConditionNode): string[] {
   return [];
 }
 
+const httpUrl = z
+  .string()
+  .url()
+  .refine((value) => {
+    try {
+      const protocol = new URL(value).protocol;
+      return protocol === "http:" || protocol === "https:";
+    } catch {
+      return false;
+    }
+  }, "persistent canonical URL must use HTTP(S)");
+
+const persistentTab = z.strictObject({
+  schemaVersion: z.literal(1),
+  id: uuid,
+  managedGroupId: uuid,
+  canonicalUrl: httpUrl,
+  acceptedPatterns: z.array(z.string()),
+  order: z.number().int(),
+  createdAt: z.number(),
+  updatedAt: z.number()
+});
+
+function addDuplicateIdIssues(
+  ids: readonly string[],
+  collection: "groups" | "rules" | "persistentTabs",
+  context: z.RefinementCtx
+) {
+  const seen = new Set<string>();
+  ids.forEach((id, index) => {
+    if (seen.has(id)) {
+      context.addIssue({
+        code: "custom",
+        path: [collection, index, "id"],
+        message: `${collection} must use unique durable UUIDs`
+      });
+    }
+    seen.add(id);
+  });
+}
+
 const configuration = z
   .strictObject({
     schemaVersion: z.literal(1),
@@ -182,9 +253,10 @@ const configuration = z
     globalPausedUntil: pauseValue.optional(),
     groups: z.array(managedGroup),
     rules: z.array(rule),
-    persistentTabs: z.array(z.never()),
+    persistentTabs: z.array(persistentTab),
+    restorePersistentGroups: z.boolean().optional(),
     duplicateSettings: z.strictObject({
-      globalPolicy: z.strictObject({ kind: z.literal("allow") }),
+      globalPolicy: duplicatePolicy,
       globalExclusions: z.array(z.string()),
       trackingParameters: z.array(z.string())
     }),
@@ -197,6 +269,22 @@ const configuration = z
     updatedAt: z.number()
   })
   .superRefine((value, context) => {
+    addDuplicateIdIssues(
+      value.groups.map((group) => group.id),
+      "groups",
+      context
+    );
+    addDuplicateIdIssues(
+      value.rules.map((rule) => rule.id),
+      "rules",
+      context
+    );
+    addDuplicateIdIssues(
+      value.persistentTabs.map((tab) => tab.id),
+      "persistentTabs",
+      context
+    );
+
     const fallbackGroups = value.groups.filter((group) => group.isFallback);
     if (
       fallbackGroups.length !== 1 ||
@@ -216,8 +304,22 @@ const configuration = z
           message: "rule target group does not exist"
         });
     });
+    const persistentGroupIds = new Set(value.groups.map((group) => group.id));
+    value.persistentTabs.forEach((tab, index) => {
+      if (!persistentGroupIds.has(tab.managedGroupId)) {
+        context.addIssue({
+          code: "custom",
+          path: ["persistentTabs", index, "managedGroupId"],
+          message: "persistent tab group does not exist"
+        });
+      }
+    });
   });
 
 export function validateConfiguration(value: unknown): Configuration {
-  return configuration.parse(value) as Configuration;
+  const parsed = configuration.parse(value) as Configuration;
+  return {
+    ...parsed,
+    restorePersistentGroups: parsed.restorePersistentGroups ?? true
+  };
 }

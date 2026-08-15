@@ -1,0 +1,122 @@
+import { createUuid } from "../domain/ids";
+import { buildDuplicateKey } from "../duplicates/normalizeUrl";
+import { effectiveDuplicatePolicyForTab } from "../duplicates/policy";
+import type {
+  BrowserInventory,
+  ChromeAssociation,
+  Configuration,
+  Snapshot,
+  SnapshotGroup,
+  SnapshotScope,
+  TabSnapshot,
+  UUID,
+  WindowOwnershipDescriptor
+} from "../domain/types";
+import {
+  isTabInSharedGroup,
+  managedGroupIdForTab
+} from "../persistence/requirements";
+
+export interface SnapshotContext {
+  configuration: Configuration;
+  ownership: Record<UUID, WindowOwnershipDescriptor>;
+  associations: readonly ChromeAssociation[];
+}
+
+function memberTabsForManagedGroup(
+  managedGroupId: UUID,
+  inventory: BrowserInventory,
+  associations: readonly ChromeAssociation[]
+): TabSnapshot[] {
+  return inventory.tabs.filter((tab) => {
+    if (tab.routing.kind !== "routable") return false;
+    if (isTabInSharedGroup(tab, inventory)) return false;
+    return (
+      managedGroupIdForTab(tab, inventory, associations) === managedGroupId
+    );
+  });
+}
+
+export function captureSnapshot(
+  scope: SnapshotScope,
+  inventory: BrowserInventory,
+  context: SnapshotContext,
+  metadata: {
+    id: UUID;
+    name: string;
+    kind: Snapshot["kind"];
+    now: number;
+  }
+): Snapshot {
+  const groups: SnapshotGroup[] = [];
+  const managedIds =
+    scope.kind === "group"
+      ? [scope.managedGroupId]
+      : context.configuration.groups.map((group) => group.id);
+
+  for (const managedGroupId of managedIds) {
+    const managed = context.configuration.groups.find(
+      (group) => group.id === managedGroupId
+    );
+    if (!managed) continue;
+    const ownership = context.ownership[managedGroupId];
+    const memberTabs = memberTabsForManagedGroup(
+      managedGroupId,
+      inventory,
+      context.associations
+    );
+    groups.push({
+      managedGroupId,
+      name: managed.name,
+      emoji: managed.emoji,
+      color: managed.color,
+      collapsed: ownership?.collapsed ?? managed.defaultCollapsed,
+      order: ownership?.order ?? managed.defaultOrder,
+      ownership,
+      tabs: memberTabs.flatMap((tab, index) => {
+        if (tab.routing.kind !== "routable") return [];
+        const policy = effectiveDuplicatePolicyForTab({
+          tab,
+          inventory,
+          configuration: context.configuration,
+          associations: context.associations,
+          destinationManagedGroupId: managedGroupId,
+          at: metadata.now
+        });
+        return [
+          {
+            url: tab.routing.url,
+            title: tab.title,
+            duplicatePolicy: policy,
+            duplicateKey:
+              buildDuplicateKey(
+                tab,
+                policy,
+                context.configuration.duplicateSettings
+              ) ?? null,
+            order: index
+          }
+        ];
+      })
+    });
+  }
+
+  return {
+    schemaVersion: 1,
+    id: metadata.id,
+    name: metadata.name,
+    kind: metadata.kind,
+    scope,
+    groups,
+    createdAt: metadata.now,
+    updatedAt: metadata.now
+  };
+}
+
+export function snapshotToCheckpointSnapshot(snapshot: Snapshot): Snapshot {
+  return structuredClone(snapshot);
+}
+
+export function createCheckpointSnapshotId(): UUID {
+  return createUuid();
+}

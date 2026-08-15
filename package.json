@@ -12,8 +12,10 @@
     "dev": "wxt",
     "build": "wxt build -b chrome",
     "zip": "wxt zip -b chrome",
+    "verify:zip": "tsx scripts/workbench/verify-zip.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
+    "lint": "eslint . && npm run lint:architecture",
+    "lint:architecture": "tsx scripts/check-chrome-mutations.ts",
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
@@ -29,6 +31,7 @@
     "test:docs": "vitest run tests/unit/update-chrome-docs.test.ts"
   },
   "dependencies": {
+    "fflate": "^0.8.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "zod": "4.4.3"

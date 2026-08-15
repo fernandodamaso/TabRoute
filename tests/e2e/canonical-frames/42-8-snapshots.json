@@ -1,0 +1,24 @@
+{
+  "nodeId": "42:8",
+  "stem": "42-8-snapshots",
+  "route": "settings",
+  "heading": "Snapshots",
+  "settingsPanel": "snapshots",
+  "scrollerSelector": ".manager-page-scroll",
+  "viewport": {
+    "width": 520,
+    "height": 600
+  },
+  "headerHeight": 52,
+  "navigationHeight": 42,
+  "bodyHeight": 506,
+  "measured": {
+    "viewport": {
+      "width": 520,
+      "height": 600
+    },
+    "headerHeight": 52,
+    "navigationHeight": 42,
+    "bodyHeight": 506
+  }
+}

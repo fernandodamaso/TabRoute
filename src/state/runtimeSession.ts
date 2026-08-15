@@ -27,6 +27,7 @@ export function createEmptyRuntimeSession(input: {
     intentionallyClosedGroupIds: [],
     operationGuards: [],
     pendingGroupRemovals: [],
+    pendingWindowClosures: [],
     associations: []
   };
 }
@@ -69,11 +70,20 @@ export function parseRuntimeSession(
     pendingGroupRemovals: Array.isArray(value.pendingGroupRemovals)
       ? (value.pendingGroupRemovals as PendingGroupRemoval[])
       : [],
+    pendingWindowClosures: Array.isArray(value.pendingWindowClosures)
+      ? (value.pendingWindowClosures as import("../domain/types").PendingWindowClosure[])
+      : [],
     associations: Array.isArray(value.associations)
       ? value.associations.map(parseAssociation)
       : [],
     ...(typeof value.lastFocusedNormalWindowId === "number"
       ? { lastFocusedNormalWindowId: value.lastFocusedNormalWindowId }
+      : {}),
+    ...(isRecord(value.startupRestore)
+      ? {
+          startupRestore:
+            value.startupRestore as unknown as import("../domain/types").StartupRestoreState
+        }
       : {})
   };
 }
@@ -166,8 +176,7 @@ export function scrubRuntimeState(
         : undefined,
     tabObservations: session.tabObservations.filter(
       (observation) =>
-        tabIds.has(observation.tabId) ||
-        referencedTabIds.has(observation.tabId)
+        tabIds.has(observation.tabId) || referencedTabIds.has(observation.tabId)
     ),
     manualOverrides,
     operationGuards: session.operationGuards.map((guard) => ({
@@ -204,7 +213,11 @@ function remapPostconditionTabIds(
   removedTabId: number,
   addedTabId: number
 ): GuardPostcondition | undefined {
-  if (postcondition?.kind !== "tabPlacement") {
+  if (
+    postcondition?.kind !== "tabPlacement" &&
+    postcondition?.kind !== "tabsPresent" &&
+    postcondition?.kind !== "tabsAbsent"
+  ) {
     return postcondition;
   }
   return {
@@ -230,7 +243,18 @@ function scrubPostcondition(
       ...(windowId !== undefined && windowIds.has(windowId)
         ? { windowId }
         : {}),
-      ...(chromeGroupId !== undefined ? { chromeGroupId } : {})
+      ...(chromeGroupId !== undefined && groupIds.has(chromeGroupId)
+        ? { chromeGroupId }
+        : {})
+    };
+  }
+  if (
+    postcondition.kind === "tabsPresent" ||
+    postcondition.kind === "tabsAbsent"
+  ) {
+    return {
+      ...postcondition,
+      tabIds: postcondition.tabIds.filter((tabId) => tabIds.has(tabId))
     };
   }
   const { windowId, ...rest } = postcondition;

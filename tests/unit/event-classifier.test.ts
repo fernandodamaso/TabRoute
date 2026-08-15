@@ -11,9 +11,7 @@ import { GUARD_HARD_MS } from "../../src/actions/operationGuards";
 
 const sessionId = "session-a" as BrowserSessionId;
 
-function inventory(
-  overrides: Partial<ChromeInventory> = {}
-): ChromeInventory {
+function inventory(overrides: Partial<ChromeInventory> = {}): ChromeInventory {
   return {
     windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
     tabs: [
@@ -144,7 +142,19 @@ describe("classifyChromeEvent", () => {
         groupChanged: true,
         pinnedChanged: false
       },
-      inventory({ tabs: [{ ...inventory().tabs[0]!, chromeGroupId: 11 }], groups: [{ id: 11, windowId: 1, title: "Other", color: "grey", collapsed: false, shared: false }] }),
+      inventory({
+        tabs: [{ ...inventory().tabs[0]!, chromeGroupId: 11 }],
+        groups: [
+          {
+            id: 11,
+            windowId: 1,
+            title: "Other",
+            color: "grey",
+            collapsed: false,
+            shared: false
+          }
+        ]
+      }),
       session({
         operationGuards: [
           {

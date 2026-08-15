@@ -29,6 +29,7 @@ export function createDefaultConfiguration(
     schemaVersion: 1,
     fallbackGroupId,
     automationEnabled: true,
+    restorePersistentGroups: true,
     groups: [fallback],
     rules: [],
     persistentTabs: [],
@@ -146,6 +147,9 @@ export function removeManagedGroup(
     ...configuration,
     groups: configuration.groups.filter((group) => group.id !== groupId),
     rules: configuration.rules.filter((rule) => rule.targetGroupId !== groupId),
+    persistentTabs: configuration.persistentTabs.filter(
+      (tab) => tab.managedGroupId !== groupId
+    ),
     updatedAt: timestamp
   };
 }

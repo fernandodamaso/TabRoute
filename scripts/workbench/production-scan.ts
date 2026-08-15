@@ -1,5 +1,15 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile
+} from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { unzipSync } from "fflate";
+import { createArtifactStore, encodeUtf8 } from "./artifacts";
 
 export interface ProductionScanFs {
   readManifest?: () => Promise<string>;
@@ -18,7 +28,33 @@ export interface ProductionGateResult {
   productionBuildPath: string;
   productionScan: { ok: true };
 }
-const EXPECTED_PERMISSIONS = ["tabs", "tabGroups", "storage", "alarms"] as const;
+const EXPECTED_PERMISSIONS = [
+  "tabs",
+  "tabGroups",
+  "storage",
+  "contextMenus",
+  "sessions",
+  "alarms"
+] as const;
+
+const APPROVED_COMMAND_NAMES = [
+  "open-manager",
+  "create-rule-from-tab",
+  "toggle-automation",
+  "save-snapshot",
+  "make-persistent",
+  "remove-persistent",
+  "pin-group",
+  "move-to-other",
+  "undo"
+] as const;
+
+const APPROVED_SUGGESTED_KEYS: Record<string, string> = {
+  "open-manager": "Alt+Shift+M",
+  "create-rule-from-tab": "Alt+Shift+R",
+  "toggle-automation": "Alt+Shift+A",
+  "save-snapshot": "Alt+Shift+S"
+};
 const MARKERS = [
   "TABROUTE_DEV_WORKBENCH_V1",
   "data-workbench-control",
@@ -89,7 +125,61 @@ export async function scanProductionBuild(
     errors.push("manifest_version must be 3");
   if (manifest.incognito !== "not_allowed")
     errors.push('incognito must be "not_allowed"');
-  if ("commands" in manifest) errors.push("manifest commands are not allowed");
+  if ("host_permissions" in manifest)
+    errors.push("manifest must not declare host_permissions");
+  if ("optional_host_permissions" in manifest)
+    errors.push("manifest must not declare optional_host_permissions");
+  const commands = manifest.commands;
+  if (
+    commands === undefined ||
+    typeof commands !== "object" ||
+    commands === null ||
+    Array.isArray(commands)
+  ) {
+    errors.push("manifest commands do not match the approved set");
+  } else {
+    const entries = Object.entries(commands as Record<string, unknown>);
+    const names = entries.map(([name]) => name).sort();
+    const expected = [...APPROVED_COMMAND_NAMES].sort();
+    if (
+      names.length !== expected.length ||
+      names.some((name, index) => name !== expected[index])
+    ) {
+      errors.push("manifest commands do not match the approved set");
+    }
+    let suggestedCount = 0;
+    for (const [name, value] of entries) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        errors.push(`manifest command ${name} is invalid`);
+        continue;
+      }
+      const command = value as Record<string, unknown>;
+      if ("suggested_key" in command) {
+        suggestedCount += 1;
+        const suggested = command.suggested_key;
+        const expectedKey = APPROVED_SUGGESTED_KEYS[name];
+        if (!expectedKey) {
+          errors.push("manifest commands contain an unexpected suggested_key");
+          continue;
+        }
+        if (
+          !suggested ||
+          typeof suggested !== "object" ||
+          Array.isArray(suggested) ||
+          (suggested as { default?: unknown }).default !== expectedKey
+        ) {
+          errors.push(`manifest command ${name} has an invalid suggested_key`);
+        }
+      } else if (name in APPROVED_SUGGESTED_KEYS) {
+        errors.push(`manifest command ${name} is missing suggested_key`);
+      }
+    }
+    if (suggestedCount !== 4) {
+      errors.push(
+        "manifest commands must declare exactly four suggested_key values"
+      );
+    }
+  }
   const permissions = manifest.permissions;
   if (
     !Array.isArray(permissions) ||
@@ -105,6 +195,12 @@ export async function scanProductionBuild(
       values.some((value, index) => value !== EXPECTED_PERMISSIONS[index])
     )
       errors.push("manifest permissions do not match the approved set");
+    if (values.includes("commands"))
+      errors.push('manifest permissions must not include "commands"');
+    if (values.includes("notifications"))
+      errors.push('manifest permissions must not include "notifications"');
+    if (values.includes("unlimitedStorage"))
+      errors.push('manifest permissions must not include "unlimitedStorage"');
   }
   const inspectManifest = (value: unknown, keyPath: string): void => {
     if (value && typeof value === "object")
@@ -226,10 +322,18 @@ export async function writeProductionGateResult(
     "artifacts",
     runId
   );
-  await mkdir(artifactPath, { recursive: true });
+  const store = createArtifactStore({
+    root: artifactPath,
+    runId
+  });
   const resultPath = path.join(artifactPath, "production-gate.json");
   const result: ProductionGateResult = { ...input, resultPath };
-  await writeFile(resultPath, JSON.stringify(result, null, 2), "utf8");
+  await store.write(
+    "production-gate.json",
+    encodeUtf8(JSON.stringify(result, null, 2)),
+    "result"
+  );
+  await store.finalize("completed");
   const pointerPath = productionGatePointerPath(worktreePath);
   await mkdir(path.dirname(pointerPath), { recursive: true });
   await writeFile(pointerPath, resultPath, "utf8");
@@ -245,6 +349,53 @@ export async function readProductionGateResult(
   if (parsed.graph !== "production" || parsed.productionScan.ok !== true)
     throw new Error("WORKBENCH_ARGUMENT: invalid production gate result");
   return parsed;
+}
+
+export async function extractZipArchive(
+  zipPath: string,
+  destination: string
+): Promise<void> {
+  const root = path.resolve(destination);
+  await mkdir(root, { recursive: true });
+  const entries = unzipSync(new Uint8Array(await readFile(zipPath)));
+  for (const [entryName, bytes] of Object.entries(entries)) {
+    const target = path.resolve(root, entryName);
+    const relative = path.relative(root, target);
+    if (
+      relative === ".." ||
+      relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative)
+    )
+      throw new Error(`ZIP entry escapes extraction root: ${entryName}`);
+    if (entryName.endsWith("/")) {
+      await mkdir(target, { recursive: true });
+      continue;
+    }
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, bytes);
+  }
+}
+export async function scanProductionZip(
+  zipPath: string
+): Promise<ProductionScanResult> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tabroute-zip-scan-"));
+  try {
+    await extractZipArchive(zipPath, root);
+    return await scanProductionBuild(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+export async function findChromeZip(outputRoot = ".output"): Promise<string> {
+  const absolute = path.resolve(outputRoot);
+  const entries = await readdir(absolute);
+  const match = entries
+    .filter((name) => /^tabroute-.*-chrome\.zip$/i.test(name))
+    .sort()
+    .at(-1);
+  if (!match) throw new Error(`Chrome zip not found under ${absolute}`);
+  return path.join(absolute, match);
 }
 
 export const scanProduction = scanProductionBuild;

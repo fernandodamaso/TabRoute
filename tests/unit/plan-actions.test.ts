@@ -78,4 +78,51 @@ describe("planRuleRoute", () => {
     });
     expect(planned.kind).toBe("routeToFallback");
   });
+  it("keeps an ungroup rule selectable when its configured group is disabled, paused, or absent", () => {
+    const base = createDefaultConfiguration(
+      () => "00000000-0000-4000-8000-000000000001"
+    );
+    const targetRule = {
+      schemaVersion: 1 as const,
+      id: "00000000-0000-4000-8000-000000000011" as UUID,
+      targetGroupId: docsId,
+      priority: 10,
+      positive: {
+        kind: "host" as const,
+        operator: "exact" as const,
+        value: "docs.example.com"
+      },
+      negative: [],
+      actions: [{ kind: "ungroup" as const }],
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1
+    };
+    for (const groups of [
+      [{ ...base.groups[0]!, id: docsId, enabled: false }],
+      [
+        {
+          ...base.groups[0]!,
+          id: docsId,
+          enabled: true,
+          pausedUntil: Date.now() + 60_000
+        }
+      ],
+      base.groups
+    ]) {
+      const configuration = {
+        ...base,
+        groups,
+        rules: [targetRule]
+      };
+      const tab = { ...inventory().tabs[0]!, chromeGroupId: 42 };
+      const planned = planRuleRoute({
+        inventory: { ...inventory(), tabs: [tab] },
+        tab,
+        configuration,
+        associations: []
+      });
+      expect(planned.kind).toBe("ungroup");
+    }
+  });
 });

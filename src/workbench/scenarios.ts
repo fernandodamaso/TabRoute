@@ -1,4 +1,7 @@
-import { createDefaultConfiguration, createManagedGroup } from "../domain/defaults";
+import {
+  createDefaultConfiguration,
+  createManagedGroup
+} from "../domain/defaults";
 import type { Configuration, Rule, UUID } from "../domain/types";
 import type { ManagerViewFixture } from "../ui/manager/types";
 import type {
@@ -8,6 +11,7 @@ import type {
 } from "./types";
 
 const SEED_TIME = 1_800_000_000_000;
+const PAUSED_FIXTURE_UNTIL = 4_102_444_800_000;
 
 export const FIXTURE_IDS = {
   fallbackGroup: "00000000-0000-4000-8000-000000000001" as UUID,
@@ -59,11 +63,18 @@ function defaultConfiguration(): Configuration {
 }
 
 function withPrimaryGroupFirst(configuration: Configuration): Configuration {
-  const primary = configuration.groups.find((group) => group.id === FIXTURE_IDS.primaryGroup);
+  const primary = configuration.groups.find(
+    (group) => group.id === FIXTURE_IDS.primaryGroup
+  );
   if (!primary) return configuration;
   return {
     ...configuration,
-    groups: [primary, ...configuration.groups.filter((group) => group.id !== FIXTURE_IDS.primaryGroup)]
+    groups: [
+      primary,
+      ...configuration.groups.filter(
+        (group) => group.id !== FIXTURE_IDS.primaryGroup
+      )
+    ]
   };
 }
 
@@ -87,7 +98,9 @@ function rule(
     negative: [],
     actions: input.actions ?? [{ kind: "group" }],
     enabled: input.enabled ?? true,
-    ...(input.pausedUntil === undefined ? {} : { pausedUntil: input.pausedUntil }),
+    ...(input.pausedUntil === undefined
+      ? {}
+      : { pausedUntil: input.pausedUntil }),
     createdAt: SEED_TIME + input.priority,
     updatedAt: SEED_TIME + input.priority
   };
@@ -120,7 +133,9 @@ export const SCENARIO_IDS = [
   "wb:loading",
   "wb:slow",
   "wb:validation-error",
-  "wb:offline"
+  "wb:offline",
+  "wb:sync-incomplete",
+  "wb:local-budget"
 ] as const;
 
 type ScenarioId = (typeof SCENARIO_IDS)[number];
@@ -132,10 +147,48 @@ const PRIMARY_GROUP_FIRST_SCENARIOS: ReadonlySet<ScenarioId> = new Set([
   "wb:populated-persistent-tabs"
 ]);
 
+function diagnosticsFixture(
+  warnings: import("../settings/diagnosticsState").DiagnosticsWarningCode[]
+): ManagerViewFixture {
+  return {
+    persistentTabsByGroup: {},
+    diagnostics: {
+      storage: {
+        syncBytes: warnings.includes("SYNC_QUOTA") ? 102401 : 1200,
+        syncQuotaBytes: 102400,
+        syncLargestItemBytes: 400,
+        syncQuotaBytesPerItem: 8192,
+        syncItemCount: 2,
+        syncMaxItems: 512,
+        localBytes: warnings.includes("LOCAL_BUDGET") ? 9437185 : 5000,
+        localSoftBudgetBytes: 9437184,
+        localQuotaBytes: 10485760,
+        sessionBytes: 200,
+        sessionQuotaBytes: 10485760
+      },
+      warnings
+    }
+  };
+}
+
 function createSeedFor(id: ScenarioId): {
   configuration: Configuration;
   viewFixture: ManagerViewFixture;
 } {
+  if (id === "wb:sync-incomplete") {
+    return {
+      configuration: defaultConfiguration(),
+      viewFixture: diagnosticsFixture(["SYNC_INCOMPLETE"])
+    };
+  }
+
+  if (id === "wb:local-budget") {
+    return {
+      configuration: defaultConfiguration(),
+      viewFixture: diagnosticsFixture(["LOCAL_BUDGET"])
+    };
+  }
+
   if (id === "wb:empty-groups") {
     return {
       configuration: createDefaultConfiguration(
@@ -150,8 +203,26 @@ function createSeedFor(id: ScenarioId): {
   const viewFixture = emptyViewFixture();
 
   if (id === "wb:dense-groups") {
-    const names = ["Research", "Projects", "Inbox", "Reading", "Media", "Admin", "Shopping", "Later"];
-    const colors = ["cyan", "green", "yellow", "purple", "red", "orange", "pink", "grey"] as const;
+    const names = [
+      "Research",
+      "Projects",
+      "Inbox",
+      "Reading",
+      "Media",
+      "Admin",
+      "Shopping",
+      "Later"
+    ];
+    const colors = [
+      "cyan",
+      "green",
+      "yellow",
+      "purple",
+      "red",
+      "orange",
+      "pink",
+      "grey"
+    ] as const;
     for (let index = 0; index < DENSE_GROUP_IDS.length; index += 1) {
       configuration = createManagedGroup(
         configuration,
@@ -174,6 +245,33 @@ function createSeedFor(id: ScenarioId): {
     };
   }
 
+  if (id === "wb:default" || id === "wb:offline") {
+    viewFixture.activity = [
+      {
+        schemaVersion: 1,
+        id: "00000000-0000-4000-8000-000000000201" as import("../domain/types").UUID,
+        action: "Closed duplicate tab",
+        result: "success",
+        affectedManagedGroupIds: [FIXTURE_IDS.primaryGroup],
+        affectedUrls: ["https://docs.example.test/guide"],
+        undoId:
+          "00000000-0000-4000-8000-000000000202" as import("../domain/types").UUID,
+        createdAt: SEED_TIME
+      }
+    ];
+    viewFixture.availableUndo = {
+      schemaVersion: 1,
+      id: "00000000-0000-4000-8000-000000000202" as import("../domain/types").UUID,
+      actionId:
+        "00000000-0000-4000-8000-000000000203" as import("../domain/types").ActionId,
+      browserSessionId:
+        "00000000-0000-4000-8000-000000000204" as import("../domain/types").BrowserSessionId,
+      payloads: [],
+      expiresAt: SEED_TIME + 30_000,
+      createdAt: SEED_TIME
+    };
+  }
+
   if (id === "wb:empty-persistent-tabs") {
     viewFixture.persistentTabsByGroup = {
       [FIXTURE_IDS.primaryGroup]: { state: "empty", tabs: [] }
@@ -181,13 +279,39 @@ function createSeedFor(id: ScenarioId): {
   }
 
   if (id === "wb:populated-persistent-tabs") {
+    configuration = {
+      ...configuration,
+      persistentTabs: [
+        {
+          schemaVersion: 1,
+          id: "00000000-0000-4000-8000-000000000301" as import("../domain/types").UUID,
+          managedGroupId: FIXTURE_IDS.primaryGroup,
+          canonicalUrl: "https://docs.example.test/",
+          acceptedPatterns: ["https://docs.example.test/"],
+          order: 0,
+          createdAt: SEED_TIME,
+          updatedAt: SEED_TIME
+        },
+        {
+          schemaVersion: 1,
+          id: "00000000-0000-4000-8000-000000000302" as import("../domain/types").UUID,
+          managedGroupId: FIXTURE_IDS.primaryGroup,
+          canonicalUrl: "https://mail.example.test/inbox",
+          acceptedPatterns: ["https://mail.example.test/inbox"],
+          order: 1,
+          createdAt: SEED_TIME,
+          updatedAt: SEED_TIME
+        }
+      ]
+    };
     viewFixture.persistentTabsByGroup = {
       [FIXTURE_IDS.primaryGroup]: {
         state: "populated",
         tabs: [
           "Docs — https://docs.example.test/",
           "Inbox — https://mail.example.test/inbox"
-        ]
+        ],
+        persistentTabRecords: configuration.persistentTabs
       }
     };
   }
@@ -209,7 +333,7 @@ function createSeedFor(id: ScenarioId): {
         rule(FIXTURE_IDS.pausedRule, FIXTURE_IDS.primaryGroup, {
           priority: 30,
           host: "calendar.example.test",
-          pausedUntil: "restart"
+          pausedUntil: PAUSED_FIXTURE_UNTIL
         }),
         rule(FIXTURE_IDS.disabledRule, FIXTURE_IDS.secondaryGroup, {
           priority: 20,
@@ -293,7 +417,10 @@ export const SCENARIO_DEFINITIONS: readonly ScenarioDefinition[] = [
     heading: "Groups",
     status: "ready",
     description: "Populated persistent-tab display",
-    snippets: ["Docs — https://docs.example.test/", "Inbox — https://mail.example.test/inbox"]
+    snippets: [
+      "Docs — https://docs.example.test/",
+      "Inbox — https://mail.example.test/inbox"
+    ]
   }),
   definition("wb:mixed-rules-overview", "rules", "none", {
     heading: "Rules",
@@ -306,11 +433,16 @@ export const SCENARIO_DEFINITIONS: readonly ScenarioDefinition[] = [
     status: "ready",
     description: "New rule editor"
   }),
-  definition("wb:edit-rule", "rules", { kind: "edit-rule", ruleId: FIXTURE_IDS.editRule }, {
-    heading: "Edit rule",
-    status: "ready",
-    description: "Existing rule editor"
-  }),
+  definition(
+    "wb:edit-rule",
+    "rules",
+    { kind: "edit-rule", ruleId: FIXTURE_IDS.editRule },
+    {
+      heading: "Edit rule",
+      status: "ready",
+      description: "Existing rule editor"
+    }
+  ),
   definition(
     "wb:confirmation-overlay",
     "rules",
@@ -359,10 +491,22 @@ export const SCENARIO_DEFINITIONS: readonly ScenarioDefinition[] = [
       description: "Injected offline failure"
     },
     { failure: { mode: "offline", scope: "persistent" } }
-  )
+  ),
+  definition("wb:sync-incomplete", "settings", "diagnostics", {
+    heading: "Diagnostics",
+    status: "ready",
+    description: "Pending sync revision diagnostics"
+  }),
+  definition("wb:local-budget", "settings", "diagnostics", {
+    heading: "Diagnostics",
+    status: "ready",
+    description: "Local storage soft-budget warning"
+  })
 ];
 
-const scenarioById = new Map(SCENARIO_DEFINITIONS.map((candidate) => [candidate.id, candidate]));
+const scenarioById = new Map(
+  SCENARIO_DEFINITIONS.map((candidate) => [candidate.id, candidate])
+);
 
 export function getScenarioDefinition(id: string): ScenarioDefinition {
   const scenario = scenarioById.get(id);

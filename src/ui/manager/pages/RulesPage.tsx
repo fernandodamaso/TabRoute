@@ -12,7 +12,8 @@ export function RulesPage({
   onEdit,
   onCreate,
   onCancel,
-  onSaved
+  onSaved,
+  prefill
 }: {
   configuration: Configuration;
   command: (message: ManagerCommand) => Promise<ManagerResponse>;
@@ -23,28 +24,35 @@ export function RulesPage({
   onCreate?: () => void;
   onCancel: () => void;
   onSaved?: (configuration: Configuration) => void;
+  prefill?: { host: string; url: string };
 }) {
-  const rule = editingRuleId && editingRuleId !== "new"
-    ? configuration.rules.find((candidate) => candidate.id === editingRuleId)
-    : undefined;
+  const rule =
+    editingRuleId && editingRuleId !== "new"
+      ? configuration.rules.find((candidate) => candidate.id === editingRuleId)
+      : undefined;
   if (editingRuleId)
-    return <div className="rules-page">
-      <RuleEditorPage
+    return (
+      <div className="rules-page">
+        <RuleEditorPage
+          configuration={configuration}
+          rule={rule}
+          command={command}
+          onCancel={onCancel}
+          onSaved={onSaved}
+          prefill={editingRuleId === "new" ? prefill : undefined}
+        />
+      </div>
+    );
+  return (
+    <div className="rules-page">
+      <RulesOverview
         configuration={configuration}
-        rule={rule}
         command={command}
-        onCancel={onCancel}
-        onSaved={onSaved}
+        initialConfirmDeleteRuleId={initialConfirmDeleteRuleId}
+        onInitialConfirmDeleteConsumed={onInitialConfirmDeleteConsumed}
+        onEdit={onEdit}
+        onCreate={onCreate}
       />
-    </div>;
-  return <div className="rules-page">
-    <RulesOverview
-      configuration={configuration}
-      command={command}
-      initialConfirmDeleteRuleId={initialConfirmDeleteRuleId}
-      onInitialConfirmDeleteConsumed={onInitialConfirmDeleteConsumed}
-      onEdit={onEdit}
-      onCreate={onCreate}
-    />
-  </div>;
+    </div>
+  );
 }

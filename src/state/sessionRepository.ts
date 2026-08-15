@@ -8,6 +8,9 @@ import { parseRuntimeSession } from "./runtimeSession";
 export interface SessionRepository {
   loadSession(): Promise<RuntimeSession>;
   saveSession(session: RuntimeSession): Promise<void>;
+  updateSession(
+    update: (current: RuntimeSession) => RuntimeSession
+  ): Promise<RuntimeSession>;
   loadAssociations(): Promise<readonly ChromeAssociation[]>;
   saveAssociations(associations: readonly ChromeAssociation[]): Promise<void>;
   loadRuntime(): Promise<Record<string, unknown>>;
@@ -51,8 +54,10 @@ const RUNTIME_SESSION_KEYS = [
   "intentionallyClosedGroupIds",
   "operationGuards",
   "pendingGroupRemovals",
+  "pendingWindowClosures",
   "lastFocusedNormalWindowId",
-  "associations"
+  "associations",
+  "startupRestore"
 ] as const satisfies readonly (keyof RuntimeSession)[];
 
 function sessionFromStore(current: Record<string, unknown>): RuntimeSession {
@@ -73,10 +78,14 @@ function toStoredSession(session: RuntimeSession): Record<string, unknown> {
     intentionallyClosedGroupIds: session.intentionallyClosedGroupIds,
     operationGuards: session.operationGuards,
     pendingGroupRemovals: session.pendingGroupRemovals,
+    pendingWindowClosures: session.pendingWindowClosures,
     associations: session.associations
   };
   if (session.lastFocusedNormalWindowId !== undefined) {
     stored.lastFocusedNormalWindowId = session.lastFocusedNormalWindowId;
+  }
+  if (session.startupRestore !== undefined) {
+    stored.startupRestore = session.startupRestore;
   }
   return stored;
 }
@@ -109,9 +118,19 @@ export function createMemorySessionRepository(
     value = mergeStoredSession(value, session);
   }
 
+  async function updateSession(
+    update: (current: RuntimeSession) => RuntimeSession
+  ) {
+    const current = await loadSession();
+    const next = update(current);
+    await saveSession(next);
+    return next;
+  }
+
   return {
     loadSession,
     saveSession,
+    updateSession,
     async loadAssociations() {
       return (await loadSession()).associations;
     },
@@ -170,9 +189,23 @@ export function createChromeSessionRepository(
     });
   }
 
+  async function updateSession(
+    update: (current: RuntimeSession) => RuntimeSession
+  ) {
+    return serialized(async () => {
+      const current = sessionFromStore(await readState());
+      const next = update(current);
+      await storage.set({
+        [SESSION_KEY]: mergeStoredSession(await readState(), next)
+      });
+      return next;
+    });
+  }
+
   return {
     loadSession,
     saveSession,
+    updateSession,
     async loadAssociations() {
       return (await loadSession()).associations;
     },

@@ -1,6 +1,15 @@
 import { expect, it, vi } from "vitest";
-import { createDefaultConfiguration, createManagedGroup } from "../../src/domain/defaults";
+import {
+  createDefaultConfiguration,
+  createManagedGroup
+} from "../../src/domain/defaults";
 import { createManagerMessageRouter } from "../../src/background/managerMessageRouter";
+import type {
+  ActivityManagerPort,
+  DiagnosticsManagerPort,
+  SnapshotManagerPort
+} from "../../src/background/managerMessageRouter";
+import type { ChromeInventory } from "../../src/domain/types";
 import type {
   ManagerCommand,
   ManagerResponse,
@@ -10,6 +19,96 @@ import type {
 const fallbackId = "00000000-0000-4000-8000-000000000001";
 const groupId = "00000000-0000-4000-8000-000000000002";
 
+function activityPort(): ActivityManagerPort {
+  return {
+    async query() {
+      return { persistentTabsByGroup: {}, activity: [] };
+    },
+    async undo() {
+      return "success";
+    },
+    async clear() {
+      return undefined;
+    }
+  };
+}
+
+function snapshotsPort(): SnapshotManagerPort {
+  return {
+    async query() {
+      return { persistentTabsByGroup: {}, snapshots: [] };
+    },
+    async save() {
+      return {
+        ok: false,
+        error: { kind: "transport", message: "snapshots unavailable" }
+      };
+    },
+    async restore() {
+      return {
+        ok: false,
+        error: { kind: "transport", message: "snapshots unavailable" }
+      };
+    },
+    async update() {
+      return {
+        ok: false,
+        error: { kind: "transport", message: "snapshots unavailable" }
+      };
+    },
+    async rename() {
+      return {
+        ok: false,
+        error: { kind: "transport", message: "snapshots unavailable" }
+      };
+    },
+    async delete() {
+      return {
+        ok: false,
+        error: { kind: "transport", message: "snapshots unavailable" }
+      };
+    }
+  };
+}
+
+function diagnosticsPort(): DiagnosticsManagerPort {
+  return {
+    async query() {
+      return {
+        persistentTabsByGroup: {},
+        diagnostics: {
+          storage: {
+            syncBytes: 0,
+            syncQuotaBytes: 102400,
+            syncLargestItemBytes: 0,
+            syncQuotaBytesPerItem: 8192,
+            syncItemCount: 0,
+            syncMaxItems: 512,
+            localBytes: 0,
+            localSoftBudgetBytes: 9437184,
+            localQuotaBytes: 10485760,
+            sessionBytes: 0,
+            sessionQuotaBytes: 10485760
+          },
+          warnings: []
+        }
+      };
+    },
+    async recheck() {
+      return this.query();
+    },
+    async retryPendingSync() {
+      return this.query();
+    },
+    async reconcileAll() {
+      return undefined;
+    },
+    async exportActivityLog() {
+      return { persistentTabsByGroup: {}, activityLogExport: "[]" };
+    }
+  };
+}
+
 function setup() {
   const initial = createManagedGroup(
     createDefaultConfiguration(() => fallbackId),
@@ -18,18 +117,31 @@ function setup() {
     () => 2
   );
   let configuration = initial;
-  const save = vi.fn(async (next) => { configuration = next; });
-  const replaceConfiguration = vi.fn(async (next) => { configuration = next; });
+  const save = vi.fn(async (next) => {
+    configuration = next;
+  });
+  const replaceConfiguration = vi.fn(async (next) => {
+    configuration = next;
+  });
   const router = createManagerMessageRouter({
     repository: { save },
     controller: {
       getConfiguration: () => configuration,
       replaceConfiguration
     },
+    activity: activityPort(),
+    snapshots: snapshotsPort(),
+    diagnostics: diagnosticsPort(),
     randomUuid: () => "00000000-0000-4000-8000-000000000003",
     now: () => 3
   });
-  return { router, initial, save, replaceConfiguration, getConfiguration: () => configuration };
+  return {
+    router,
+    initial,
+    save,
+    replaceConfiguration,
+    getConfiguration: () => configuration
+  };
 }
 
 it("returns the validated configuration and shared manager metadata", async () => {
@@ -54,7 +166,9 @@ it("accepts typed group and rule commands and persists exactly once", async () =
   };
   const response = await router.handle(command);
   expect(response.ok).toBe(true);
-  expect(getConfiguration().groups.find((group) => group.id === groupId)?.enabled).toBe(false);
+  expect(
+    getConfiguration().groups.find((group) => group.id === groupId)?.enabled
+  ).toBe(false);
   expect(save).toHaveBeenCalledTimes(1);
   expect(replaceConfiguration).toHaveBeenCalledTimes(1);
 });
@@ -63,7 +177,11 @@ it("rejects invalid ids and references without replacing the last valid configur
   const { router, save, replaceConfiguration, initial } = setup();
   const response = await router.handle({
     kind: "manager-command",
-    command: { kind: "updateGroup", groupId: "not-a-uuid" as never, patch: { name: "Nope" } }
+    command: {
+      kind: "updateGroup",
+      groupId: "not-a-uuid" as never,
+      patch: { name: "Nope" }
+    }
   });
   expect(response).toMatchObject({ ok: false, error: { kind: "validation" } });
   expect(save).not.toHaveBeenCalled();
@@ -76,17 +194,28 @@ it("rejects invalid ids and references without replacing the last valid configur
 it("returns the last valid configuration after a persistence failure", async () => {
   const initial = setup().initial;
   let configuration = initial;
-  const save = vi.fn(async () => { throw new Error("storage unavailable"); });
-  const replaceConfiguration = vi.fn(async (next: typeof initial) => { configuration = next; });
+  const save = vi.fn(async () => {
+    throw new Error("storage unavailable");
+  });
+  const replaceConfiguration = vi.fn(async (next: typeof initial) => {
+    configuration = next;
+  });
   const router = createManagerMessageRouter({
     repository: { save },
     controller: { getConfiguration: () => configuration, replaceConfiguration },
+    activity: activityPort(),
+    snapshots: snapshotsPort(),
+    diagnostics: diagnosticsPort(),
     now: () => 4
   });
 
   const failed = await router.handle({
     kind: "manager-command",
-    command: { kind: "updateGroup", groupId: groupId as never, patch: { name: "Rejected" } }
+    command: {
+      kind: "updateGroup",
+      groupId: groupId as never,
+      patch: { name: "Rejected" }
+    }
   });
   expect(failed).toMatchObject({ ok: false, error: { kind: "persistence" } });
   expect(replaceConfiguration).not.toHaveBeenCalled();
@@ -107,24 +236,35 @@ it("keeps a durable mutation accepted when post-save reconciliation throws", asy
   const router = createManagerMessageRouter({
     repository: { save },
     controller: { getConfiguration: () => configuration, replaceConfiguration },
+    activity: activityPort(),
+    snapshots: snapshotsPort(),
+    diagnostics: diagnosticsPort(),
     now: () => 5
   });
 
   const response = await router.handle({
     kind: "manager-command",
-    command: { kind: "updateGroup", groupId: groupId as never, patch: { name: "Committed" } }
+    command: {
+      kind: "updateGroup",
+      groupId: groupId as never,
+      patch: { name: "Committed" }
+    }
   });
 
   expect(response).toMatchObject({ ok: true });
   if (response.ok)
-    expect(response.configuration.groups.find((group) => group.id === groupId)?.name).toBe("Committed");
+    expect(
+      response.configuration.groups.find((group) => group.id === groupId)?.name
+    ).toBe("Committed");
   expect(save).toHaveBeenCalledTimes(1);
   expect(replaceConfiguration).toHaveBeenCalledTimes(1);
 
   const query = await router.handle({ kind: "manager-query" });
   expect(query.ok).toBe(true);
   if (query.ok)
-    expect(query.configuration.groups.find((group) => group.id === groupId)?.name).toBe("Committed");
+    expect(
+      query.configuration.groups.find((group) => group.id === groupId)?.name
+    ).toBe("Committed");
 });
 
 it("serializes concurrent mutations against the latest persisted configuration", async () => {
@@ -134,23 +274,45 @@ it("serializes concurrent mutations against the latest persisted configuration",
   const save = vi.fn((next: typeof initial) => {
     if (save.mock.calls.length === 1) {
       return new Promise<void>((resolve) => {
-        releaseFirst = () => { configuration = next; resolve(); };
+        releaseFirst = () => {
+          configuration = next;
+          resolve();
+        };
       });
     }
     configuration = next;
     return Promise.resolve();
   });
-  const replaceConfiguration = vi.fn(async (next: typeof initial) => { configuration = next; });
+  const replaceConfiguration = vi.fn(async (next: typeof initial) => {
+    configuration = next;
+  });
   const router = createManagerMessageRouter({
     repository: { save },
     controller: { getConfiguration: () => configuration, replaceConfiguration },
+    activity: activityPort(),
+    snapshots: snapshotsPort(),
+    diagnostics: diagnosticsPort(),
     randomUuid: () => "00000000-0000-4000-8000-000000000003",
     now: () => 3
   });
 
-  const first = router.handle({ kind: "manager-command", command: { kind: "updateGroup", groupId: groupId as never, patch: { name: "First" } } });
+  const first = router.handle({
+    kind: "manager-command",
+    command: {
+      kind: "updateGroup",
+      groupId: groupId as never,
+      patch: { name: "First" }
+    }
+  });
   await Promise.resolve();
-  const second = router.handle({ kind: "manager-command", command: { kind: "updateGroup", groupId: groupId as never, patch: { color: "red" } } });
+  const second = router.handle({
+    kind: "manager-command",
+    command: {
+      kind: "updateGroup",
+      groupId: groupId as never,
+      patch: { color: "red" }
+    }
+  });
   await Promise.resolve();
   releaseFirst();
   await Promise.all([first, second]);
@@ -160,12 +322,107 @@ it("serializes concurrent mutations against the latest persisted configuration",
   expect(save).toHaveBeenCalledTimes(2);
 });
 
+it("pins a group from live inventory members instead of stale configuration URLs", async () => {
+  const initial = setup().initial;
+  let configuration = initial;
+  const inventory: ChromeInventory = {
+    windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+    tabs: [
+      {
+        id: 10,
+        windowId: 1,
+        index: 0,
+        chromeGroupId: 42,
+        url: "https://live.example.com/page",
+        title: "Live",
+        pinned: false,
+        active: false,
+        incognito: false,
+        lastAccessed: 1
+      }
+    ],
+    groups: [
+      {
+        id: 42,
+        windowId: 1,
+        title: "Work",
+        color: "blue",
+        collapsed: false,
+        shared: false
+      }
+    ],
+    capturedAt: 1
+  };
+  const save = vi.fn(async (next) => {
+    configuration = next;
+  });
+  const replaceConfiguration = vi.fn(async (next) => {
+    configuration = next;
+  });
+  const router = createManagerMessageRouter({
+    repository: { save },
+    controller: {
+      getConfiguration: () => configuration,
+      replaceConfiguration
+    },
+    activity: activityPort(),
+    snapshots: snapshotsPort(),
+    diagnostics: diagnosticsPort(),
+    inventory: {
+      readInventory: async () => inventory,
+      loadPreferredWindowId: async () => 1,
+      loadAssociations: async () => [
+        {
+          managedGroupId: groupId as never,
+          chromeGroupId: 42,
+          chromeWindowId: 1,
+          observedTitle: "Work",
+          observedMemberUrls: ["https://live.example.com/page"],
+          observedAt: 1
+        }
+      ]
+    },
+    randomUuid: () => "00000000-0000-4000-8000-000000000010",
+    now: () => 5
+  });
+
+  const response = await router.handle({
+    kind: "manager-command",
+    command: { kind: "pinGroup", managedGroupId: groupId as never }
+  });
+
+  expect(response.ok).toBe(true);
+  const group = configuration.groups.find((item) => item.id === groupId);
+  expect(group?.isPersistent).toBe(true);
+  expect(configuration.persistentTabs).toEqual([
+    expect.objectContaining({
+      managedGroupId: groupId,
+      canonicalUrl: "https://live.example.com/page",
+      order: 0
+    })
+  ]);
+});
+
 it("declares all manager commands as one exhaustive typed union", () => {
   const commands: ManagerCommand["command"]["kind"][] = [
-    "updateGroup", "createGroup", "deleteGroup", "saveRule", "duplicateRule",
-    "deleteRule", "setRuleEnabled", "setRulePaused"
+    "updateGroup",
+    "createGroup",
+    "deleteGroup",
+    "saveRule",
+    "duplicateRule",
+    "deleteRule",
+    "setRuleEnabled",
+    "setRulePaused",
+    "undo",
+    "clearActivity",
+    "savePersistentTab",
+    "removePersistent",
+    "reorderPersistentTabs",
+    "pinGroup",
+    "makePersistent",
+    "setRestorePersistentGroups"
   ];
-  expect(commands).toHaveLength(8);
+  expect(commands).toHaveLength(16);
 });
 
 it("keeps typed transport records and failures in the manager contract", () => {
@@ -201,6 +458,10 @@ it("keeps typed transport records and failures in the manager contract", () => {
 
   expect(response.ok).toBe(false);
   if (!response.ok)
-    expect(response.error).toMatchObject({ kind: "transport", code: "NO_RESPONSE", field: "runtime" });
+    expect(response.error).toMatchObject({
+      kind: "transport",
+      code: "NO_RESPONSE",
+      field: "runtime"
+    });
   expect(records).toHaveLength(2);
 });

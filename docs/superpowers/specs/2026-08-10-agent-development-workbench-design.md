@@ -207,15 +207,15 @@ The extension ID is always derived from the launched session. It is never config
 
 Query parameters have the following exact contract:
 
-| Parameter | Allowed values | Meaning |
-|---|---|---|
-| `workbench` | `1` | Development-build gate. In a production build it has no effect and no workbench modules are present. |
-| `mode` | `fixture`, `real` | Selects `FixtureManagerTransport` or `ChromeManagerTransport`. Fixture is the default for the interactive workbench. |
-| `route` | `groups`, `rules`, `activity`, `settings` | Selects the shared manager's primary route. |
-| `scenario` | A ScenarioRegistry ID prefixed with `wb:` | Selects deterministic fixture seed and expected state. Real mode accepts only `wb:default`; it never silently seeds fixture data. IDs are URL-encoded when written. |
-| `deep-link` | `none`, `new-rule`, `edit-rule:<uuid>`, `confirm-delete:<uuid>` | Selects an existing manager subview or overlay after the primary route is loaded. Snapshot and Diagnostics subviews are not part of this initial contract; their owning issues add them to the extensible registry. Values are URL-encoded when written. |
-| `latency` | Integer `0` through `5000` | Fixture response delay in milliseconds. Real mode accepts only `0`; real timing is controlled by the worker and test timeout. |
-| `failure` | `none` or `<mode>[:<scope>]`, where mode is `query`, `command`, `validation`, or `offline`, and scope is `once` or `persistent` | Fixture failure policy. An omitted scope means `persistent`. Real mode accepts only `none`; real failures come from the actual worker or browser session. |
+| Parameter   | Allowed values                                                                                                                  | Meaning                                                                                                                                                                                                                                                  |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workbench` | `1`                                                                                                                             | Development-build gate. In a production build it has no effect and no workbench modules are present.                                                                                                                                                     |
+| `mode`      | `fixture`, `real`                                                                                                               | Selects `FixtureManagerTransport` or `ChromeManagerTransport`. Fixture is the default for the interactive workbench.                                                                                                                                     |
+| `route`     | `groups`, `rules`, `activity`, `settings`                                                                                       | Selects the shared manager's primary route.                                                                                                                                                                                                              |
+| `scenario`  | A ScenarioRegistry ID prefixed with `wb:`                                                                                       | Selects deterministic fixture seed and expected state. Real mode accepts only `wb:default`; it never silently seeds fixture data. IDs are URL-encoded when written.                                                                                      |
+| `deep-link` | `none`, `new-rule`, `edit-rule:<uuid>`, `confirm-delete:<uuid>`                                                                 | Selects an existing manager subview or overlay after the primary route is loaded. Snapshot and Diagnostics subviews are not part of this initial contract; their owning issues add them to the extensible registry. Values are URL-encoded when written. |
+| `latency`   | Integer `0` through `5000`                                                                                                      | Fixture response delay in milliseconds. Real mode accepts only `0`; real timing is controlled by the worker and test timeout.                                                                                                                            |
+| `failure`   | `none` or `<mode>[:<scope>]`, where mode is `query`, `command`, `validation`, or `offline`, and scope is `once` or `persistent` | Fixture failure policy. An omitted scope means `persistent`. Real mode accepts only `none`; real failures come from the actual worker or browser session.                                                                                                |
 
 Unsupported parameters and invalid values are rejected by the runner with a machine-readable argument error. They are not silently converted to a different scenario. The workbench controls update the URL with `history.replaceState` and apply the same validation rules.
 
@@ -224,7 +224,10 @@ Unsupported parameters and invalid values are rejected by the runner with a mach
 ```ts
 type FixtureFailurePolicy =
   | { mode: "none" }
-  | { mode: "query" | "command" | "validation" | "offline"; scope: "once" | "persistent" };
+  | {
+      mode: "query" | "command" | "validation" | "offline";
+      scope: "once" | "persistent";
+    };
 ```
 
 Failure matching is exact. `query` matches only `manager-query`. `command` matches every non-query `manager-command`. `validation` matches mutating commands and returns a typed validation rejection without applying or persisting the command. `offline` rejects every request, including queries and commands, with a typed offline failure. A `once` policy is consumed after the first matching request; non-matching requests do not consume it. A `persistent` policy remains active until the failure control changes it or reset clears it. `none` never injects a failure.
@@ -235,23 +238,23 @@ Normal production options URLs do not contain workbench controls. A production p
 
 The initial registry contains these stable IDs:
 
-| ID | Route/deep link | Seed and purpose |
-|---|---|---|
-| `wb:default` | `groups` / `none` | Default fallback group, one managed group, and the normal ready state. |
-| `wb:empty-groups` | `groups` / `none` | No non-fallback groups; proves the empty group navigator and create-group path. |
-| `wb:dense-groups` | `groups` / `none` | Enough groups to require navigator scrolling and selected-group preservation. |
-| `wb:enabled-group` | `groups` / `none` | Selected managed group with enablement on and its normal inspector controls. |
-| `wb:disabled-group` | `groups` / `none` | Selected non-fallback group with enablement off and its disabled-state explanation. |
-| `wb:empty-persistent-tabs` | `groups` / `none` | Selected persistent group with no persistent-tab definitions. |
-| `wb:populated-persistent-tabs` | `groups` / `none` | Selected persistent group with ordered definitions and accepted URL patterns. |
-| `wb:mixed-rules-overview` | `rules` / `none` | Enabled, paused, disabled, grouped, and ungrouped rules for overview filters and counts. |
-| `wb:new-rule` | `rules` / `new-rule` | New flat rule editor with deterministic defaults and no saved mutation before submit. |
-| `wb:edit-rule` | `rules` / `edit-rule:<fixture-rule-uuid>` | Existing rule editor with stable fixture rule identity and populated fields. |
-| `wb:confirmation-overlay` | `rules` / `confirm-delete:<fixture-rule-uuid>` | Delete confirmation overlay with focus, Escape, cancel, and confirm states. |
-| `wb:loading` | `groups` / `none` | Initial query remains loading until the deterministic fixture response is released. |
-| `wb:slow` | `groups` / `none` | Ready state after a configured non-zero delay; proves status and timeout separation. |
-| `wb:validation-error` | `rules` / `new-rule` | Typed validation failure from a save attempt while preserving the last valid state. |
-| `wb:offline` | `groups` / `none` | Transport offline failure with recoverable retry/reset behavior. |
+| ID                             | Route/deep link                                | Seed and purpose                                                                         |
+| ------------------------------ | ---------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `wb:default`                   | `groups` / `none`                              | Default fallback group, one managed group, and the normal ready state.                   |
+| `wb:empty-groups`              | `groups` / `none`                              | No non-fallback groups; proves the empty group navigator and create-group path.          |
+| `wb:dense-groups`              | `groups` / `none`                              | Enough groups to require navigator scrolling and selected-group preservation.            |
+| `wb:enabled-group`             | `groups` / `none`                              | Selected managed group with enablement on and its normal inspector controls.             |
+| `wb:disabled-group`            | `groups` / `none`                              | Selected non-fallback group with enablement off and its disabled-state explanation.      |
+| `wb:empty-persistent-tabs`     | `groups` / `none`                              | Selected persistent group with no persistent-tab definitions.                            |
+| `wb:populated-persistent-tabs` | `groups` / `none`                              | Selected persistent group with ordered definitions and accepted URL patterns.            |
+| `wb:mixed-rules-overview`      | `rules` / `none`                               | Enabled, paused, disabled, grouped, and ungrouped rules for overview filters and counts. |
+| `wb:new-rule`                  | `rules` / `new-rule`                           | New flat rule editor with deterministic defaults and no saved mutation before submit.    |
+| `wb:edit-rule`                 | `rules` / `edit-rule:<fixture-rule-uuid>`      | Existing rule editor with stable fixture rule identity and populated fields.             |
+| `wb:confirmation-overlay`      | `rules` / `confirm-delete:<fixture-rule-uuid>` | Delete confirmation overlay with focus, Escape, cancel, and confirm states.              |
+| `wb:loading`                   | `groups` / `none`                              | Initial query remains loading until the deterministic fixture response is released.      |
+| `wb:slow`                      | `groups` / `none`                              | Ready state after a configured non-zero delay; proves status and timeout separation.     |
+| `wb:validation-error`          | `rules` / `new-rule`                           | Typed validation failure from a save attempt while preserving the last valid state.      |
+| `wb:offline`                   | `groups` / `none`                              | Transport offline failure with recoverable retry/reset behavior.                         |
 
 The registry uses deterministic UUIDs, timestamps, group ordering, rule ordering, persistent-tab ordering, and labels for manager data that exists when the issue starts. It does not use `Date.now()`, random UUIDs, the user's storage, or live Chrome inventory. It does not define Activity, Undo, Sync, Local-shadow, snapshot, or other feature-storage fixtures.
 
@@ -326,31 +329,31 @@ Temporary profile, Playwright report, trace, and transient screenshot paths are 
 
 The implementation may choose the exact script file names, but these command names and behaviors are required:
 
-| Command | Required behavior |
-|---|---|
-| `npm run workbench` | Build the current worktree in workbench mode, launch an isolated bundled Chromium session, open fixture-mode options with the canonical default scenario, keep the session available for agent inspection, and emit logs/results. |
-| `npm run workbench:real` | Perform the same isolated startup sequence in real mode. Use actual worker/storage/typed commands and never seed fixture state. |
-| `npm run test:workbench` | Run fixture-mode Playwright tests for all initial scenarios, route navigation, deep links, focus order, scroll ownership, latency/failure/reset behavior, exact preview size, command log, and screenshots. |
+| Command                  | Required behavior                                                                                                                                                                                                                                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run workbench`      | Build the current worktree in workbench mode, launch an isolated bundled Chromium session, open fixture-mode options with the canonical default scenario, keep the session available for agent inspection, and emit logs/results.                                                                                   |
+| `npm run workbench:real` | Perform the same isolated startup sequence in real mode. Use actual worker/storage/typed commands and never seed fixture state.                                                                                                                                                                                     |
+| `npm run test:workbench` | Run fixture-mode Playwright tests for all initial scenarios, route navigation, deep links, focus order, scroll ownership, latency/failure/reset behavior, exact preview size, command log, and screenshots.                                                                                                         |
 | `npm run test:extension` | Build the production extension, run the production-output scan, then run the real bundled-Chromium tests registered for the current issue. The enabling task registers messaging, worker restart, options, popup, and profile isolation; feature issues plug their own storage and Sync tests into the same runner. |
-| `npm run smoke:popup` | Build the current worktree, load it in an isolated bundled-Chromium profile, open the actual popup entry point, verify the shared manager starts at Groups at 520 × 600, and emit one screenshot and machine-readable result. It does not use the workbench controls. |
+| `npm run smoke:popup`    | Build the current worktree, load it in an isolated bundled-Chromium profile, open the actual popup entry point, verify the shared manager starts at Groups at 520 × 600, and emit one screenshot and machine-readable result. It does not use the workbench controls.                                               |
 
 All commands fail fast on build or readiness failure, return a non-zero exit code for an assertion failure, and print the result path. No command relies on a pre-running development server, an existing browser, manually prepared storage, or a fixed extension ID.
 
 ## 11. Testing matrix
 
-| Area | Test form | Required proof |
-|---|---|---|
-| Public manager behavior | Vitest with Testing Library and typed transport doubles | Shared manager renders through either adapter; route changes, focus target, 520 × 600 metadata, commands, accepted state, validation errors, offline state, and reset behavior are observable through the public interface. |
-| Fixture transport | Vitest | Deterministic seeds, UUIDs, timestamps, command ordering, latency, controlled failures, reset, and no live Chrome imports. |
-| Fixture UI | Playwright bundled Chromium | Every initial scenario loads; route and deep-link controls work; focus moves to the manager route target; only the intended body scrolls; overlays trap/restore focus as specified; screenshots are captured at exact preview size. |
-| Fixture evidence | Playwright and result-schema assertions | Command log, screenshots, console logs, route/scenario/mode metadata, and machine-readable results are complete and tied to one run ID. |
-| Real manager messaging | Playwright bundled Chromium | Options and popup send typed queries/commands to the actual worker; worker responses are accepted state; no UI module calls a Chrome mutation API. |
-| Existing repository behavior | Playwright extension page plus manager commands | The enabling task verifies only configuration behavior and persistence paths that exist when the issue starts. Invalid commands do not replace valid state. It does not add new storage semantics. |
-| Worker restart | Playwright/CDP isolated session | Worker termination and wake-up leave the current repository behavior available; a new worker answers the typed manager query without relying on previous globals. Feature issues add assertions for any new durable or session state they introduce. |
-| Feature-owned storage and lifecycle | Later issue using the same runner | An issue that adds Sync, Local shadows, Activity, Undo, snapshots, or another storage contract adds its own isolated real-mode setup, assertions, and evidence. Those tests are not acceptance criteria for the enabling workbench. |
-| Popup smoke | Playwright bundled Chromium | The real popup entry point uses the same `ManagerApp`, starts on Groups, has exact viewport dimensions, and produces screenshot evidence. |
-| Production exclusion | Build output scan | The entire built `.output/chrome-mv3` tree contains none of the exact workbench-only markers, no `wb:` scenario ID, and no production HTML or manifest entry named `workbench`. `ChromeManagerTransport` and ordinary words such as `default`, `loading`, and `offline` are allowed. |
-| Release check | One final human check in branded Chrome Stable | The production build loads as an unpacked MV3 extension, the Action/permission surface is correct, popup and options open, and no workbench UI appears. This is the only check allowed to use the branded Chrome extension-management UI. |
+| Area                                | Test form                                               | Required proof                                                                                                                                                                                                                                                                       |
+| ----------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Public manager behavior             | Vitest with Testing Library and typed transport doubles | Shared manager renders through either adapter; route changes, focus target, 520 × 600 metadata, commands, accepted state, validation errors, offline state, and reset behavior are observable through the public interface.                                                          |
+| Fixture transport                   | Vitest                                                  | Deterministic seeds, UUIDs, timestamps, command ordering, latency, controlled failures, reset, and no live Chrome imports.                                                                                                                                                           |
+| Fixture UI                          | Playwright bundled Chromium                             | Every initial scenario loads; route and deep-link controls work; focus moves to the manager route target; only the intended body scrolls; overlays trap/restore focus as specified; screenshots are captured at exact preview size.                                                  |
+| Fixture evidence                    | Playwright and result-schema assertions                 | Command log, screenshots, console logs, route/scenario/mode metadata, and machine-readable results are complete and tied to one run ID.                                                                                                                                              |
+| Real manager messaging              | Playwright bundled Chromium                             | Options and popup send typed queries/commands to the actual worker; worker responses are accepted state; no UI module calls a Chrome mutation API.                                                                                                                                   |
+| Existing repository behavior        | Playwright extension page plus manager commands         | The enabling task verifies only configuration behavior and persistence paths that exist when the issue starts. Invalid commands do not replace valid state. It does not add new storage semantics.                                                                                   |
+| Worker restart                      | Playwright/CDP isolated session                         | Worker termination and wake-up leave the current repository behavior available; a new worker answers the typed manager query without relying on previous globals. Feature issues add assertions for any new durable or session state they introduce.                                 |
+| Feature-owned storage and lifecycle | Later issue using the same runner                       | An issue that adds Sync, Local shadows, Activity, Undo, snapshots, or another storage contract adds its own isolated real-mode setup, assertions, and evidence. Those tests are not acceptance criteria for the enabling workbench.                                                  |
+| Popup smoke                         | Playwright bundled Chromium                             | The real popup entry point uses the same `ManagerApp`, starts on Groups, has exact viewport dimensions, and produces screenshot evidence.                                                                                                                                            |
+| Production exclusion                | Build output scan                                       | The entire built `.output/chrome-mv3` tree contains none of the exact workbench-only markers, no `wb:` scenario ID, and no production HTML or manifest entry named `workbench`. `ChromeManagerTransport` and ordinary words such as `default`, `loading`, and `offline` are allowed. |
+| Release check                       | One final human check in branded Chrome Stable          | The production build loads as an unpacked MV3 extension, the Action/permission surface is correct, popup and options open, and no workbench UI appears. This is the only check allowed to use the branded Chrome extension-management UI.                                            |
 
 Vitest tests verify public behavior and transport contracts. They must not inspect private React implementation details to claim browser behavior. Playwright tests verify rendered navigation, focus, scrolling, overlays, screenshots, extension messaging, and the lifecycle capability registered by the current issue. Feature-specific storage behavior is tested only by the issue that owns it. The two levels are complementary and neither is a substitute for the other.
 

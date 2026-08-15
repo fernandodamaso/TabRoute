@@ -1,0 +1,24 @@
+{
+  "nodeId": "42:4",
+  "stem": "42-4-expanded-editor",
+  "route": "rules",
+  "heading": "New rule",
+  "settingsPanel": "root",
+  "scrollerSelector": ".manager-page-scroll",
+  "viewport": {
+    "width": 520,
+    "height": 600
+  },
+  "headerHeight": 52,
+  "navigationHeight": 42,
+  "bodyHeight": 506,
+  "measured": {
+    "viewport": {
+      "width": 520,
+      "height": 600
+    },
+    "headerHeight": 52,
+    "navigationHeight": 42,
+    "bodyHeight": 506
+  }
+}

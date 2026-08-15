@@ -25,8 +25,10 @@ export function applyChromeGroupPresentation(
     configuredPrefix && title.startsWith(configuredPrefix)
       ? title.slice(configuredPrefix.length)
       : title;
+  const nextName = name || group.name;
+  if (nextName === group.name && color === group.color) return configuration;
   return updateManagedGroup(configuration, managedGroupId, {
-    name: name || group.name,
+    name: nextName,
     color
   });
 }

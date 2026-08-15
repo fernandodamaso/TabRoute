@@ -62,7 +62,9 @@
 **Interfaces:**
 
 ```ts
-export type BrowserSessionId = string & { readonly __brand: "BrowserSessionId" };
+export type BrowserSessionId = string & {
+  readonly __brand: "BrowserSessionId";
+};
 export type ActionId = string & { readonly __brand: "ActionId" };
 
 export type GuardEventKind =
@@ -80,8 +82,21 @@ export type GuardEventKind =
   | "groupRemoved";
 
 export type GuardPostcondition =
-  | { kind: "tabPlacement"; tabIds: number[]; windowId: number; chromeGroupId?: number; ungrouped?: true }
-  | { kind: "managedGroupState"; managedGroupId: UUID; windowId?: number; title?: string; color?: ChromeGroupColor; collapsed?: boolean };
+  | {
+      kind: "tabPlacement";
+      tabIds: number[];
+      windowId: number;
+      chromeGroupId?: number;
+      ungrouped?: true;
+    }
+  | {
+      kind: "managedGroupState";
+      managedGroupId: UUID;
+      windowId?: number;
+      title?: string;
+      color?: ChromeGroupColor;
+      collapsed?: boolean;
+    };
 
 export interface OperationGuard {
   id: UUID;
@@ -153,15 +168,48 @@ export interface RuntimeSession {
 
 export type ChromeEventHint =
   | { kind: "tabCreated"; tabId: number }
-  | { kind: "tabUpdated"; tabId: number; urlChanged: boolean; groupChanged: boolean; pinnedChanged: boolean }
+  | {
+      kind: "tabUpdated";
+      tabId: number;
+      urlChanged: boolean;
+      groupChanged: boolean;
+      pinnedChanged: boolean;
+    }
   | { kind: "tabActivated"; tabId: number; windowId: number }
-  | { kind: "tabMoved"; tabId: number; windowId: number; fromIndex: number; toIndex: number }
-  | { kind: "tabAttached"; tabId: number; newWindowId: number; newPosition: number }
-  | { kind: "tabDetached"; tabId: number; oldWindowId: number; oldPosition: number }
-  | { kind: "tabRemoved"; tabId: number; windowId: number; isWindowClosing: boolean }
+  | {
+      kind: "tabMoved";
+      tabId: number;
+      windowId: number;
+      fromIndex: number;
+      toIndex: number;
+    }
+  | {
+      kind: "tabAttached";
+      tabId: number;
+      newWindowId: number;
+      newPosition: number;
+    }
+  | {
+      kind: "tabDetached";
+      tabId: number;
+      oldWindowId: number;
+      oldPosition: number;
+    }
+  | {
+      kind: "tabRemoved";
+      tabId: number;
+      windowId: number;
+      isWindowClosing: boolean;
+    }
   | { kind: "tabReplaced"; addedTabId: number; removedTabId: number }
-  | { kind: "groupCreated" | "groupUpdated" | "groupMoved" | "groupRemoved"; group: ChromeGroupSnapshot }
-  | { kind: "windowFocusChanged"; focus: { kind: "none" } | { kind: "normal"; windowId: number } }
+  | {
+      kind: "groupCreated" | "groupUpdated" | "groupMoved" | "groupRemoved";
+      group: ChromeGroupSnapshot;
+    }
+  | {
+      kind: "windowFocusChanged";
+      focus: { kind: "none" } | { kind: "normal"; windowId: number };
+    }
   | { kind: "windowRemoved"; windowId: number }
   | { kind: "alarm"; name: string };
 
@@ -206,7 +254,11 @@ import {
   scrubRuntimeState,
   transferReplacedTab
 } from "../../src/state/runtimeSession";
-import type { BrowserSessionId, OperationGuard, RuntimeSession } from "../../src/domain/types";
+import type {
+  BrowserSessionId,
+  OperationGuard,
+  RuntimeSession
+} from "../../src/domain/types";
 
 const sessionId = "session-a" as BrowserSessionId;
 
@@ -232,7 +284,8 @@ describe("tabs.onReplaced transfer", () => {
     const guard: OperationGuard = {
       id: "00000000-0000-4000-8000-000000000010" as RuntimeSession["operationGuards"][number]["id"],
       browserSessionId: sessionId,
-      actionId: "00000000-0000-4000-8000-000000000011" as OperationGuard["actionId"],
+      actionId:
+        "00000000-0000-4000-8000-000000000011" as OperationGuard["actionId"],
       operation: "assignTabsToManagedGroup",
       phase: "settling",
       tabIds: [7],
@@ -245,7 +298,12 @@ describe("tabs.onReplaced transfer", () => {
     const next = transferReplacedTab(
       session({
         tabObservations: [
-          { tabId: 7, firstObservedAt: 1, firstObservedOrdinal: 0, lastObservedUrl: "https://a.example/" }
+          {
+            tabId: 7,
+            firstObservedAt: 1,
+            firstObservedOrdinal: 0,
+            lastObservedUrl: "https://a.example/"
+          }
         ],
         manualOverrides: {
           "7": { tabId: 7, placement: { kind: "ungrouped" }, createdAt: 1 }
@@ -253,7 +311,8 @@ describe("tabs.onReplaced transfer", () => {
         operationGuards: [guard],
         pendingGroupRemovals: [
           {
-            managedGroupId: "00000000-0000-4000-8000-000000000001" as RuntimeSession["intentionallyClosedGroupIds"][number],
+            managedGroupId:
+              "00000000-0000-4000-8000-000000000001" as RuntimeSession["intentionallyClosedGroupIds"][number],
             removedChromeGroupId: 11,
             oldWindowId: 1,
             memberTabIds: [7],
@@ -269,7 +328,9 @@ describe("tabs.onReplaced transfer", () => {
     );
     expect(next.tabObservations[0]?.tabId).toBe(99);
     expect(next.tabObservations[0]?.firstObservedOrdinal).toBe(0);
-    expect(next.manualOverrides["99"]?.placement).toEqual({ kind: "ungrouped" });
+    expect(next.manualOverrides["99"]?.placement).toEqual({
+      kind: "ungrouped"
+    });
     expect(next.manualOverrides["7"]).toBeUndefined();
     expect(next.operationGuards[0]?.tabIds).toEqual([99]);
     expect(next.pendingGroupRemovals[0]?.memberTabIds).toEqual([99]);
@@ -280,13 +341,19 @@ describe("ordinary removal and worker-wake scrub", () => {
   it("purges a closed tab only when no guard or pending removal still references it", () => {
     const guarded = session({
       tabObservations: [
-        { tabId: 7, firstObservedAt: 1, firstObservedOrdinal: 0, lastObservedUrl: "https://a.example/" }
+        {
+          tabId: 7,
+          firstObservedAt: 1,
+          firstObservedOrdinal: 0,
+          lastObservedUrl: "https://a.example/"
+        }
       ],
       operationGuards: [
         {
           id: "00000000-0000-4000-8000-000000000010" as OperationGuard["id"],
           browserSessionId: sessionId,
-          actionId: "00000000-0000-4000-8000-000000000011" as OperationGuard["actionId"],
+          actionId:
+            "00000000-0000-4000-8000-000000000011" as OperationGuard["actionId"],
           operation: "ungroupTabs",
           phase: "executing",
           tabIds: [7],
@@ -299,12 +366,24 @@ describe("ordinary removal and worker-wake scrub", () => {
       ]
     });
     expect(purgeClosedTab(guarded, 7).tabObservations).toHaveLength(1);
-    expect(purgeClosedTab(session({
-      tabObservations: [
-        { tabId: 7, firstObservedAt: 1, firstObservedOrdinal: 0, lastObservedUrl: "https://a.example/" }
-      ],
-      manualOverrides: { "7": { tabId: 7, placement: { kind: "ungrouped" }, createdAt: 1 } }
-    }), 7).tabObservations).toEqual([]);
+    expect(
+      purgeClosedTab(
+        session({
+          tabObservations: [
+            {
+              tabId: 7,
+              firstObservedAt: 1,
+              firstObservedOrdinal: 0,
+              lastObservedUrl: "https://a.example/"
+            }
+          ],
+          manualOverrides: {
+            "7": { tabId: 7, placement: { kind: "ungrouped" }, createdAt: 1 }
+          }
+        }),
+        7
+      ).tabObservations
+    ).toEqual([]);
   });
 
   it("scrubs stale tab and group runtime ids against fresh inventory", () => {
@@ -315,7 +394,8 @@ describe("ordinary removal and worker-wake scrub", () => {
           {
             id: "00000000-0000-4000-8000-000000000010" as OperationGuard["id"],
             browserSessionId: sessionId,
-            actionId: "00000000-0000-4000-8000-000000000011" as OperationGuard["actionId"],
+            actionId:
+              "00000000-0000-4000-8000-000000000011" as OperationGuard["actionId"],
             operation: "assignTabsToManagedGroup",
             phase: "settling",
             tabIds: [7, 8],
@@ -328,7 +408,8 @@ describe("ordinary removal and worker-wake scrub", () => {
         ],
         associations: [
           {
-            managedGroupId: "00000000-0000-4000-8000-000000000001" as RuntimeSession["intentionallyClosedGroupIds"][number],
+            managedGroupId:
+              "00000000-0000-4000-8000-000000000001" as RuntimeSession["intentionallyClosedGroupIds"][number],
             chromeGroupId: 11,
             chromeWindowId: 1,
             observedTitle: "Other",
@@ -421,7 +502,14 @@ export const GUARD_HARD_MS = 5000;
 
 export function buildExpectedFootprint(
   plan: ActionPlan
-): Pick<OperationGuard, "operation" | "expectedEventKinds" | "postcondition" | "tabIds" | "chromeGroupIds">;
+): Pick<
+  OperationGuard,
+  | "operation"
+  | "expectedEventKinds"
+  | "postcondition"
+  | "tabIds"
+  | "chromeGroupIds"
+>;
 
 export type GuardEventDecision =
   | { kind: "unmatched"; session: RuntimeSession }
@@ -466,13 +554,21 @@ Include this exact case:
 ```ts
 it("does not consume a guard on the first matching event", () => {
   const decision = classifyGuardedEvent(
-    { kind: "tabUpdated", tabId: 7, urlChanged: false, groupChanged: true, pinnedChanged: false },
+    {
+      kind: "tabUpdated",
+      tabId: 7,
+      urlChanged: false,
+      groupChanged: true,
+      pinnedChanged: false
+    },
     inventoryWithTabInTarget,
     sessionWithExecutingGuard,
     100
   );
   expect(decision.kind).toBe("defer");
-  expect(decision.kind === "defer" && decision.session.operationGuards).toHaveLength(1);
+  expect(
+    decision.kind === "defer" && decision.session.operationGuards
+  ).toHaveLength(1);
 });
 ```
 
@@ -521,7 +617,8 @@ git commit -m "feat: classify operation-guard echoes without consuming the first
 **Interfaces:**
 
 ```ts
-export type MutationErrorClass = "transient-drag" | "gone" | "permission" | "invalid" | "unknown";
+export type MutationErrorClass =
+  "transient-drag" | "gone" | "permission" | "invalid" | "unknown";
 export function classifyMutationError(error: unknown): MutationErrorClass;
 export async function executeWithRetry<T>(
   operation: () => Promise<T>,
@@ -924,18 +1021,18 @@ git commit -m "feat: wire Chrome lifecycle events through isolated worker recove
 
 ## Spec coverage
 
-| FDM-593 acceptance criterion | Task |
-|---|---|
-| Extension multi-event sequences do not create manual overrides | 2, 3, 7 |
-| User drag during/after a guard survives until restart | 2, 5, 7 |
-| Cross-window managed-group movement updates ownership without duplicating or intentionally closing | 6, 7 |
-| Ambiguous group recreation remains unattached | 6 |
-| Replaced tab inherits observation, override, guards, pending evidence | 1, 4 |
-| Loading tabs move at most once after a committed URL | 4, 7 |
-| Shared groups and members remain untouched by automatic behavior | 4, 5, 6 |
-| Worker-recreation recovers deferred events and settlement state | 1, 3, 7, 8 |
-| 750 ms quiet / 5 s hard deadline; elapsed time never proves success | 2, 3 |
-| `WINDOW_ID_NONE` and non-normal windows excluded | 4, 8 |
+| FDM-593 acceptance criterion                                                                       | Task       |
+| -------------------------------------------------------------------------------------------------- | ---------- |
+| Extension multi-event sequences do not create manual overrides                                     | 2, 3, 7    |
+| User drag during/after a guard survives until restart                                              | 2, 5, 7    |
+| Cross-window managed-group movement updates ownership without duplicating or intentionally closing | 6, 7       |
+| Ambiguous group recreation remains unattached                                                      | 6          |
+| Replaced tab inherits observation, override, guards, pending evidence                              | 1, 4       |
+| Loading tabs move at most once after a committed URL                                               | 4, 7       |
+| Shared groups and members remain untouched by automatic behavior                                   | 4, 5, 6    |
+| Worker-recreation recovers deferred events and settlement state                                    | 1, 3, 7, 8 |
+| 750 ms quiet / 5 s hard deadline; elapsed time never proves success                                | 2, 3       |
+| `WINDOW_ID_NONE` and non-normal windows excluded                                                   | 4, 8       |
 
 ## Out of scope (do not implement here)
 

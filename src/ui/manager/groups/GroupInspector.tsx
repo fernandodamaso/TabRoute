@@ -1,13 +1,36 @@
-import type { ManagedGroup } from "../../../domain/types";
+import { useEffect, useState } from "react";
+import type { ManagedGroup, PersistentTab } from "../../../domain/types";
 import { renderGroupTitle } from "../../../groups/displayTitle";
-import type { ManagerCommand, ManagerResponse, PersistentTabsViewFixture } from "../types";
+import { persistentTabsForGroup } from "../../../persistence/requirements";
+import type {
+  ManagerCommand,
+  ManagerResponse,
+  PersistentTabsViewFixture
+} from "../types";
 import { PersistentTabsSection } from "./PersistentTabsSection";
 import { useGroupAutosave } from "./useGroupAutosave";
 
-const colors: ManagedGroup["color"][] = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
+const colors: ManagedGroup["color"][] = [
+  "grey",
+  "blue",
+  "red",
+  "yellow",
+  "green",
+  "pink",
+  "purple",
+  "cyan",
+  "orange"
+];
 
-export function GroupInspector({ group, command, viewFixture, onNavigate }: {
+export function GroupInspector({
+  group,
+  configuration,
+  command,
+  viewFixture,
+  onNavigate
+}: {
   group: ManagedGroup;
+  configuration: import("../../../domain/types").Configuration;
   command: (message: ManagerCommand) => Promise<ManagerResponse>;
   viewFixture?: PersistentTabsViewFixture;
   onNavigate?: (route: "rules") => void;
@@ -15,24 +38,139 @@ export function GroupInspector({ group, command, viewFixture, onNavigate }: {
   const autosave = useGroupAutosave({
     groupId: group.id,
     save: async (patch) => {
-      const response = await command({ kind: "manager-command", command: { kind: "updateGroup", groupId: group.id, patch } });
+      const response = await command({
+        kind: "manager-command",
+        command: { kind: "updateGroup", groupId: group.id, patch }
+      });
       return { ok: response.ok };
     }
   });
-  return <article className="groups-inspector groups-scroll-owner" aria-label={`${renderGroupTitle(group)} inspector`}>
-    <div className="inspector-heading"><div><p className="manager-eyebrow">IDENTITY</p><h2>{renderGroupTitle(group)}</h2></div><span role="status" className={`autosave-status autosave-${autosave.status.toLowerCase()}`}>{autosave.status}</span></div>
-    <section className="manager-card" aria-labelledby="identity-heading"><h3 id="identity-heading">Identity</h3>
-      <label>Name<input aria-label="Name" value={group.name} onChange={(event) => autosave.update({ name: event.target.value })} onBlur={autosave.flush} /></label>
-      <label>Emoji<input aria-label="Emoji" value={group.emoji ?? ""} onChange={(event) => autosave.update({ emoji: event.target.value || undefined })} onBlur={autosave.flush} /></label>
-      <label>Chrome color<select aria-label="Chrome color" value={group.color} onChange={(event) => autosave.update({ color: event.target.value as ManagedGroup["color"] }, true)}>{colors.map((color) => <option key={color} value={color}>{color}</option>)}</select></label>
-      <label className="toggle-row"><input aria-label="Group On" type="checkbox" checked={group.enabled} disabled={group.isFallback} onChange={(event) => autosave.update({ enabled: event.target.checked }, true)} /> Group On</label>
-      {group.isFallback && <p className="manager-note">Fallback group</p>}
-    </section>
-    <section className="manager-card" aria-labelledby="routing-heading"><div className="section-title"><h3 id="routing-heading">Routing rules</h3><button type="button" onClick={() => onNavigate?.("rules")}>Open Rules</button></div><p className="manager-note">Rules that target {renderGroupTitle(group)}.</p></section>
-    <section className="manager-card" aria-labelledby="behavior-heading"><h3 id="behavior-heading">Behavior</h3><p className="manager-note">Group presentation and pause behavior use the typed controller boundary.</p></section>
-    <PersistentTabsSection
-      state={viewFixture?.state ?? (group.enabled ? "empty" : "disabled")}
-      tabs={viewFixture?.tabs ? [...viewFixture.tabs] : []}
-    />
-  </article>;
+  const [nameDraft, setNameDraft] = useState(group.name);
+  const [emojiDraft, setEmojiDraft] = useState(group.emoji ?? "");
+  const [colorDraft, setColorDraft] = useState(group.color);
+
+  useEffect(() => {
+    setNameDraft(group.name);
+    setEmojiDraft(group.emoji ?? "");
+    setColorDraft(group.color);
+  }, [group.id, group.name, group.emoji, group.color]);
+
+  const persistentTabs = persistentTabsForGroup(configuration, group.id);
+  const fixtureState = viewFixture?.state;
+  const sectionState =
+    fixtureState ??
+    (group.enabled
+      ? persistentTabs.length > 0
+        ? "populated"
+        : "empty"
+      : "disabled");
+  const sectionTabs: readonly PersistentTab[] =
+    fixtureState === "populated" && viewFixture?.persistentTabRecords
+      ? viewFixture.persistentTabRecords
+      : persistentTabs;
+
+  return (
+    <article
+      className="groups-inspector groups-scroll-owner"
+      aria-label={`${renderGroupTitle(group)} inspector`}
+    >
+      <div className="inspector-heading">
+        <div>
+          <p className="manager-eyebrow">IDENTITY</p>
+          <h2>{renderGroupTitle(group)}</h2>
+        </div>
+        <span
+          role="status"
+          className={`autosave-status autosave-${autosave.status.toLowerCase()}`}
+        >
+          {autosave.status}
+        </span>
+      </div>
+      <section className="manager-card" aria-labelledby="identity-heading">
+        <h3 id="identity-heading">Identity</h3>
+        <label>
+          Name
+          <input
+            aria-label="Name"
+            value={nameDraft}
+            onChange={(event) => {
+              const name = event.target.value;
+              setNameDraft(name);
+              autosave.update({ name });
+            }}
+            onBlur={autosave.flush}
+          />
+        </label>
+        <label>
+          Emoji
+          <input
+            aria-label="Emoji"
+            value={emojiDraft}
+            onChange={(event) => {
+              const emoji = event.target.value;
+              setEmojiDraft(emoji);
+              autosave.update({ emoji: emoji || undefined });
+            }}
+            onBlur={autosave.flush}
+          />
+        </label>
+        <label>
+          Chrome color
+          <select
+            aria-label="Chrome color"
+            value={colorDraft}
+            onChange={(event) => {
+              const color = event.target.value as ManagedGroup["color"];
+              setColorDraft(color);
+              autosave.update({ color }, true);
+            }}
+          >
+            {colors.map((color) => (
+              <option key={color} value={color}>
+                {color}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="toggle-row">
+          <input
+            aria-label="Group On"
+            type="checkbox"
+            checked={group.enabled}
+            disabled={group.isFallback}
+            onChange={(event) =>
+              autosave.update({ enabled: event.target.checked }, true)
+            }
+          />{" "}
+          Group On
+        </label>
+        {group.isFallback && <p className="manager-note">Fallback group</p>}
+      </section>
+      <section className="manager-card" aria-labelledby="routing-heading">
+        <div className="section-title">
+          <h3 id="routing-heading">Routing rules</h3>
+          <button type="button" onClick={() => onNavigate?.("rules")}>
+            Open Rules
+          </button>
+        </div>
+        <p className="manager-note">
+          Rules that target {renderGroupTitle(group)}.
+        </p>
+      </section>
+      <section className="manager-card" aria-labelledby="behavior-heading">
+        <h3 id="behavior-heading">Behavior</h3>
+        <p className="manager-note">
+          Group presentation and pause behavior use the typed controller
+          boundary.
+        </p>
+      </section>
+      <PersistentTabsSection
+        state={sectionState}
+        tabs={sectionTabs}
+        managedGroupId={group.id}
+        groupEnabled={group.enabled}
+        command={viewFixture ? undefined : command}
+      />
+    </article>
+  );
 }

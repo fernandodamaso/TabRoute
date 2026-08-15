@@ -1,5 +1,6 @@
 import { findTab } from "../chrome/types";
 import type {
+  ChromeAssociation,
   ChromeEventHint,
   ChromeInventory,
   GuardEventKind,
@@ -7,16 +8,25 @@ import type {
   OperationGuard,
   RuntimeSession
 } from "../domain/types";
-import type { ActionPlan } from "./types";
+import type { PlannedAction, RoutePlan } from "./types";
 
 export const GUARD_QUIET_MS = 750;
 export const GUARD_HARD_MS = 5000;
 
+type OrderedTabPlacementPostcondition = Extract<
+  GuardPostcondition,
+  { kind: "tabPlacement" }
+> & { startIndex?: number };
+
 export function buildExpectedFootprint(
-  plan: ActionPlan
+  plan: RoutePlan
 ): Pick<
   OperationGuard,
-  "operation" | "expectedEventKinds" | "postcondition" | "tabIds" | "chromeGroupIds"
+  | "operation"
+  | "expectedEventKinds"
+  | "postcondition"
+  | "tabIds"
+  | "chromeGroupIds"
 > {
   if (plan.kind === "ungroup") {
     return {
@@ -55,9 +65,223 @@ export function buildExpectedFootprint(
       kind: "tabPlacement",
       tabIds: [plan.tab.id],
       windowId: plan.tab.windowId,
-      ...(chromeGroupId !== undefined ? { chromeGroupId } : {})
+      ...(chromeGroupId !== undefined ? { chromeGroupId } : { grouped: true })
     }
   };
+}
+export interface ActionFootprint {
+  operation: OperationGuard["operation"];
+  expectedEventKinds: GuardEventKind[];
+  postcondition?: GuardPostcondition;
+  tabIds: number[];
+  chromeGroupIds: number[];
+  pendingTab?: { url: string; windowId?: number };
+}
+
+export function buildExpectedActionFootprint(input: {
+  action: PlannedAction;
+  tabIds: readonly number[];
+  chromeGroupIds?: readonly number[];
+  outputChromeGroupId?: number;
+  absentTabIds?: readonly number[];
+  associations?: readonly ChromeAssociation[];
+}): ActionFootprint {
+  const tabIds = [...input.tabIds];
+  const chromeGroupIds = [
+    ...(input.chromeGroupIds ?? []),
+    ...(input.outputChromeGroupId === undefined
+      ? []
+      : [input.outputChromeGroupId])
+  ];
+  const action = input.action;
+  switch (action.kind) {
+    case "createTab":
+      return {
+        operation: "createTab",
+        expectedEventKinds: ["tabCreated", "tabUpdated", "tabAttached"],
+        postcondition: { kind: "tabsPresent", tabIds },
+        tabIds,
+        chromeGroupIds,
+        pendingTab: action.input.url
+          ? { url: action.input.url, windowId: action.input.windowId }
+          : undefined
+      };
+    case "restoreClosedTab":
+      return {
+        operation: "restoreClosedTab",
+        expectedEventKinds: ["tabCreated", "tabUpdated", "tabAttached"],
+        postcondition: { kind: "tabsPresent", tabIds },
+        tabIds,
+        chromeGroupIds,
+        pendingTab: action.expectedUrl
+          ? { url: action.expectedUrl, windowId: action.windowId }
+          : undefined
+      };
+    case "moveTabs":
+      return {
+        operation: "moveTabs",
+        expectedEventKinds: ["tabMoved", "tabAttached", "tabUpdated"],
+        postcondition: {
+          kind: "tabPlacement",
+          tabIds,
+          windowId: action.windowId
+        },
+        tabIds,
+        chromeGroupIds
+      };
+    case "assignTabsToManagedGroup":
+      return {
+        operation: "assignTabsToManagedGroup",
+        expectedEventKinds: [
+          "tabUpdated",
+          "groupCreated",
+          "groupUpdated",
+          "tabMoved",
+          "tabAttached",
+          "tabReplaced"
+        ],
+        postcondition: {
+          kind: "tabPlacement",
+          tabIds,
+          windowId: action.windowId,
+          ...(input.outputChromeGroupId === undefined
+            ? { grouped: true }
+            : { chromeGroupId: input.outputChromeGroupId })
+        },
+        tabIds,
+        chromeGroupIds
+      };
+    case "assignTabsToUnmanagedGroup":
+      return {
+        operation: "assignTabsToUnmanagedGroup",
+        expectedEventKinds: ["tabUpdated", "tabMoved", "tabAttached"],
+        postcondition: {
+          kind: "tabPlacement",
+          tabIds,
+          windowId: action.windowId,
+          chromeGroupId: action.chromeGroupId
+        },
+        tabIds,
+        chromeGroupIds: [...chromeGroupIds, action.chromeGroupId]
+      };
+    case "ungroupTabs":
+      return {
+        operation: "ungroupTabs",
+        expectedEventKinds: [
+          "tabUpdated",
+          "tabMoved",
+          "tabAttached",
+          "groupRemoved"
+        ],
+        postcondition: { kind: "tabPlacement", tabIds, ungrouped: true },
+        tabIds,
+        chromeGroupIds
+      };
+    case "updateManagedGroup": {
+      const resolvedGroupId =
+        input.outputChromeGroupId ??
+        input.associations?.find(
+          (assoc) =>
+            assoc.managedGroupId === action.managedGroupId &&
+            (action.windowId === undefined ||
+              assoc.chromeWindowId === action.windowId)
+        )?.chromeGroupId;
+      return {
+        operation: "updateManagedGroup",
+        expectedEventKinds: ["groupUpdated"],
+        postcondition:
+          resolvedGroupId === undefined
+            ? undefined
+            : {
+                kind: "managedGroupState",
+                managedGroupId: action.managedGroupId,
+                chromeGroupId: resolvedGroupId,
+                ...(action.windowId === undefined
+                  ? {}
+                  : { windowId: action.windowId }),
+                ...(action.patch.title === undefined
+                  ? {}
+                  : { title: action.patch.title }),
+                ...(action.patch.color === undefined
+                  ? {}
+                  : { color: action.patch.color }),
+                ...(action.patch.collapsed === undefined
+                  ? {}
+                  : { collapsed: action.patch.collapsed })
+              },
+        tabIds,
+        chromeGroupIds:
+          resolvedGroupId === undefined
+            ? chromeGroupIds
+            : [...chromeGroupIds, resolvedGroupId]
+      };
+    }
+    case "moveManagedGroup": {
+      const resolvedGroupId =
+        input.outputChromeGroupId ??
+        input.associations?.find(
+          (assoc) =>
+            assoc.managedGroupId === action.managedGroupId &&
+            assoc.chromeWindowId === action.windowId
+        )?.chromeGroupId;
+      return {
+        operation: "moveManagedGroup",
+        expectedEventKinds: ["groupMoved", "groupUpdated"],
+        postcondition:
+          resolvedGroupId === undefined
+            ? undefined
+            : {
+                kind: "managedGroupState",
+                managedGroupId: action.managedGroupId,
+                chromeGroupId: resolvedGroupId,
+                windowId: action.windowId
+              },
+        tabIds,
+        chromeGroupIds:
+          resolvedGroupId === undefined
+            ? chromeGroupIds
+            : [...chromeGroupIds, resolvedGroupId]
+      };
+    }
+    case "reorderTabs":
+      return {
+        operation: "reorderTabs",
+        expectedEventKinds: ["tabMoved", "tabAttached", "tabUpdated"],
+        postcondition: {
+          kind: "tabPlacement",
+          tabIds,
+          windowId: action.windowId,
+          startIndex: action.index
+        } as OrderedTabPlacementPostcondition,
+        tabIds,
+        chromeGroupIds
+      };
+    case "focusTab":
+      return {
+        operation: "focusTab",
+        expectedEventKinds: ["tabActivated"],
+        postcondition: {
+          kind: "tabPlacement",
+          tabIds,
+          windowId: action.windowId,
+          active: true,
+          focusedWindow: true
+        },
+        tabIds,
+        chromeGroupIds
+      };
+    case "closeDuplicate":
+      return {
+        operation: "closeDuplicate",
+        expectedEventKinds: ["tabRemoved"],
+        postcondition: {
+          kind: "tabsAbsent",
+          tabIds: [...(input.absentTabIds ?? tabIds)]
+        },
+        tabIds,
+        chromeGroupIds
+      };
+  }
 }
 
 export type GuardEventDecision =
@@ -67,19 +291,26 @@ export type GuardEventDecision =
   | { kind: "manual"; retiredGuard: OperationGuard; session: RuntimeSession };
 
 export function postconditionHolds(
-  postcondition: GuardPostcondition,
+  postcondition: GuardPostcondition | undefined,
   inventory: ChromeInventory
 ): boolean {
+  if (!postcondition) return false;
   if (postcondition.kind === "managedGroupState") {
+    if (postcondition.chromeGroupId === undefined) return false;
     const group = inventory.groups.find(
-      (candidate) =>
-        !candidate.shared &&
-        (postcondition.windowId === undefined ||
-          candidate.windowId === postcondition.windowId) &&
-        (postcondition.title === undefined ||
-          candidate.title === postcondition.title)
+      (candidate) => candidate.id === postcondition.chromeGroupId
     );
-    if (!group) return false;
+    if (!group || group.shared) return false;
+    if (
+      postcondition.windowId !== undefined &&
+      group.windowId !== postcondition.windowId
+    )
+      return false;
+    if (
+      postcondition.title !== undefined &&
+      group.title !== postcondition.title
+    )
+      return false;
     if (
       postcondition.color !== undefined &&
       group.color !== postcondition.color
@@ -92,7 +323,14 @@ export function postconditionHolds(
       return false;
     return true;
   }
-  for (const tabId of postcondition.tabIds) {
+  if (postcondition.kind === "tabsPresent")
+    return postcondition.tabIds.every((tabId) => !!findTab(inventory, tabId));
+  if (postcondition.kind === "tabsAbsent")
+    return postcondition.tabIds.every((tabId) => !findTab(inventory, tabId));
+
+  const ordered = postcondition as OrderedTabPlacementPostcondition;
+  for (let offset = 0; offset < postcondition.tabIds.length; offset += 1) {
+    const tabId = postcondition.tabIds[offset]!;
     const tab = findTab(inventory, tabId);
     if (!tab) return false;
     if (
@@ -100,19 +338,31 @@ export function postconditionHolds(
       tab.windowId !== postcondition.windowId
     )
       return false;
+    if (
+      ordered.startIndex !== undefined &&
+      tab.index !== ordered.startIndex + offset
+    )
+      return false;
+    if (postcondition.active && !tab.active) return false;
     if (postcondition.ungrouped) {
       if (tab.chromeGroupId >= 0) return false;
       continue;
     }
     if (postcondition.chromeGroupId !== undefined) {
       if (tab.chromeGroupId !== postcondition.chromeGroupId) return false;
-    } else if (tab.chromeGroupId < 0) {
+    } else if (postcondition.grouped && tab.chromeGroupId < 0) {
       return false;
     }
   }
+  if (postcondition.focusedWindow) {
+    if (postcondition.windowId === undefined) return false;
+    const window = inventory.windows.find(
+      (candidate) => candidate.id === postcondition.windowId
+    );
+    if (!window?.focused) return false;
+  }
   return true;
 }
-
 function eventMatchesGuard(
   event: ChromeEventHint,
   guard: OperationGuard
@@ -153,10 +403,7 @@ function replaceGuard(
   return { ...session, operationGuards };
 }
 
-function removeGuardAt(
-  session: RuntimeSession,
-  index: number
-): RuntimeSession {
+function removeGuardAt(session: RuntimeSession, index: number): RuntimeSession {
   return {
     ...session,
     operationGuards: session.operationGuards.filter((_, i) => i !== index)
@@ -178,7 +425,10 @@ function processExpiredGuards(
       remaining.push(guard);
       continue;
     }
-    if (guard.postcondition && postconditionHolds(guard.postcondition, inventory)) {
+    if (
+      guard.postcondition &&
+      postconditionHolds(guard.postcondition, inventory)
+    ) {
       continue;
     }
     manualGuard = guard;
@@ -216,17 +466,74 @@ export function classifyGuardedEvent(
   const expired = processExpiredGuards(inventory, current, now);
   current = expired.session;
 
-  const guardIndex = current.operationGuards.findIndex(
+  let guardIndex = current.operationGuards.findIndex(
     (candidate) =>
       candidate.browserSessionId === session.browserSessionId &&
       eventMatchesGuard(event, candidate)
   );
 
+  if (guardIndex === -1 && event.kind === "tabCreated") {
+    const createdTab = findTab(inventory, event.tabId);
+    const tabUrl = createdTab?.url ?? createdTab?.pendingUrl;
+    const tabWindowId = createdTab?.windowId;
+
+    guardIndex = current.operationGuards.findIndex((candidate) => {
+      if (
+        candidate.browserSessionId !== session.browserSessionId ||
+        candidate.phase !== "executing" ||
+        !candidate.pendingTab ||
+        !candidate.expectedEventKinds.includes("tabCreated") ||
+        tabUrl === undefined
+      ) {
+        return false;
+      }
+      if (
+        candidate.pendingTab.windowId !== undefined &&
+        tabWindowId !== undefined &&
+        candidate.pendingTab.windowId !== tabWindowId
+      ) {
+        return false;
+      }
+      return tabUrl === candidate.pendingTab.url;
+    });
+
+    if (guardIndex !== -1) {
+      const targetGuard = current.operationGuards[guardIndex]!;
+      const newTabIds = targetGuard.tabIds.includes(event.tabId)
+        ? targetGuard.tabIds
+        : [...targetGuard.tabIds, event.tabId];
+      const newPostcondition: GuardPostcondition | undefined =
+        targetGuard.postcondition?.kind === "tabsPresent"
+          ? {
+              ...targetGuard.postcondition,
+              tabIds: targetGuard.postcondition.tabIds.includes(event.tabId)
+                ? targetGuard.postcondition.tabIds
+                : [...targetGuard.postcondition.tabIds, event.tabId]
+            }
+          : targetGuard.postcondition;
+      const seenEventKinds: GuardEventKind[] =
+        targetGuard.seenEventKinds.includes("tabCreated")
+          ? targetGuard.seenEventKinds
+          : [...targetGuard.seenEventKinds, "tabCreated"];
+
+      const boundGuard: OperationGuard = {
+        ...targetGuard,
+        tabIds: newTabIds,
+        postcondition: newPostcondition,
+        seenEventKinds,
+        pendingTab: undefined
+      };
+
+      return {
+        kind: "defer",
+        guard: boundGuard,
+        session: replaceGuard(current, guardIndex, boundGuard)
+      };
+    }
+  }
+
   if (guardIndex === -1) {
-    if (
-      expired.manualGuard &&
-      eventMatchesGuard(event, expired.manualGuard)
-    ) {
+    if (expired.manualGuard && eventMatchesGuard(event, expired.manualGuard)) {
       return {
         kind: "manual",
         retiredGuard: expired.manualGuard,
@@ -252,7 +559,10 @@ export function classifyGuardedEvent(
     };
   }
 
-  if (matched.postcondition && postconditionHolds(matched.postcondition, inventory)) {
+  if (
+    matched.postcondition &&
+    postconditionHolds(matched.postcondition, inventory)
+  ) {
     const settleAfter = Math.min(now + GUARD_QUIET_MS, matched.expiresAt);
     const echoing = { ...updated, settleAfter };
     return {

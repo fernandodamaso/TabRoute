@@ -1,11 +1,7 @@
 const RETRY_DELAYS_MS = [50, 150] as const;
 
 export type MutationErrorClass =
-  | "transient-drag"
-  | "gone"
-  | "permission"
-  | "invalid"
-  | "unknown";
+  "transient-drag" | "gone" | "permission" | "invalid" | "unknown";
 
 export function classifyMutationError(error: unknown): MutationErrorClass {
   const message =
@@ -15,7 +11,8 @@ export function classifyMutationError(error: unknown): MutationErrorClass {
         ? error
         : "";
   const lower = message.toLowerCase();
-  if (lower.includes("tabs cannot be edited right now")) return "transient-drag";
+  if (lower.includes("tabs cannot be edited right now"))
+    return "transient-drag";
   if (lower.includes("permission") || lower.includes("not allowed"))
     return "permission";
   if (lower.includes("invalid")) return "invalid";
@@ -23,13 +20,15 @@ export function classifyMutationError(error: unknown): MutationErrorClass {
   return "unknown";
 }
 
-export type RetryAbortReason = "gone" | "contradiction";
+export type RetryAbortReason = "gone" | "contradiction" | "satisfied";
 
 export async function executeWithRetry<T>(
   operation: () => Promise<T>,
   refresh: () => Promise<unknown>,
   delay: (ms: number) => Promise<void>,
-  shouldAbort?: (refreshed: unknown) => RetryAbortReason | undefined
+  shouldAbort?: (refreshed: unknown) => RetryAbortReason | undefined,
+  onRetry?: (attempt: number) => void,
+  onRecovered?: () => T
 ): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
@@ -38,12 +37,16 @@ export async function executeWithRetry<T>(
     } catch (error) {
       lastError = error;
       const kind = classifyMutationError(error);
-      if (kind === "gone") throw error;
-      if (kind !== "transient-drag" || attempt >= RETRY_DELAYS_MS.length) {
-        throw error;
-      }
+      if (kind !== "transient-drag" && kind !== "gone") throw error;
+      if (attempt >= RETRY_DELAYS_MS.length && kind !== "gone") throw error;
       const refreshed = await refresh();
       const abort = shouldAbort?.(refreshed);
+      if (abort === "satisfied") {
+        if (!onRecovered)
+          throw new Error("Action Engine recovery result unavailable");
+        return onRecovered();
+      }
+      if (kind === "gone") throw error;
       if (abort) {
         throw new Error(
           abort === "gone"
@@ -51,6 +54,7 @@ export async function executeWithRetry<T>(
             : "Action Engine postcondition contradicted"
         );
       }
+      onRetry?.(attempt + 1);
       await delay(RETRY_DELAYS_MS[attempt]!);
     }
   }

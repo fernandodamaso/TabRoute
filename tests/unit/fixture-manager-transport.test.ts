@@ -1,10 +1,16 @@
 import { readFileSync } from "node:fs";
-import type { ManagerResponse, ManagerSuccess } from "../../src/ui/manager/types";
+import type {
+  ManagerResponse,
+  ManagerSuccess
+} from "../../src/ui/manager/types";
 import {
   FIXTURE_CLOCK_START,
   createFixtureManagerTransport
 } from "../../src/workbench/fixtureManagerTransport";
-import { FIXTURE_IDS, getScenarioDefinition } from "../../src/workbench/scenarios";
+import {
+  FIXTURE_IDS,
+  getScenarioDefinition
+} from "../../src/workbench/scenarios";
 
 const query = { kind: "manager-query" } as const;
 const createGroup = {
@@ -25,7 +31,9 @@ function createGroupNamed(name: string) {
   } as const;
 }
 
-function expectSuccess(response: ManagerResponse): asserts response is ManagerSuccess {
+function expectSuccess(
+  response: ManagerResponse
+): asserts response is ManagerSuccess {
   expect(response.ok).toBe(true);
   if (!response.ok) throw new Error(response.error.message);
 }
@@ -35,8 +43,12 @@ it("returns deterministic seeded state through the typed manager transport", asy
   const response = await fixture.transport.request(query);
 
   expectSuccess(response);
-  expect(response.configuration).toEqual(getScenarioDefinition("wb:default").createSeed().configuration);
-  expect(response.viewFixture).toEqual(getScenarioDefinition("wb:default").createSeed().viewFixture);
+  expect(response.configuration).toEqual(
+    getScenarioDefinition("wb:default").createSeed().configuration
+  );
+  expect(response.viewFixture).toEqual(
+    getScenarioDefinition("wb:default").createSeed().viewFixture
+  );
   expect(fixture.controls.commandLog()).toEqual([
     expect.objectContaining({
       recordType: "request",
@@ -62,10 +74,14 @@ it("applies commands through the manager router with deterministic identifiers a
   const after = await fixture.transport.request(query);
   expectSuccess(after);
 
-  const created = mutated.configuration.groups.find((group) => group.name === "Agents");
+  const created = mutated.configuration.groups.find(
+    (group) => group.name === "Agents"
+  );
   expect(created?.id).toBe("10000000-0000-4000-8000-000000000001");
   expect(after.configuration).toEqual(mutated.configuration);
-  expect(fixture.controls.commandLog().map((record) => record.sequence)).toEqual([1, 2, 3]);
+  expect(
+    fixture.controls.commandLog().map((record) => record.sequence)
+  ).toEqual([1, 2, 3]);
   expect(fixture.controls.commandLog().map((record) => record.state)).toEqual([
     "resolved",
     "resolved",
@@ -83,7 +99,11 @@ it("applies configured latency while keeping deterministic virtual timestamps", 
     const responsePromise = fixture.transport.request(query);
 
     expect(fixture.controls.commandLog()[0]).toEqual(
-      expect.objectContaining({ state: "pending", latencyMs: 120, startedAt: FIXTURE_CLOCK_START })
+      expect.objectContaining({
+        state: "pending",
+        latencyMs: 120,
+        startedAt: FIXTURE_CLOCK_START
+      })
     );
     await vi.advanceTimersByTimeAsync(119);
     expect(fixture.controls.commandLog()[0]?.state).toBe("pending");
@@ -121,12 +141,20 @@ it("preserves request execution order when latency changes while requests are in
     expectSuccess(first);
     expectSuccess(second);
 
-    const firstGroup = second.configuration.groups.find((group) => group.name === "First");
-    const secondGroup = second.configuration.groups.find((group) => group.name === "Second");
+    const firstGroup = second.configuration.groups.find(
+      (group) => group.name === "First"
+    );
+    const secondGroup = second.configuration.groups.find(
+      (group) => group.name === "Second"
+    );
     expect(firstGroup?.id).toBe("10000000-0000-4000-8000-000000000001");
     expect(secondGroup?.id).toBe("10000000-0000-4000-8000-000000000002");
-    expect(firstGroup?.defaultOrder).toBeLessThan(secondGroup?.defaultOrder ?? Number.MAX_SAFE_INTEGER);
-    expect(fixture.controls.commandLog().map((record) => record.sequence)).toEqual([1, 2]);
+    expect(firstGroup?.defaultOrder).toBeLessThan(
+      secondGroup?.defaultOrder ?? Number.MAX_SAFE_INTEGER
+    );
+    expect(
+      fixture.controls.commandLog().map((record) => record.sequence)
+    ).toEqual([1, 2]);
   } finally {
     vi.useRealTimers();
   }
@@ -153,7 +181,9 @@ it("consumes exact once failures only after a matching request", async () => {
 
   const recovered = await fixture.transport.request(createGroup);
   expectSuccess(recovered);
-  expect(recovered.configuration.groups.some((group) => group.name === "Agents")).toBe(true);
+  expect(
+    recovered.configuration.groups.some((group) => group.name === "Agents")
+  ).toBe(true);
   expect(fixture.controls.commandLog().map((record) => record.state)).toEqual([
     "resolved",
     "rejected",
@@ -248,7 +278,9 @@ it("queues new requests after every held request when opening the pending gate",
   });
   const firstPromise = fixture.transport.request(createGroupNamed("First"));
   const secondPromise = fixture.transport.request(createGroupNamed("Second"));
-  const heldRequestIds = fixture.controls.commandLog().map((record) => record.requestId);
+  const heldRequestIds = fixture.controls
+    .commandLog()
+    .map((record) => record.requestId);
 
   const releasePromise = fixture.controls.releasePending();
   const thirdPromise = fixture.transport.request(createGroupNamed("Third"));
@@ -266,15 +298,15 @@ it("queues new requests after every held request when opening the pending gate",
   expectSuccess(second);
   expectSuccess(third);
 
-  expect(second.configuration.groups.find((group) => group.name === "First")?.id).toBe(
-    "10000000-0000-4000-8000-000000000001"
-  );
-  expect(second.configuration.groups.find((group) => group.name === "Second")?.id).toBe(
-    "10000000-0000-4000-8000-000000000002"
-  );
-  expect(third.configuration.groups.find((group) => group.name === "Third")?.id).toBe(
-    "10000000-0000-4000-8000-000000000003"
-  );
+  expect(
+    second.configuration.groups.find((group) => group.name === "First")?.id
+  ).toBe("10000000-0000-4000-8000-000000000001");
+  expect(
+    second.configuration.groups.find((group) => group.name === "Second")?.id
+  ).toBe("10000000-0000-4000-8000-000000000002");
+  expect(
+    third.configuration.groups.find((group) => group.name === "Third")?.id
+  ).toBe("10000000-0000-4000-8000-000000000003");
 });
 
 it("does not let an in-progress release drain requests from a reset generation", async () => {
@@ -334,17 +366,25 @@ it("cancels delayed requests before reset initializes fresh fixture state", asyn
       }
     });
     expectSuccess(fresh);
-    expect(fresh.configuration.groups.some((group) => group.name === "Stale")).toBe(false);
+    expect(
+      fresh.configuration.groups.some((group) => group.name === "Stale")
+    ).toBe(false);
     expect(fixture.controls.commandLog()).toHaveLength(1);
     expect(fixture.controls.commandLog()[0]).toEqual(
-      expect.objectContaining({ sequence: 1, state: "resolved", message: query })
+      expect.objectContaining({
+        sequence: 1,
+        state: "resolved",
+        message: query
+      })
     );
 
     await vi.advanceTimersByTimeAsync(200);
     expect(fixture.controls.commandLog()).toHaveLength(1);
     const after = await fixture.transport.request(query);
     expectSuccess(after);
-    expect(after.configuration.groups.some((group) => group.name === "Stale")).toBe(false);
+    expect(
+      after.configuration.groups.some((group) => group.name === "Stale")
+    ).toBe(false);
   } finally {
     vi.useRealTimers();
   }
@@ -354,7 +394,9 @@ it("reset restores the selected seed, clock, identifiers, latency, failure polic
   const fixture = createFixtureManagerTransport({ scenarioId: "wb:default" });
   const firstMutation = await fixture.transport.request(createGroup);
   expectSuccess(firstMutation);
-  const firstCreatedId = firstMutation.configuration.groups.find((group) => group.name === "Agents")?.id;
+  const firstCreatedId = firstMutation.configuration.groups.find(
+    (group) => group.name === "Agents"
+  )?.id;
 
   fixture.controls.setLatency(250);
   fixture.controls.setFailure({ mode: "offline", scope: "persistent" });
@@ -363,14 +405,22 @@ it("reset restores the selected seed, clock, identifiers, latency, failure polic
   expect(fixture.controls.commandLog()).toEqual([]);
   const seedResponse = await fixture.transport.request(query);
   expectSuccess(seedResponse);
-  expect(seedResponse.configuration).toEqual(getScenarioDefinition("wb:default").createSeed().configuration);
+  expect(seedResponse.configuration).toEqual(
+    getScenarioDefinition("wb:default").createSeed().configuration
+  );
   expect(fixture.controls.commandLog()[0]).toEqual(
-    expect.objectContaining({ sequence: 1, startedAt: FIXTURE_CLOCK_START, latencyMs: 0 })
+    expect.objectContaining({
+      sequence: 1,
+      startedAt: FIXTURE_CLOCK_START,
+      latencyMs: 0
+    })
   );
 
   const secondMutation = await fixture.transport.request(createGroup);
   expectSuccess(secondMutation);
-  const secondCreatedId = secondMutation.configuration.groups.find((group) => group.name === "Agents")?.id;
+  const secondCreatedId = secondMutation.configuration.groups.find(
+    (group) => group.name === "Agents"
+  )?.id;
   expect(secondCreatedId).toBe(firstCreatedId);
 
   const loading = createFixtureManagerTransport({ scenarioId: "wb:loading" });
@@ -384,15 +434,23 @@ it("reset restores the selected seed, clock, identifiers, latency, failure polic
   expectSuccess(await resetPending);
 });
 
-it("keeps populated persistent tabs in view fixtures and leaves Configuration.persistentTabs unchanged", async () => {
-  const fixture = createFixtureManagerTransport({ scenarioId: "wb:populated-persistent-tabs" });
+it("seeds populated persistent tabs in configuration and view fixtures", async () => {
+  const fixture = createFixtureManagerTransport({
+    scenarioId: "wb:populated-persistent-tabs"
+  });
   const response = await fixture.transport.request(query);
 
   expectSuccess(response);
-  expect(response.configuration.persistentTabs).toEqual([]);
-  expect(response.viewFixture?.persistentTabsByGroup[FIXTURE_IDS.primaryGroup]).toEqual({
+  expect(response.configuration.persistentTabs).toHaveLength(2);
+  expect(
+    response.viewFixture?.persistentTabsByGroup[FIXTURE_IDS.primaryGroup]
+  ).toEqual({
     state: "populated",
-    tabs: ["Docs — https://docs.example.test/", "Inbox — https://mail.example.test/inbox"]
+    tabs: [
+      "Docs — https://docs.example.test/",
+      "Inbox — https://mail.example.test/inbox"
+    ],
+    persistentTabRecords: response.configuration.persistentTabs
   });
 });
 

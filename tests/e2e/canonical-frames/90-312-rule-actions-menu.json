@@ -1,0 +1,24 @@
+{
+  "nodeId": "90:312",
+  "stem": "90-312-rule-actions-menu",
+  "route": "rules",
+  "heading": "Rules",
+  "settingsPanel": "root",
+  "scrollerSelector": ".manager-page-scroll",
+  "viewport": {
+    "width": 520,
+    "height": 600
+  },
+  "headerHeight": 52,
+  "navigationHeight": 42,
+  "bodyHeight": 506,
+  "measured": {
+    "viewport": {
+      "width": 520,
+      "height": 600
+    },
+    "headerHeight": 52,
+    "navigationHeight": 42,
+    "bodyHeight": 506
+  }
+}

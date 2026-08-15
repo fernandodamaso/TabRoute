@@ -273,6 +273,7 @@ describe("ordinary removal and worker-wake scrub", () => {
               kind: "managedGroupState",
               managedGroupId:
                 "00000000-0000-4000-8000-000000000001" as RuntimeSession["intentionallyClosedGroupIds"][number],
+              chromeGroupId: 10,
               windowId: 1,
               title: "Other"
             },
@@ -305,13 +306,13 @@ describe("ordinary removal and worker-wake scrub", () => {
     expect(next.lastFocusedNormalWindowId).toBeUndefined();
     expect(next.operationGuards[0]?.postcondition).toEqual({
       kind: "tabPlacement",
-      tabIds: [8],
-      chromeGroupId: 11
+      tabIds: [8]
     });
     expect(next.operationGuards[1]?.postcondition).toEqual({
       kind: "managedGroupState",
       managedGroupId:
         "00000000-0000-4000-8000-000000000001" as RuntimeSession["intentionallyClosedGroupIds"][number],
+      chromeGroupId: 10,
       title: "Other"
     });
   });

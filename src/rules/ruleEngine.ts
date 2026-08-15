@@ -9,6 +9,7 @@ import type {
   RuleAction,
   UUID
 } from "../domain/types";
+import { matchesPattern } from "./patternMatcher";
 
 export interface RuleEvaluation {
   matches: boolean;
@@ -26,16 +27,11 @@ type ConditionLeaf = Exclude<ConditionNode, { kind: "all" | "any" }>;
 
 const now = () => Date.now();
 
-function isPaused(value: number | "restart" | undefined, at: number) {
+export function isPauseActive(
+  value: number | "restart" | undefined,
+  at: number
+): boolean {
   return value === "restart" || (typeof value === "number" && value > at);
-}
-
-function glob(value: string, pattern: string) {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*/g, ".*")
-    .replace(/\?/g, ".");
-  return new RegExp(`^${escaped}$`, "i").test(value);
 }
 
 function regex(value: string, pattern: string) {
@@ -99,7 +95,7 @@ function leaf(
         node.operator === "exact"
           ? tab.url === node.value
           : node.operator === "pattern"
-            ? glob(tab.url ?? "", node.value)
+            ? matchesPattern(tab.url ?? "", node.value)
             : regex(tab.url ?? "", node.value);
       specificityClass =
         node.operator === "exact" ? 7 : node.operator === "pattern" ? 5 : 1;
@@ -142,10 +138,13 @@ function leaf(
         node.operator === "exact"
           ? tab.openerUrl === node.value
           : node.operator === "pattern"
-            ? glob(tab.openerUrl ?? "", node.value)
+            ? matchesPattern(tab.openerUrl ?? "", node.value)
             : !!opener &&
-              (opener.href === node.value ||
-                opener.hostname.endsWith(node.value));
+              (() => {
+                const actual = opener.hostname.toLowerCase();
+                const expected = node.value.toLowerCase();
+                return actual === expected || actual.endsWith(`.${expected}`);
+              })();
       specificityClass = node.operator === "pattern" ? 1 : 3;
       break;
     case "openerHost":
@@ -153,11 +152,13 @@ function leaf(
         node.operator === "exact"
           ? opener?.hostname.toLowerCase() === node.value.toLowerCase()
           : node.operator === "pattern"
-            ? glob(opener?.hostname ?? "", node.value)
+            ? matchesPattern(opener?.hostname ?? "", node.value)
             : !!opener &&
-              opener.hostname
-                .toLowerCase()
-                .endsWith(`.${node.value.toLowerCase()}`);
+              (() => {
+                const actual = opener.hostname.toLowerCase();
+                const expected = node.value.toLowerCase();
+                return actual === expected || actual.endsWith(`.${expected}`);
+              })();
       specificityClass = node.operator === "pattern" ? 1 : 3;
       break;
     case "currentGroup":
@@ -230,7 +231,7 @@ export function evaluateRule(
   associations: readonly ChromeAssociation[],
   at = now()
 ): RuleEvaluation {
-  if (!rule.enabled || isPaused(rule.pausedUntil, at))
+  if (!rule.enabled || isPauseActive(rule.pausedUntil, at))
     return {
       matches: false,
       matchingLeafCount: 0,
@@ -274,14 +275,19 @@ export function selectRule(input: {
   const at = input.at ?? now();
   if (
     !input.configuration.automationEnabled ||
-    isPaused(input.configuration.globalPausedUntil, at)
+    isPauseActive(input.configuration.globalPausedUntil, at)
   )
     return undefined;
   const candidates = input.configuration.rules.flatMap((rule) => {
+    const placement = placementAction(rule.actions);
     const target = input.configuration.groups.find(
       (group) => group.id === rule.targetGroupId
     );
-    if (!target || !target.enabled || isPaused(target.pausedUntil, at)) return [];
+    if (
+      placement === "group" &&
+      (!target || !target.enabled || isPauseActive(target.pausedUntil, at))
+    )
+      return [];
     const evaluation = evaluateRule(
       rule,
       input.tab,

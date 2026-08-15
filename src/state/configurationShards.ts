@@ -38,7 +38,10 @@ export class ConfigurationRevisionError extends Error {
 
 const encoder = new TextEncoder();
 
-function hasExactKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+function hasExactKeys(
+  value: unknown,
+  keys: readonly string[]
+): value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const actual = Object.keys(value);
   return (
@@ -59,7 +62,9 @@ function sortCanonical(value: unknown): unknown {
   return value;
 }
 
-export function canonicalConfigurationJson(configuration: Configuration): string {
+export function canonicalConfigurationJson(
+  configuration: Configuration
+): string {
   return JSON.stringify(sortCanonical(validateConfiguration(configuration)));
 }
 
@@ -88,11 +93,21 @@ function splitUnicode(value: string, maxBytes: number): string[] {
   return chunks;
 }
 
-function measuredBytes(key: string, value: unknown): number {
-  return encoder.encode(key).byteLength + encoder.encode(JSON.stringify(value)).byteLength;
+export function storageItemBytes(key: string, value: unknown): number {
+  return (
+    encoder.encode(key).byteLength +
+    encoder.encode(JSON.stringify(value)).byteLength
+  );
 }
 
-export function configurationShardKey(revisionId: string, index: number): string {
+function measuredBytes(key: string, value: unknown): number {
+  return storageItemBytes(key, value);
+}
+
+export function configurationShardKey(
+  revisionId: string,
+  index: number
+): string {
   return `${SYNC_KEYS.revisionPrefix}${revisionId}:${index}`;
 }
 
@@ -110,7 +125,9 @@ export async function encodeConfigurationRevision(
   const canonicalJson = canonicalConfigurationJson(normalized);
   const chunks = splitUnicode(canonicalJson, 7000);
   const shards: Record<string, ConfigurationSyncShard> = {};
-  const shardKeys = chunks.map((_, index) => configurationShardKey(revisionId, index));
+  const shardKeys = chunks.map((_, index) =>
+    configurationShardKey(revisionId, index)
+  );
   const shardCount = chunks.length;
 
   chunks.forEach((payload, index) => {
@@ -123,7 +140,9 @@ export async function encodeConfigurationRevision(
     };
     const key = shardKeys[index]!;
     if (measuredBytes(key, shard) > SYNC_LIMITS.maxItemBytes)
-      throw new ConfigurationRevisionError(`Sync shard exceeds ${SYNC_LIMITS.maxItemBytes} bytes`);
+      throw new ConfigurationRevisionError(
+        `Sync shard exceeds ${SYNC_LIMITS.maxItemBytes} bytes`
+      );
     shards[key] = shard;
   });
 
@@ -135,8 +154,12 @@ export async function encodeConfigurationRevision(
     checksum: await sha256(canonicalJson),
     updatedAt
   };
-  if (measuredBytes(SYNC_KEYS.configurationHead, head) > SYNC_LIMITS.maxItemBytes)
-    throw new ConfigurationRevisionError(`Sync head exceeds ${SYNC_LIMITS.maxItemBytes} bytes`);
+  if (
+    measuredBytes(SYNC_KEYS.configurationHead, head) > SYNC_LIMITS.maxItemBytes
+  )
+    throw new ConfigurationRevisionError(
+      `Sync head exceeds ${SYNC_LIMITS.maxItemBytes} bytes`
+    );
   return { head, shards, configuration: normalized, canonicalJson };
 }
 
@@ -144,14 +167,21 @@ function asShardEntries(
   items: Record<string, unknown> | readonly ConfigurationSyncShard[]
 ): readonly [string, unknown][] {
   return Array.isArray(items)
-    ? items.map((item) => [configurationShardKey(item.revisionId, item.index), item])
+    ? items.map((item) => [
+        configurationShardKey(item.revisionId, item.index),
+        item
+      ])
     : Object.entries(items);
 }
 
 export async function decodeConfigurationRevision(
   head: ConfigurationSyncHead,
   items: Record<string, unknown> | readonly ConfigurationSyncShard[]
-): Promise<{ configuration: Configuration; migrated: boolean; canonicalJson: string }> {
+): Promise<{
+  configuration: Configuration;
+  migrated: boolean;
+  canonicalJson: string;
+}> {
   if (
     !hasExactKeys(head, [
       "schemaVersion",
@@ -176,9 +206,12 @@ export async function decodeConfigurationRevision(
       key !== configurationShardKey(head.revisionId, index) ||
       !/^config:v1:revision:[^:]+:\d+$/.test(key)
     )
-      throw new ConfigurationRevisionError("Sync head contains an invalid shard key");
+      throw new ConfigurationRevisionError(
+        "Sync head contains an invalid shard key"
+      );
     const shard = entries.get(key) as ConfigurationSyncShard | undefined;
-    if (!shard) throw new ConfigurationRevisionError("Sync revision is incomplete");
+    if (!shard)
+      throw new ConfigurationRevisionError("Sync revision is incomplete");
     if (
       !hasExactKeys(shard, [
         "schemaVersion",
@@ -188,7 +221,9 @@ export async function decodeConfigurationRevision(
         "payload"
       ])
     )
-      throw new ConfigurationRevisionError("Sync revision shard has unknown fields");
+      throw new ConfigurationRevisionError(
+        "Sync revision shard has unknown fields"
+      );
     if (
       shard.schemaVersion !== 1 ||
       shard.revisionId !== head.revisionId ||
@@ -196,14 +231,20 @@ export async function decodeConfigurationRevision(
       shard.count !== head.shardCount ||
       typeof shard.payload !== "string"
     )
-      throw new ConfigurationRevisionError("Sync revision shards are mixed or malformed");
+      throw new ConfigurationRevisionError(
+        "Sync revision shards are mixed or malformed"
+      );
     if (measuredBytes(key, shard) > SYNC_LIMITS.hardItemBytes)
-      throw new ConfigurationRevisionError("Sync revision shard exceeds Chrome quota");
+      throw new ConfigurationRevisionError(
+        "Sync revision shard exceeds Chrome quota"
+      );
     return shard;
   });
   const serialized = shards.map((shard) => shard.payload).join("");
   if ((await sha256(serialized)) !== head.checksum)
-    throw new ConfigurationRevisionError("Sync revision checksum does not match");
+    throw new ConfigurationRevisionError(
+      "Sync revision checksum does not match"
+    );
   let raw: unknown;
   try {
     raw = JSON.parse(serialized);

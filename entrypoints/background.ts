@@ -2,7 +2,23 @@ import { createLiveChromePort } from "../src/chrome/liveChromePort";
 import { createDefaultConfiguration } from "../src/domain/defaults";
 import { createTabRouteController } from "../src/controller/controller";
 import { createChromeSessionRepository } from "../src/state/sessionRepository";
+import {
+  loadRestartPauseState,
+  overlayRestartPauses
+} from "../src/state/restartPauses";
+import { createChromeLocalRepository } from "../src/state/localRepository";
 import { createConfigurationRepository } from "../src/state/configurationRepository";
+import {
+  createActivityManagerPort,
+  createDiagnosticsManagerPort,
+  createManagerMessageRouter,
+  createSnapshotManagerPort
+} from "../src/background/managerMessageRouter";
+import {
+  applyManagedGroupPresentationEdit,
+  isGuardedGroupPresentationEcho
+} from "../src/background/groupPresentation";
+import { createPreMutationCheckpointService } from "../src/snapshots/checkpointService";
 import {
   CONFIGURATION_SYNC_RETRY_ALARM,
   createConfigurationSyncCoordinator,
@@ -15,8 +31,32 @@ import type {
 } from "../src/domain/types";
 import type { UiMessage } from "../src/ui/messages";
 import { applyChromeGroupPresentation } from "../src/groups/displayTitle";
-import { createManagerMessageRouter } from "../src/background/managerMessageRouter";
 import { GROUP_SETTLEMENT_ALARM } from "../src/groups/groupLifecycle";
+import { reconstructAssociations } from "../src/chrome/reconstructAssociations";
+import {
+  ensureSnapshotAlarms,
+  handleSnapshotAlarm,
+  noteSnapshotRelevantEvent,
+  SNAPSHOT_ALARMS
+} from "../src/snapshots/snapshotScheduler";
+import {
+  STARTUP_RECOVERY_ALARM,
+  STARTUP_TIMING,
+  WINDOW_SETTLEMENT_ALARM
+} from "../src/persistence/startupCoordinator";
+import {
+  refreshMenus,
+  registerMenus,
+  type MenuCommandHost
+} from "../src/background/registerMenus";
+import { registerCommands } from "../src/background/registerCommands";
+import {
+  executeUserCommand,
+  clearPendingRuleDraft,
+  readPendingRuleDraft
+} from "../src/controller/executeUserCommand";
+import { getAvailableUndo } from "../src/activity/activityRepository";
+import type { UserCommand } from "../src/controller/userCommands";
 
 function toSnapshot(tab: chrome.tabs.Tab): ChromeTabSnapshot | undefined {
   if (tab.id === undefined || tab.windowId === undefined || tab.incognito)
@@ -88,7 +128,14 @@ export default defineBackground(() => {
 
   let managerRouter: ReturnType<typeof createManagerMessageRouter> | undefined;
   let controller: ReturnType<typeof createTabRouteController> | undefined;
+  let menuHost: MenuCommandHost | undefined;
+  let startupQuietGeneration = 0;
   const bufferedEvents: ChromeEventHint[] = [];
+
+  async function rebuildMenus() {
+    if (!menuHost) return;
+    await refreshMenus(chrome, menuHost);
+  }
 
   async function scheduleGroupSettlementFromSession() {
     if (!chrome.alarms?.create) return;
@@ -97,7 +144,8 @@ export default defineBackground(() => {
       ...loaded.pendingGroupRemovals.map((pending) => pending.settleAfter),
       ...loaded.operationGuards
         .filter(
-          (guard) => guard.phase === "settling" && guard.settleAfter !== undefined
+          (guard) =>
+            guard.phase === "settling" && guard.settleAfter !== undefined
         )
         .map((guard) => guard.settleAfter!)
     ];
@@ -110,10 +158,75 @@ export default defineBackground(() => {
 
   async function processLifecycleEvent(event: ChromeEventHint) {
     if (!controller) return;
-    await controller.handleChromeEvent(event).catch((error: unknown) =>
-      console.error("TabRoute lifecycle event failed", error)
-    );
+    await controller
+      .handleChromeEvent(event)
+      .catch((error: unknown) =>
+        console.error("TabRoute lifecycle event failed", error)
+      );
     await scheduleGroupSettlementFromSession();
+    await scheduleWindowSettlementFromSession();
+    if (localRef.current && sessionRef.current) {
+      await noteSnapshotRelevantEvent(event, {
+        configuration: () => controller!.getConfiguration(),
+        local: localRef.current,
+        session: sessionRef.current,
+        reads: controller!.actionDeps().reads,
+        alarms: chromeAlarmScheduler
+      }).catch((error: unknown) =>
+        console.error("TabRoute snapshot checkpoint note failed", error)
+      );
+    }
+  }
+
+  const localRef: { current?: ReturnType<typeof createChromeLocalRepository> } =
+    {};
+  const sessionRef = { current: session };
+  const chromeAlarmScheduler = {
+    schedulePeriodic: async (name: string, periodInMinutes: number) => {
+      if (!chrome.alarms?.create) return;
+      await chrome.alarms.create(name, { periodInMinutes });
+    },
+    scheduleOneShot: async (name: string, when: number) => {
+      if (!chrome.alarms?.create) return;
+      await chrome.alarms.create(name, { when });
+    }
+  };
+
+  const startupAlarmScheduler = {
+    scheduleOneShot: async (name: string, when: number) => {
+      const delayMs = Math.max(when - Date.now(), 0);
+      if (
+        name === STARTUP_RECOVERY_ALARM &&
+        delayMs < STARTUP_TIMING.recoveryAlarmMs
+      ) {
+        const generation = ++startupQuietGeneration;
+        setTimeout(() => {
+          if (generation !== startupQuietGeneration) return;
+          enqueueLifecycleEvent({ kind: "alarm", name });
+        }, delayMs);
+        if (chrome.alarms?.create) {
+          await chrome.alarms.create(name, {
+            when: Date.now() + STARTUP_TIMING.recoveryAlarmMs
+          });
+        }
+        return;
+      }
+      if (!chrome.alarms?.create) return;
+      await chrome.alarms.create(name, { when });
+    }
+  };
+
+  async function scheduleWindowSettlementFromSession() {
+    if (!chrome.alarms?.create) return;
+    const loaded = await session.loadSession();
+    if (loaded.pendingWindowClosures.length === 0) return;
+    const deadlines = loaded.pendingWindowClosures.map(
+      (pending) => pending.startedAt + 2000
+    );
+    const when = Math.max(Math.min(...deadlines) - Date.now(), 0);
+    await chrome.alarms.create(WINDOW_SETTLEMENT_ALARM, {
+      when: Date.now() + when
+    });
   }
 
   function enqueueLifecycleEvent(event: ChromeEventHint) {
@@ -126,19 +239,160 @@ export default defineBackground(() => {
 
   const ready = (async () => {
     const configuration = await repository.loadOrCreate();
+    const local = createChromeLocalRepository(
+      chrome.storage.local,
+      chrome.storage.sync,
+      chrome.storage.session
+    );
+    localRef.current = local;
+    const checkpoints = createPreMutationCheckpointService({
+      local,
+      captureContext: async () => {
+        const currentConfiguration = controller!.getConfiguration();
+        const inventory = await controller!.actionDeps().reads.readInventory();
+        return {
+          configuration: currentConfiguration,
+          ownership: await local.loadWindowOwnership(),
+          associations: reconstructAssociations(inventory, currentConfiguration)
+        };
+      }
+    });
     controller = createTabRouteController({
       configuration,
       chrome: createLiveChromePort(),
-      session
+      session,
+      local,
+      checkpoints,
+      persistConfiguration: (nextConfiguration) =>
+        repository.save(nextConfiguration),
+      alarms: startupAlarmScheduler
     });
     await controller.onWorkerWake();
-    managerRouter = createManagerMessageRouter({ repository, controller });
+    await ensureSnapshotAlarms(
+      controller.getConfiguration(),
+      chromeAlarmScheduler
+    );
+    const activity = createActivityManagerPort({
+      local,
+      session,
+      actionDeps: () => controller!.actionDeps(),
+      getConfiguration: () => controller!.getConfiguration()
+    });
+    const snapshots = createSnapshotManagerPort({
+      local,
+      session,
+      actionDeps: () => controller!.actionDeps(),
+      getConfiguration: () => controller!.getConfiguration(),
+      readInventory: () => controller!.actionDeps().reads.readInventory()
+    });
+    const diagnostics = createDiagnosticsManagerPort({
+      local,
+      session,
+      getConfiguration: () => controller!.getConfiguration(),
+      applySyncChange: async () =>
+        (await configurationSyncRef.current?.applySyncChange()) ?? {
+          kind: "ignored"
+        },
+      reconcileAll: async () => {
+        const current = controller!.getConfiguration();
+        await controller!.replaceConfiguration(current);
+      },
+      offline: () =>
+        typeof navigator !== "undefined" && navigator.onLine === false
+    });
+    managerRouter = createManagerMessageRouter({
+      repository,
+      controller,
+      activity,
+      snapshots,
+      diagnostics,
+      session,
+      inventory: {
+        readInventory: () => controller!.actionDeps().reads.readInventory(),
+        loadPreferredWindowId: async () => {
+          const runtime = await session.loadSession();
+          return runtime.lastFocusedNormalWindowId;
+        },
+        loadAssociations: async (configuration, inventory) =>
+          reconstructAssociations(inventory, configuration)
+      },
+      refreshAlarms: (nextConfiguration) =>
+        ensureSnapshotAlarms(nextConfiguration, chromeAlarmScheduler),
+      applyGroupPresentation: async (presentation) => {
+        await applyManagedGroupPresentationEdit({
+          ...presentation,
+          actionDeps: controller!.actionDeps()
+        });
+      },
+      consumePendingRuleDraft: async () => {
+        const draft = await readPendingRuleDraft(session);
+        if (!draft) return undefined;
+        await clearPendingRuleDraft(session);
+        return { host: draft.host, url: draft.url };
+      }
+    });
+    menuHost = {
+      async executeUserCommand(command: UserCommand) {
+        const result = await executeUserCommand(command, {
+          getConfiguration: () => controller!.getConfiguration(),
+          replaceConfiguration: (next) =>
+            controller!.replaceConfiguration(next),
+          persistConfiguration: (next) => repository.save(next),
+          actionDeps: () => controller!.actionDeps(),
+          local,
+          session,
+          openOptionsPage: async () => {
+            await chrome.runtime.openOptionsPage();
+          }
+        });
+        if (result.ok) {
+          void rebuildMenus().catch((error: unknown) =>
+            console.error("TabRoute menu refresh failed", error)
+          );
+        }
+        return result;
+      },
+      async readMenuContext() {
+        const portableConfiguration = controller!.getConfiguration();
+        const restartPauses = await loadRestartPauseState(session);
+        const configuration = overlayRestartPauses(
+          portableConfiguration,
+          restartPauses
+        );
+        const inventory = await controller!.actionDeps().reads.readInventory();
+        const runtime = await session.loadSession();
+        const availableUndo = await getAvailableUndo(
+          local,
+          Date.now(),
+          runtime.browserSessionId
+        );
+        return {
+          configuration,
+          inventory,
+          associations: reconstructAssociations(inventory, configuration),
+          focusedWindowId:
+            inventory.windows.find((window) => window.focused)?.id ??
+            runtime.lastFocusedNormalWindowId,
+          checkpointInFlight: runtime.operationGuards.some(
+            (guard) => guard.phase === "executing"
+          ),
+          availableUndoId: availableUndo?.id
+        };
+      }
+    };
+    await registerMenus(chrome, menuHost);
+    registerCommands(chrome, menuHost);
     const configurationSync = createConfigurationSyncCoordinator({
       repository,
       callbacks: {
         replaceConfiguration: (next) => controller!.replaceConfiguration(next),
-        refreshMenus: async () => undefined,
-        refreshAlarms: async () => undefined,
+        refreshMenus: () => rebuildMenus(),
+        refreshAlarms: async () => {
+          await ensureSnapshotAlarms(
+            controller!.getConfiguration(),
+            chromeAlarmScheduler
+          );
+        },
         refreshViews: async () => undefined,
         scheduleRetry: async () => {
           if (!chrome.alarms?.create) return;
@@ -146,7 +400,8 @@ export default defineBackground(() => {
             delayInMinutes: 1
           });
         }
-      }
+      },
+      recordSyncActivity: { local, now: () => Date.now() }
     });
     configurationSyncRef.current = configurationSync;
     const startupSync = intake.markReady();
@@ -164,7 +419,10 @@ export default defineBackground(() => {
     (message: UiMessage, _sender, sendResponse) => {
       if (
         message.kind !== "manager-query" &&
-        message.kind !== "manager-command"
+        message.kind !== "manager-command" &&
+        message.kind !== "activity-query" &&
+        message.kind !== "snapshots-query" &&
+        message.kind !== "diagnostics-query"
       )
         return undefined;
       void ready
@@ -172,7 +430,14 @@ export default defineBackground(() => {
           if (!managerRouter) throw new Error("manager router unavailable");
           return managerRouter.handle(message);
         })
-        .then((response) => sendResponse(response))
+        .then((response) => {
+          if (message.kind === "manager-command" && response.ok) {
+            void rebuildMenus().catch((error: unknown) =>
+              console.error("TabRoute menu refresh failed", error)
+            );
+          }
+          sendResponse(response);
+        })
         .catch((error: unknown) => {
           console.error("TabRoute manager message failed", error);
           sendResponse({
@@ -190,6 +455,14 @@ export default defineBackground(() => {
       return true;
     }
   );
+
+  chrome.runtime.onInstalled.addListener(() => {
+    void ready
+      .then(() => rebuildMenus())
+      .catch((error: unknown) =>
+        console.error("TabRoute onInstalled menu refresh failed", error)
+      );
+  });
 
   chrome.tabs.onCreated.addListener((tab) => {
     if (tab.id === undefined) return;
@@ -214,6 +487,11 @@ export default defineBackground(() => {
       tabId: activeInfo.tabId,
       windowId: activeInfo.windowId
     });
+    void ready
+      .then(() => rebuildMenus())
+      .catch((error: unknown) =>
+        console.error("TabRoute menu refresh failed", error)
+      );
   });
 
   chrome.tabs.onMoved.addListener((tabId, moveInfo) => {
@@ -274,14 +552,21 @@ export default defineBackground(() => {
     void (async () => {
       await ready;
       if (!controller) return;
-      const association = (await session.loadAssociations()).find(
+      const snapshot = toGroupSnapshot(group);
+      const runtime = await session.loadSession();
+      if (isGuardedGroupPresentationEcho(runtime, group.id)) {
+        if (snapshot)
+          enqueueLifecycleEvent({ kind: "groupUpdated", group: snapshot });
+        return;
+      }
+      const association = runtime.associations.find(
         (candidate) =>
           candidate.chromeGroupId === group.id &&
           candidate.chromeWindowId === group.windowId
       );
       if (!association) {
-        const snapshot = toGroupSnapshot(group);
-        if (snapshot) enqueueLifecycleEvent({ kind: "groupUpdated", group: snapshot });
+        if (snapshot)
+          enqueueLifecycleEvent({ kind: "groupUpdated", group: snapshot });
         return;
       }
       const current = controller.getConfiguration();
@@ -291,9 +576,9 @@ export default defineBackground(() => {
         group.title ?? "",
         (group.color ?? "grey") as ChromeGroupColor
       );
-      if (JSON.stringify(next) === JSON.stringify(current)) {
-        const snapshot = toGroupSnapshot(group);
-        if (snapshot) enqueueLifecycleEvent({ kind: "groupUpdated", group: snapshot });
+      if (next === current) {
+        if (snapshot)
+          enqueueLifecycleEvent({ kind: "groupUpdated", group: snapshot });
         return;
       }
       await repository.save(next);
@@ -326,6 +611,13 @@ export default defineBackground(() => {
 
   chrome.windows.onFocusChanged.addListener((windowId) => {
     enqueueLifecycleEvent(focusHint(windowId));
+    if (windowId !== chrome.windows.WINDOW_ID_NONE) {
+      void ready
+        .then(() => rebuildMenus())
+        .catch((error: unknown) =>
+          console.error("TabRoute menu refresh failed", error)
+        );
+    }
   });
 
   chrome.windows.onRemoved.addListener((windowId) => {
@@ -333,9 +625,39 @@ export default defineBackground(() => {
   });
 
   chrome.alarms?.onAlarm.addListener((alarm) => {
-    if (alarm.name === GROUP_SETTLEMENT_ALARM) {
+    if (
+      alarm.name === GROUP_SETTLEMENT_ALARM ||
+      alarm.name === WINDOW_SETTLEMENT_ALARM ||
+      alarm.name === STARTUP_RECOVERY_ALARM ||
+      alarm.name === SNAPSHOT_ALARMS.interval ||
+      alarm.name === SNAPSHOT_ALARMS.checkpoint
+    ) {
+      if (
+        alarm.name === SNAPSHOT_ALARMS.interval ||
+        alarm.name === SNAPSHOT_ALARMS.checkpoint
+      ) {
+        void ready
+          .then(async () => {
+            if (!controller || !localRef.current) return;
+            await handleSnapshotAlarm(alarm.name, {
+              configuration: () => controller!.getConfiguration(),
+              local: localRef.current!,
+              session,
+              reads: controller!.actionDeps().reads,
+              alarms: chromeAlarmScheduler
+            });
+          })
+          .catch((error: unknown) =>
+            console.error("TabRoute snapshot alarm failed", error)
+          );
+        return;
+      }
       enqueueLifecycleEvent({ kind: "alarm", name: alarm.name });
     }
+  });
+
+  chrome.runtime.onStartup.addListener(() => {
+    enqueueLifecycleEvent({ kind: "startup" });
   });
 
   void ready.catch((error: unknown) => {

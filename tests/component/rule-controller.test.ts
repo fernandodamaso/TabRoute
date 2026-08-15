@@ -1,13 +1,9 @@
 import { expect, it } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
-import { createTabRouteController } from "../../src/controller/controller";
-import { GUARD_QUIET_MS } from "../../src/actions/operationGuards";
+import { createTestController } from "../helpers/controllerPersistence";
 import { createMemorySessionRepository } from "../../src/state/sessionRepository";
-import type {
-  ChromeInventory,
-  ChromeMutationPort,
-  ChromeTabSnapshot
-} from "../../src/chrome/types";
+import { createFakeChromePort } from "../fakes/fakeChromePort";
+import type { ChromeTabSnapshot } from "../../src/chrome/types";
 import type { Configuration, UUID } from "../../src/domain/types";
 
 const docsId = "00000000-0000-4000-8000-000000000002" as UUID;
@@ -27,57 +23,6 @@ function tab(overrides: Partial<ChromeTabSnapshot> = {}): ChromeTabSnapshot {
     lastAccessed: 1,
     ...overrides
   };
-}
-
-function fakePort(initial: ChromeInventory) {
-  const inventory = structuredClone(initial);
-  const calls: string[] = [];
-  const port: ChromeMutationPort = {
-    async readInventory() {
-      return inventory;
-    },
-    async groupTabs(input) {
-      calls.push(input.kind === "create" ? "create-group" : "reuse-group");
-      const id = input.kind === "create" ? 11 : input.chromeGroupId;
-      if (!inventory.groups.some((group) => group.id === id))
-        inventory.groups = [
-          ...inventory.groups,
-          {
-            id,
-            windowId: input.windowId,
-            title: "",
-            color: "grey",
-            collapsed: false,
-            shared: false
-          }
-        ];
-      inventory.tabs = inventory.tabs.map((candidate) =>
-        input.tabIds.includes(candidate.id)
-          ? { ...candidate, chromeGroupId: id }
-          : candidate
-      );
-      return id;
-    },
-    async ungroupTabs() {
-      calls.push("ungroup-tabs");
-      inventory.tabs = inventory.tabs.map((candidate) =>
-        candidate.id === 7 ? { ...candidate, chromeGroupId: -1 } : candidate
-      );
-    },
-    async moveTabs() {
-      calls.push("move-tabs");
-      inventory.tabs = inventory.tabs.map((candidate) =>
-        candidate.id === 7 ? { ...candidate, chromeGroupId: -1 } : candidate
-      );
-    },
-    async updateGroup(groupId, patch) {
-      calls.push("update-group");
-      inventory.groups = inventory.groups.map((group) =>
-        group.id === groupId ? { ...group, ...patch } : group
-      );
-    }
-  };
-  return { port, calls, inventory };
 }
 
 it("routes nested positive matches to a managed group and negative matches to fallback", async () => {
@@ -130,29 +75,26 @@ it("routes nested positive matches to a managed group and negative matches to fa
     ]
   };
   const current = tab();
-  const fake = fakePort({
+  const fake = createFakeChromePort({
     windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
     tabs: [current],
     groups: [],
     capturedAt: 1
   });
-  let currentNow = 1000;
-  const controller = createTabRouteController({
+  const controller = createTestController({
     configuration,
-    chrome: fake.port,
-    session: createMemorySessionRepository(),
-    now: () => currentNow
+    chrome: fake,
+    session: createMemorySessionRepository()
   });
 
   await controller.handleTabUpdated(current);
-  expect(fake.inventory.groups[0]?.title).toBe("Docs");
+  expect(fake.getInventory().groups[0]?.title).toBe("Docs");
 
-  currentNow += GUARD_QUIET_MS + 1;
   const blocked = tab({ title: "blocked guide", chromeGroupId: -1 });
-  fake.inventory.tabs = [blocked];
-  fake.inventory.groups = [];
+  fake.getStorage().inventory.tabs = [blocked];
+  fake.getStorage().inventory.groups = [];
   await controller.handleTabUpdated(blocked);
-  expect(fake.inventory.groups[0]?.title).toBe("Other");
+  expect(fake.getInventory().groups[0]?.title).toBe("Other");
 });
 
 it("ungroups when the selected rule uses the ungroup placement action", async () => {
@@ -181,7 +123,7 @@ it("ungroups when the selected rule uses the ungroup placement action", async ()
     ]
   };
   const current = tab({ chromeGroupId: 42 });
-  const fake = fakePort({
+  const fake = createFakeChromePort({
     windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
     tabs: [current],
     groups: [
@@ -196,13 +138,13 @@ it("ungroups when the selected rule uses the ungroup placement action", async ()
     ],
     capturedAt: 1
   });
-  const controller = createTabRouteController({
+  const controller = createTestController({
     configuration,
-    chrome: fake.port,
+    chrome: fake,
     session: createMemorySessionRepository()
   });
 
   await controller.handleTabUpdated(current);
-  expect(fake.calls).toContain("ungroup-tabs");
-  expect(fake.inventory.tabs[0]?.chromeGroupId).toBe(-1);
+  expect(fake.callsFor("ungroupTabs").length).toBeGreaterThan(0);
+  expect(fake.getInventory().tabs[0]?.chromeGroupId).toBe(-1);
 });

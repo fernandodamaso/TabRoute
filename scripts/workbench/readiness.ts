@@ -12,7 +12,11 @@ export type WorkbenchCodedPhase =
 
 export class WorkbenchCodedError extends Error {
   constructor(
-    readonly code: "WORKBENCH_ARGUMENT" | "WORKBENCH_WORKER_TIMEOUT" | "WORKBENCH_MANAGER_TIMEOUT" | "WORKBENCH_ARTIFACT_LIMIT",
+    readonly code:
+      | "WORKBENCH_ARGUMENT"
+      | "WORKBENCH_WORKER_TIMEOUT"
+      | "WORKBENCH_MANAGER_TIMEOUT"
+      | "WORKBENCH_ARTIFACT_LIMIT",
     message: string,
     readonly phase: WorkbenchCodedPhase
   ) {
@@ -34,7 +38,10 @@ export async function settleManagerQuery(input: {
   retryIntervalMs?: number;
 }): Promise<{ response: unknown; settledAt: number }> {
   const now = input.now ?? Date.now;
-  const sleep = input.sleep ?? ((milliseconds) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+  const sleep =
+    input.sleep ??
+    ((milliseconds) =>
+      new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
   const timeoutMs = input.timeoutMs ?? MANAGER_QUERY_TIMEOUT_MS;
   const retryIntervalMs = input.retryIntervalMs ?? MANAGER_RETRY_INTERVAL_MS;
   const startedAt = now();
@@ -49,7 +56,12 @@ export async function settleManagerQuery(input: {
     const remaining = deadline - now();
     if (remaining <= 0) throw timeoutError;
     try {
-      const response = await raceRequest(input.request, remaining, timeoutError, now);
+      const response = await raceRequest(
+        input.request,
+        remaining,
+        timeoutError,
+        now
+      );
       return { response, settledAt: now() - startedAt };
     } catch (error) {
       if (error === timeoutError) throw error;
