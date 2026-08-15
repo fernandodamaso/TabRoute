@@ -24,14 +24,6 @@ const FORBIDDEN_PATTERNS = [
   /\bdeps\.mutations\.removeTabs\s*\(/
 ];
 
-const ALLOWED_PATTERNS = [
-  /sessions\.getRecentlyClosed/,
-  /tabs\.query/,
-  /windows\.getAll/,
-  /storage\./,
-  /alarms\./
-];
-
 export function scanChromeMutations(root = ROOT): string[] {
   const violations: string[] = [];
   function visit(directory: string) {
@@ -46,11 +38,7 @@ export function scanChromeMutations(root = ROOT): string[] {
       if (relativePath.includes("liveChromePort")) continue;
       const source = readFileSync(absolute, "utf8");
       for (const pattern of FORBIDDEN_PATTERNS) {
-        if (!pattern.test(source)) continue;
-        const allowed = ALLOWED_PATTERNS.some((candidate) =>
-          candidate.test(source)
-        );
-        if (!allowed) {
+        if (pattern.test(source)) {
           violations.push(`${relativePath}: ${pattern}`);
         }
       }
