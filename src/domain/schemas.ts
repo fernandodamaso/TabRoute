@@ -2,10 +2,7 @@ import { z } from "zod";
 import type { Configuration, ConditionNode } from "./types";
 
 const uuid = z.string().uuid();
-const pauseValue = z.union([
-  z.number().int().nonnegative(),
-  z.literal("restart")
-]);
+const pauseValue = z.number().int().nonnegative();
 const duplicatePolicy = z.union([
   z.strictObject({ kind: z.literal("allow") }),
   z.strictObject({ kind: z.literal("exactUrl") }),
@@ -23,7 +20,7 @@ const conditionNode: z.ZodTypeAny = z.lazy(() =>
   z.union([
     z.strictObject({
       kind: z.enum(["all", "any"]),
-      children: z.array(conditionNode)
+      children: z.array(conditionNode).min(1)
     }),
     z.strictObject({
       kind: z.literal("url"),
@@ -198,6 +195,24 @@ const persistentTab = z.strictObject({
   updatedAt: z.number()
 });
 
+function addDuplicateIdIssues(
+  ids: readonly string[],
+  collection: "groups" | "rules" | "persistentTabs",
+  context: z.RefinementCtx
+) {
+  const seen = new Set<string>();
+  ids.forEach((id, index) => {
+    if (seen.has(id)) {
+      context.addIssue({
+        code: "custom",
+        path: [collection, index, "id"],
+        message: `${collection} must use unique durable UUIDs`
+      });
+    }
+    seen.add(id);
+  });
+}
+
 const configuration = z
   .strictObject({
     schemaVersion: z.literal(1),
@@ -222,6 +237,22 @@ const configuration = z
     updatedAt: z.number()
   })
   .superRefine((value, context) => {
+    addDuplicateIdIssues(
+      value.groups.map((group) => group.id),
+      "groups",
+      context
+    );
+    addDuplicateIdIssues(
+      value.rules.map((rule) => rule.id),
+      "rules",
+      context
+    );
+    addDuplicateIdIssues(
+      value.persistentTabs.map((tab) => tab.id),
+      "persistentTabs",
+      context
+    );
+
     const fallbackGroups = value.groups.filter((group) => group.isFallback);
     if (
       fallbackGroups.length !== 1 ||
