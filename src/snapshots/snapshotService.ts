@@ -114,6 +114,18 @@ export async function updateSnapshotFromInventory(input: {
   if (!existing || existing.kind === "checkpoint") {
     return { ok: false, code: "REFERENCE", message: "snapshot not found" };
   }
+  if (
+    existing.scope.kind === "group" &&
+    !input.context.configuration.groups.some(
+      (group) => group.id === existing.scope.managedGroupId
+    )
+  ) {
+    return {
+      ok: false,
+      code: "REFERENCE",
+      message: "snapshot group no longer exists"
+    };
+  }
   const now = input.now ?? Date.now;
   const timestamp = now();
   const snapshot = captureSnapshot(
