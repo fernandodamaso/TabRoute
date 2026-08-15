@@ -27,6 +27,7 @@ export function SettingsPage({
       ? configuration.duplicateSettings.globalPolicy.pattern
       : ""
   );
+  const [pendingPatternMode, setPendingPatternMode] = useState(false);
   const [importError, setImportError] = useState<string>();
 
   useEffect(() => {
@@ -41,6 +42,7 @@ export function SettingsPage({
       configuration.duplicateSettings.globalPolicy.kind === "pattern"
     ) {
       setPatternDraft(configuration.duplicateSettings.globalPolicy.pattern);
+      setPendingPatternMode(false);
     }
   }, [configuration.duplicateSettings.globalPolicy]);
 
@@ -59,13 +61,14 @@ export function SettingsPage({
   }
 
   function duplicatePolicyForSelection(kind: string): DuplicatePolicy {
-    if (kind === "pattern") {
-      return { kind: "pattern", pattern: patternDraft.trim() || "*" };
-    }
     return {
       kind: kind as Exclude<DuplicatePolicy["kind"], "pattern">
     } as DuplicatePolicy;
   }
+
+  const selectedDuplicatePolicy = pendingPatternMode
+    ? "pattern"
+    : configuration.duplicateSettings.globalPolicy.kind;
 
   return (
     <section aria-label="Settings content" className="settings-page">
@@ -109,16 +112,28 @@ export function SettingsPage({
             Duplicate policy
             <select
               aria-label="Duplicate policy"
-              value={configuration.duplicateSettings.globalPolicy.kind}
-              onChange={(event) =>
+              value={selectedDuplicatePolicy}
+              onChange={(event) => {
+                const kind = event.target.value;
+                if (kind === "pattern") {
+                  if (
+                    configuration.duplicateSettings.globalPolicy.kind !==
+                    "pattern"
+                  ) {
+                    setPatternDraft("");
+                  }
+                  setPendingPatternMode(true);
+                  return;
+                }
+                setPendingPatternMode(false);
                 void command({
                   kind: "setDuplicateSettings",
                   settings: {
                     ...configuration.duplicateSettings,
-                    globalPolicy: duplicatePolicyForSelection(event.target.value)
+                    globalPolicy: duplicatePolicyForSelection(kind)
                   }
-                })
-              }
+                });
+              }}
             >
               <option value="allow">Allow duplicates</option>
               <option value="exactUrl">Exact URL</option>
@@ -128,7 +143,7 @@ export function SettingsPage({
               <option value="pattern">Pattern</option>
             </select>
           </label>
-          {configuration.duplicateSettings.globalPolicy.kind === "pattern" ? (
+          {selectedDuplicatePolicy === "pattern" ? (
             <label>
               Duplicate pattern
               <input
@@ -143,12 +158,17 @@ export function SettingsPage({
                   patternEditingRef.current = false;
                   const pattern = patternDraft.trim();
                   if (!pattern) {
-                    setPatternDraft(
+                    if (
                       configuration.duplicateSettings.globalPolicy.kind ===
-                        "pattern"
-                        ? configuration.duplicateSettings.globalPolicy.pattern
-                        : ""
-                    );
+                      "pattern"
+                    ) {
+                      setPatternDraft(
+                        configuration.duplicateSettings.globalPolicy.pattern
+                      );
+                    } else {
+                      setPatternDraft("");
+                      setPendingPatternMode(false);
+                    }
                     return;
                   }
                   void command({
@@ -157,6 +177,8 @@ export function SettingsPage({
                       ...configuration.duplicateSettings,
                       globalPolicy: { kind: "pattern", pattern }
                     }
+                  }).then((result) => {
+                    if (result.ok) setPendingPatternMode(false);
                   });
                 }}
               />
