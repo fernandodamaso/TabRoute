@@ -10,6 +10,21 @@ import { renderGroupTitle } from "../groups/displayTitle";
 import { isRoutableUrl } from "../chrome/types";
 import { placementAction, selectRule } from "../rules/ruleEngine";
 
+function hasUnassociatedRenderedTarget(input: {
+  inventory: ChromeInventory;
+  windowId: number;
+  title: string;
+  association: ChromeAssociation | undefined;
+}): boolean {
+  if (input.association) return false;
+  return input.inventory.groups.some(
+    (group) =>
+      !group.shared &&
+      group.windowId === input.windowId &&
+      group.title === input.title
+  );
+}
+
 export function planFallbackRoute(input: {
   inventory: ChromeInventory;
   tab: ChromeTabSnapshot;
@@ -41,6 +56,16 @@ export function planFallbackRoute(input: {
     (group) => group.id === configuration.fallbackGroupId
   );
   if (!fallback) throw new Error("fallback group is missing");
+  if (
+    hasUnassociatedRenderedTarget({
+      inventory,
+      windowId: tab.windowId,
+      title: renderGroupTitle(fallback),
+      association: targetAssociation
+    })
+  ) {
+    return { kind: "held", reason: "unmanaged-placement" };
+  }
   const existing =
     targetAssociation &&
     inventory.groups.find(
@@ -139,6 +164,16 @@ export function planManagedGroupRoute(input: {
   );
   if (targetAssociation?.chromeGroupId === tab.chromeGroupId)
     return { kind: "noop", reason: "already-in-target" };
+  if (
+    hasUnassociatedRenderedTarget({
+      inventory,
+      windowId: tab.windowId,
+      title: renderGroupTitle(target),
+      association: targetAssociation
+    })
+  ) {
+    return { kind: "held", reason: "unmanaged-placement" };
+  }
   const existing =
     targetAssociation &&
     inventory.groups.find(
