@@ -186,7 +186,10 @@ describe("action engine", () => {
     const plan = buildActionPlan("snapshot", [
       action("assignTabsToManagedGroup")
     ]);
-    const result = await executeActionPlan(plan, engineDeps(fake, configuration));
+    const result = await executeActionPlan(
+      plan,
+      engineDeps(fake, configuration)
+    );
     expect(result.status).toBe("success");
     expect(fake.callsFor("groupTabs")).toHaveLength(1);
     expect(fake.callsFor("updateGroup")).toHaveLength(1);

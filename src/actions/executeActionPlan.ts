@@ -117,9 +117,7 @@ function managedAssociationForAction(
     PlannedAction,
     {
       kind:
-        | "assignTabsToManagedGroup"
-        | "updateManagedGroup"
-        | "moveManagedGroup";
+        "assignTabsToManagedGroup" | "updateManagedGroup" | "moveManagedGroup";
     }
   >,
   associations: readonly ChromeAssociation[]

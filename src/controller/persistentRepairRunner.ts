@@ -90,7 +90,10 @@ export async function executePersistentRepairs(input: {
 
   if (ordering.length === 0) return true;
   const orderingPlan = buildActionPlan("reconcile", ordering);
-  const orderingResult = await executeActionPlan(orderingPlan, input.actionDeps);
+  const orderingResult = await executeActionPlan(
+    orderingPlan,
+    input.actionDeps
+  );
   return orderingResult.status === "success";
 }
 
