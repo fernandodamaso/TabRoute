@@ -93,6 +93,7 @@ export type PlannedAction =
   | (ActionBase & {
       kind: "updateManagedGroup";
       managedGroupId: import("../domain/types").UUID;
+      windowId?: number;
       patch: {
         title?: string;
         color?: RouteToGroupPlan["color"];
