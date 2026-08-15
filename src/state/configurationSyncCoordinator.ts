@@ -30,6 +30,8 @@ export function createConfigurationSyncCoordinator(input: {
     now: () => number;
   };
 }) {
+  let applyTail: Promise<void> = Promise.resolve();
+
   async function maybeRecordSyncActivity(
     result: SyncChangeResult
   ): Promise<void> {
@@ -47,30 +49,44 @@ export function createConfigurationSyncCoordinator(input: {
     );
   }
 
+  async function runApplySyncChange(
+    changedKeys: readonly string[]
+  ): Promise<SyncChangeResult> {
+    const result = await input.repository.applySyncChange(changedKeys);
+    await maybeRecordSyncActivity(result);
+    if (result.kind === "pending") {
+      await input.callbacks.scheduleRetry();
+      return result;
+    }
+    if (result.kind !== "applied") return result;
+    try {
+      await Promise.all([
+        input.callbacks.replaceConfiguration(result.configuration),
+        input.callbacks.refreshMenus(),
+        input.callbacks.refreshAlarms(),
+        input.callbacks.refreshViews()
+      ]);
+      await input.repository.markControllerRevisionApplied(result.revisionId);
+    } catch (error) {
+      await input.callbacks.scheduleRetry();
+      throw error;
+    }
+    return result;
+  }
+
   return {
-    async applySyncChange(
+    applySyncChange(
       changedKeys: readonly string[] = []
     ): Promise<SyncChangeResult> {
-      const result = await input.repository.applySyncChange(changedKeys);
-      await maybeRecordSyncActivity(result);
-      if (result.kind === "pending") {
-        await input.callbacks.scheduleRetry();
-        return result;
-      }
-      if (result.kind !== "applied") return result;
-      try {
-        await Promise.all([
-          input.callbacks.replaceConfiguration(result.configuration),
-          input.callbacks.refreshMenus(),
-          input.callbacks.refreshAlarms(),
-          input.callbacks.refreshViews()
-        ]);
-        await input.repository.markControllerRevisionApplied(result.revisionId);
-      } catch (error) {
-        await input.callbacks.scheduleRetry();
-        throw error;
-      }
-      return result;
+      const queued = applyTail.then(
+        () => runApplySyncChange(changedKeys),
+        () => runApplySyncChange(changedKeys)
+      );
+      applyTail = queued.then(
+        () => undefined,
+        () => undefined
+      );
+      return queued;
     }
   };
 }
