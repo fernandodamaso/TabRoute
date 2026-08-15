@@ -16,6 +16,20 @@ const placement = z.union([
   z.strictObject({ kind: z.literal("unmanaged") }),
   z.strictObject({ kind: z.literal("ungrouped") })
 ]);
+const httpUrlValue = z
+  .string()
+  .min(1)
+  .refine(
+    (value) => {
+      try {
+        const url = new URL(value);
+        return url.protocol === "http:" || url.protocol === "https:";
+      } catch {
+        return false;
+      }
+    },
+    { message: "exact URL conditions require an absolute HTTP(S) URL" }
+  );
 const conditionNode: z.ZodTypeAny = z.lazy(() =>
   z.union([
     z.strictObject({
@@ -24,7 +38,12 @@ const conditionNode: z.ZodTypeAny = z.lazy(() =>
     }),
     z.strictObject({
       kind: z.literal("url"),
-      operator: z.enum(["exact", "pattern", "regex"]),
+      operator: z.literal("exact"),
+      value: httpUrlValue
+    }),
+    z.strictObject({
+      kind: z.literal("url"),
+      operator: z.enum(["pattern", "regex"]),
       value: z.string().min(1)
     }),
     z.strictObject({
@@ -44,7 +63,17 @@ const conditionNode: z.ZodTypeAny = z.lazy(() =>
     }),
     z.strictObject({ kind: z.literal("pinned"), value: z.boolean() }),
     z.strictObject({
-      kind: z.enum(["openerUrl", "openerHost"]),
+      kind: z.literal("openerUrl"),
+      operator: z.literal("exact"),
+      value: httpUrlValue
+    }),
+    z.strictObject({
+      kind: z.literal("openerUrl"),
+      operator: z.enum(["pattern", "suffix"]),
+      value: z.string().min(1)
+    }),
+    z.strictObject({
+      kind: z.literal("openerHost"),
       operator: z.enum(["exact", "pattern", "suffix"]),
       value: z.string().min(1)
     }),

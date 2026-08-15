@@ -81,14 +81,18 @@ function findTabInManagedGroup(
 
 function findMatchingNonSharedTab(
   definition: PersistentTab,
-  inventory: ChromeInventory
+  inventory: ChromeInventory,
+  associations: readonly ChromeAssociation[]
 ): ChromeTabSnapshot | undefined {
-  for (const tab of inventory.tabs) {
-    if (isTabInSharedGroup(tab, inventory)) continue;
-    const snapshot = tabSnapshotFromChrome(tab);
-    if (matchesPersistentDefinition(snapshot, definition)) return tab;
-  }
-  return undefined;
+  const matchingTabs = inventory.tabs.filter((tab) => {
+    if (isTabInSharedGroup(tab, inventory)) return false;
+    return matchesPersistentDefinition(tabSnapshotFromChrome(tab), definition);
+  });
+  return (
+    matchingTabs.find((tab) =>
+      isInTargetManagedGroup(tab, definition, inventory, associations)
+    ) ?? matchingTabs[0]
+  );
 }
 
 function acceptableHomeMemberTabIds(
@@ -220,7 +224,11 @@ export function calculatePersistentRepairs(
     return [];
   }
 
-  const matchingTab = findMatchingNonSharedTab(definition, inventory);
+  const matchingTab = findMatchingNonSharedTab(
+    definition,
+    inventory,
+    context.associations
+  );
 
   if (matchingTab) {
     const url = matchingTab.url ?? "";

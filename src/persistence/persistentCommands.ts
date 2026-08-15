@@ -130,7 +130,10 @@ export function pinGroupDefinitions(
   const canonicalMembers = memberUrls.map((url) =>
     deriveCanonicalUrl(url, configuration.duplicateSettings)
   );
-  const memberSet = new Set(canonicalMembers);
+  const matchesPinnedMember = (tab: PersistentTab) =>
+    canonicalMembers.some((canonicalUrl) =>
+      matchesAcceptedUrl(canonicalUrl, tab.canonicalUrl, tab.acceptedPatterns)
+    );
   let next: Configuration = {
     ...configuration,
     groups: configuration.groups.map((group) =>
@@ -139,8 +142,7 @@ export function pinGroupDefinitions(
         : group
     ),
     persistentTabs: configuration.persistentTabs.filter(
-      (tab) =>
-        tab.managedGroupId !== managedGroupId || memberSet.has(tab.canonicalUrl)
+      (tab) => tab.managedGroupId !== managedGroupId || matchesPinnedMember(tab)
     ),
     updatedAt: now()
   };
@@ -149,7 +151,7 @@ export function pinGroupDefinitions(
     const existing = next.persistentTabs.find(
       (tab) =>
         tab.managedGroupId === managedGroupId &&
-        tab.canonicalUrl === canonicalUrl
+        matchesAcceptedUrl(canonicalUrl, tab.canonicalUrl, tab.acceptedPatterns)
     );
     if (existing) {
       next = savePersistentTab(

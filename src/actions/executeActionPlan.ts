@@ -365,19 +365,23 @@ async function recordAutomaticPlanActivity(
 ): Promise<void> {
   if (!isAutomaticPlan(plan)) return;
   const affected = affectedPlanData(plan, inventory, result.outputs);
-  await appendActivityEntry(
-    deps.local,
-    createActivityEntry({
-      action: `Automatic ${plan.source} plan`,
-      result: result.status,
-      affectedManagedGroupIds: affected.managedGroupIds,
-      affectedUrls: affected.urls,
-      actionId: plan.id,
-      source: plan.source,
-      ...(result.errorCode ? { errorCode: result.errorCode } : {}),
-      createdAt: deps.now()
-    })
-  );
+  try {
+    await appendActivityEntry(
+      deps.local,
+      createActivityEntry({
+        action: `Automatic ${plan.source} plan`,
+        result: result.status,
+        affectedManagedGroupIds: affected.managedGroupIds,
+        affectedUrls: affected.urls,
+        actionId: plan.id,
+        source: plan.source,
+        ...(result.errorCode ? { errorCode: result.errorCode } : {}),
+        createdAt: deps.now()
+      })
+    );
+  } catch {
+    // Activity is diagnostic evidence; it must not change a completed action result.
+  }
 }
 
 export async function executeActionPlan(

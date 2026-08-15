@@ -2,6 +2,10 @@ import { createLiveChromePort } from "../src/chrome/liveChromePort";
 import { createDefaultConfiguration } from "../src/domain/defaults";
 import { createTabRouteController } from "../src/controller/controller";
 import { createChromeSessionRepository } from "../src/state/sessionRepository";
+import {
+  loadRestartPauseState,
+  overlayRestartPauses
+} from "../src/state/restartPauses";
 import { createChromeLocalRepository } from "../src/state/localRepository";
 import { createConfigurationRepository } from "../src/state/configurationRepository";
 import {
@@ -349,7 +353,12 @@ export default defineBackground(() => {
         return result;
       },
       async readMenuContext() {
-        const configuration = controller!.getConfiguration();
+        const portableConfiguration = controller!.getConfiguration();
+        const restartPauses = await loadRestartPauseState(session);
+        const configuration = overlayRestartPauses(
+          portableConfiguration,
+          restartPauses
+        );
         const inventory = await controller!.actionDeps().reads.readInventory();
         const runtime = await session.loadSession();
         const availableUndo = await getAvailableUndo(

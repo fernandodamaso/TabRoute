@@ -23,6 +23,7 @@ import { executeRoutePlan } from "../actions/executeRoutePlan";
 import type { ActionEngineDeps } from "../actions/executeActionPlan";
 import { planRuleRoute } from "../actions/planActions";
 import { makePersistentDefinition } from "../persistence/persistentCommands";
+import { matchesAcceptedUrl } from "../persistence/acceptedUrl";
 import {
   isPauseActive,
   placementAction,
@@ -504,8 +505,32 @@ export function createTabRouteController(input: {
       const observation = session.tabObservations.find(
         (record) => record.tabId === event.tabId
       );
+      const pendingPersistentGroupRemoval =
+        observation?.lastObservedUrl !== undefined &&
+        configuration.persistentTabs.some((definition) => {
+          if (
+            !matchesAcceptedUrl(
+              observation.lastObservedUrl,
+              definition.canonicalUrl,
+              definition.acceptedPatterns
+            )
+          ) {
+            return false;
+          }
+          const association = sessionWithAssociations.associations.find(
+            (candidate) =>
+              candidate.managedGroupId === definition.managedGroupId &&
+              candidate.chromeWindowId === event.windowId
+          );
+          return (
+            association !== undefined &&
+            !inventory.groups.some(
+              (group) => group.id === association.chromeGroupId
+            )
+          );
+        });
 
-      if (observation?.lastObservedUrl) {
+      if (observation?.lastObservedUrl && !pendingPersistentGroupRemoval) {
         const closedTab: ChromeTabSnapshot = {
           id: event.tabId,
 

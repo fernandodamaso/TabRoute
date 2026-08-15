@@ -32,6 +32,11 @@ import type {
 } from "../domain/types";
 import type { LocalRepository } from "../state/localRepository";
 import type { SessionRepository } from "../state/sessionRepository";
+import {
+  setGlobalRestartPause,
+  setGroupRestartPause,
+  setRuleRestartPause
+} from "../state/restartPauses";
 import type { CommandResult, UserCommand } from "./userCommands";
 import type { PlannedAction } from "../actions/types";
 
@@ -327,11 +332,9 @@ export async function executeUserCommand(
     case "setPause": {
       let next = configuration;
       const pausedUntil =
-        command.duration.kind === "resume"
-          ? undefined
-          : command.duration.kind === "restart"
-            ? "restart"
-            : command.duration.timestamp;
+        command.duration.kind === "until"
+          ? command.duration.timestamp
+          : undefined;
       if (command.target.kind === "global") {
         next = {
           ...configuration,
@@ -362,6 +365,22 @@ export async function executeUserCommand(
         };
       }
       await persist(deps, next);
+      const restartPaused = command.duration.kind === "restart";
+      if (command.target.kind === "global") {
+        await setGlobalRestartPause(deps.session, restartPaused);
+      } else if (command.target.kind === "group") {
+        await setGroupRestartPause(
+          deps.session,
+          command.target.id,
+          restartPaused
+        );
+      } else {
+        await setRuleRestartPause(
+          deps.session,
+          command.target.id,
+          restartPaused
+        );
+      }
       return { ok: true };
     }
     case "saveSnapshot": {

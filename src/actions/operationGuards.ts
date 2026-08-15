@@ -263,7 +263,9 @@ export function buildExpectedActionFootprint(input: {
         postcondition: {
           kind: "tabPlacement",
           tabIds,
-          windowId: action.windowId
+          windowId: action.windowId,
+          active: true,
+          focusedWindow: true
         },
         tabIds,
         chromeGroupIds
@@ -341,6 +343,7 @@ export function postconditionHolds(
       tab.index !== ordered.startIndex + offset
     )
       return false;
+    if (postcondition.active && !tab.active) return false;
     if (postcondition.ungrouped) {
       if (tab.chromeGroupId >= 0) return false;
       continue;
@@ -350,6 +353,13 @@ export function postconditionHolds(
     } else if (postcondition.grouped && tab.chromeGroupId < 0) {
       return false;
     }
+  }
+  if (postcondition.focusedWindow) {
+    if (postcondition.windowId === undefined) return false;
+    const window = inventory.windows.find(
+      (candidate) => candidate.id === postcondition.windowId
+    );
+    if (!window?.focused) return false;
   }
   return true;
 }

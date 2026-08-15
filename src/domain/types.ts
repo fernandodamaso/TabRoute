@@ -314,6 +314,8 @@ export type GuardPostcondition =
       chromeGroupId?: number;
       grouped?: true;
       ungrouped?: true;
+      active?: true;
+      focusedWindow?: true;
     }
   | {
       kind: "tabsPresent";
