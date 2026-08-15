@@ -86,6 +86,17 @@ async function menuUpdateSucceeds(
   }, menuId);
 }
 
+async function readWakeListenerState(
+  session: Awaited<ReturnType<typeof launchExtensionSession>>
+) {
+  const worker = await waitForWorker(session);
+  return worker.evaluate(() => ({
+    contextMenuClick: chrome.contextMenus.onClicked.hasListeners(),
+    manifestCommand: chrome.commands.onCommand.hasListeners(),
+    managerMessage: chrome.runtime.onMessage.hasListeners()
+  }));
+}
+
 test("registers page, tab, and group menu IDs in an isolated profile", async () => {
   const { session, profilePath } = await launchProductionSession("menus");
   try {
@@ -113,15 +124,27 @@ test("registers page, tab, and group menu IDs in an isolated profile", async () 
   }
 });
 
-test("worker restart re-registers stable menu IDs", async () => {
+test("worker restart synchronously restores wake listeners and stable menu IDs", async () => {
   const { session, profilePath } =
     await launchProductionSession("menus-restart");
   try {
     const options = await awakenWorker(session);
+    expect(await readWakeListenerState(session)).toEqual({
+      contextMenuClick: true,
+      manifestCommand: true,
+      managerMessage: true
+    });
     expect(await menuUpdateSucceeds(session, "tabroute:create-rule")).toEqual({
       ok: true
     });
+
     await session.restartWorker();
+
+    expect(await readWakeListenerState(session)).toEqual({
+      contextMenuClick: true,
+      manifestCommand: true,
+      managerMessage: true
+    });
     expect(await menuUpdateSucceeds(session, "tabroute:create-rule")).toEqual({
       ok: true
     });
