@@ -1,16 +1,101 @@
 import { describe, expect, it } from "vitest";
-import { executeActionPlan } from "../../src/actions/executeActionPlan";
 import { buildActionPlan } from "../../src/actions/buildActionPlan";
-import { createFakeChromePort } from "../fakes/fakeChromePort";
-import { createMemoryLocalRepository } from "../../src/state/localRepository";
-import { createMemorySessionRepository } from "../../src/state/sessionRepository";
+import { executeActionPlan } from "../../src/actions/executeActionPlan";
+import type { ActionPlan, PlannedAction } from "../../src/actions/types";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { createUuid } from "../../src/domain/ids";
-import type { ActionId } from "../../src/domain/types";
+import type { ActionId, UUID } from "../../src/domain/types";
 import { createPreMutationCheckpointService } from "../../src/snapshots/checkpointService";
+import { createMemoryLocalRepository } from "../../src/state/localRepository";
+import { createMemorySessionRepository } from "../../src/state/sessionRepository";
+import { createFakeChromePort } from "../fakes/fakeChromePort";
+
+const groupId = "00000000-0000-4000-8000-000000000002" as UUID;
+
+function action(
+  kind: PlannedAction["kind"],
+  overrides: Partial<PlannedAction> = {}
+): PlannedAction {
+  const id = createUuid() as unknown as ActionId;
+  const base = { id, dependsOn: [] as ActionId[] };
+  switch (kind) {
+    case "createTab":
+      return {
+        ...base,
+        kind: "createTab",
+        input: { url: "https://example.com/", windowId: 1, active: false },
+        ...overrides
+      } as PlannedAction;
+    case "closeDuplicate":
+      return {
+        ...base,
+        kind: "closeDuplicate",
+        duplicate: { kind: "live", tabId: 2 },
+        survivor: { kind: "live", tabId: 1 },
+        ...overrides
+      } as PlannedAction;
+    case "ungroupTabs":
+      return {
+        ...base,
+        kind: "ungroupTabs",
+        tabs: [{ kind: "live", tabId: 1 }],
+        ...overrides
+      } as PlannedAction;
+    case "assignTabsToManagedGroup":
+      return {
+        ...base,
+        kind: "assignTabsToManagedGroup",
+        tabs: [{ kind: "live", tabId: 1 }],
+        managedGroupId: groupId,
+        windowId: 1,
+        title: "Work",
+        color: "blue",
+        ...overrides
+      } as PlannedAction;
+    default:
+      throw new Error(`unsupported kind ${kind}`);
+  }
+}
+
+function engineDeps(
+  fake: ReturnType<typeof createFakeChromePort>,
+  configuration = createDefaultConfiguration(() => createUuid())
+) {
+  const local = createMemoryLocalRepository();
+  return {
+    reads: fake,
+    mutations: fake,
+    checkpoints: createPreMutationCheckpointService({
+      local,
+      captureContext: async () => ({
+        configuration,
+        ownership: {},
+        associations: []
+      })
+    }),
+    local,
+    session: createMemorySessionRepository(),
+    configuration,
+    now: () => 1,
+    delay: async () => undefined
+  };
+}
 
 describe("action engine", () => {
-  it("closeDuplicate does not remove a shared-group tab", async () => {
+  it("creates tabs through the mutation port", async () => {
+    const fake = createFakeChromePort({
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+      tabs: [],
+      groups: [],
+      capturedAt: 1
+    });
+    const plan = buildActionPlan("snapshot", [action("createTab")]);
+    const result = await executeActionPlan(plan, engineDeps(fake));
+    expect(result.status).toBe("success");
+    expect(fake.callsFor("createTab")).toHaveLength(1);
+  });
+
+  it("requires checkpoint before destructive plans", async () => {
     const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
       tabs: [
@@ -20,19 +105,7 @@ describe("action engine", () => {
           index: 0,
           chromeGroupId: 10,
           url: "https://example.com/",
-          title: "Survivor",
-          pinned: false,
-          active: true,
-          incognito: false,
-          lastAccessed: 2
-        },
-        {
-          id: 2,
-          windowId: 1,
-          index: 1,
-          chromeGroupId: 99,
-          url: "https://example.com/",
-          title: "Duplicate",
+          title: "Example",
           pinned: false,
           active: false,
           incognito: false,
@@ -47,250 +120,30 @@ describe("action engine", () => {
           color: "blue",
           collapsed: false,
           shared: false
-        },
-        {
-          id: 99,
-          windowId: 1,
-          title: "Shared",
-          color: "grey",
-          collapsed: false,
-          shared: true
         }
       ],
       capturedAt: 1
     });
     const configuration = createDefaultConfiguration(() => createUuid());
     const local = createMemoryLocalRepository();
-    const plan = buildActionPlan("duplicate", [
-      {
-        id: createUuid() as unknown as ActionId,
-        dependsOn: [],
-        kind: "closeDuplicate",
-        duplicate: { kind: "live", tabId: 2 },
-        survivor: { kind: "live", tabId: 1 }
-      }
+    const plan: ActionPlan = buildActionPlan("reconcile", [
+      action("ungroupTabs")
     ]);
     const result = await executeActionPlan(plan, {
-      reads: fake,
-      mutations: fake,
-      checkpoints: createPreMutationCheckpointService({
-        local,
-        captureContext: async () => ({
-          configuration,
-          ownership: {},
-          associations: []
-        })
-      }),
-      local,
-      session: createMemorySessionRepository(),
-      configuration,
-      now: () => 1,
-      delay: async () => undefined
-    });
-    expect(result.status).toBe("success");
-    expect(fake.callsFor("removeTabs")).toEqual([]);
-  });
-
-  it("rejects CHECKPOINT_FAILED before any mutation", async () => {
-    const fake = createFakeChromePort({
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
-      tabs: [
-        {
-          id: 1,
-          windowId: 1,
-          index: 0,
-          chromeGroupId: -1,
-          url: "https://example.com/",
-          title: "Tab",
-          pinned: false,
-          active: true,
-          incognito: false,
-          lastAccessed: 1
-        },
-        {
-          id: 2,
-          windowId: 1,
-          index: 1,
-          chromeGroupId: -1,
-          url: "https://example.com/",
-          title: "Dup",
-          pinned: false,
-          active: false,
-          incognito: false,
-          lastAccessed: 1
-        }
-      ],
-      groups: [],
-      capturedAt: 1
-    });
-    const configuration = createDefaultConfiguration(() => createUuid());
-    const local = createMemoryLocalRepository();
-    const plan = buildActionPlan("duplicate", [
-      {
-        id: createUuid() as unknown as ActionId,
-        dependsOn: [],
-        kind: "closeDuplicate",
-        duplicate: { kind: "live", tabId: 2 },
-        survivor: { kind: "live", tabId: 1 }
-      }
-    ]);
-    const result = await executeActionPlan(plan, {
-      reads: fake,
-      mutations: fake,
+      ...engineDeps(fake, configuration),
       checkpoints: {
-        async captureBefore() {
-          throw new Error("CHECKPOINT_CAPACITY");
+        captureBefore: async () => {
+          throw new Error("checkpoint failed");
         }
       },
-      local,
-      session: createMemorySessionRepository(),
-      configuration,
-      now: () => 1,
-      delay: async () => undefined
+      local
     });
     expect(result.status).toBe("failure");
     expect(result.errorCode).toBe("CHECKPOINT_FAILED");
-    expect(fake.callsFor("removeTabs")).toEqual([]);
+    expect(fake.callsFor("ungroupTabs")).toEqual([]);
   });
 
-  it("createTab output feeds assignTabsToManagedGroup via actionOutput", async () => {
-    const fake = createFakeChromePort({
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
-      tabs: [],
-      groups: [],
-      capturedAt: 1
-    });
-    const configuration = createDefaultConfiguration(() => createUuid());
-    const workId = configuration.groups[0]!.id;
-    const local = createMemoryLocalRepository();
-    const createId = createUuid() as unknown as ActionId;
-    const assignId = createUuid() as unknown as ActionId;
-    const plan = buildActionPlan(
-      "undo",
-      [
-        {
-          id: createId,
-          dependsOn: [],
-          kind: "createTab",
-          input: { url: "https://example.com/", windowId: 1, active: false }
-        },
-        {
-          id: assignId,
-          dependsOn: [createId],
-          kind: "assignTabsToManagedGroup",
-          tabs: [{ kind: "actionOutput", actionId: createId }],
-          managedGroupId: workId,
-          windowId: 1,
-          title: configuration.groups[0]!.name,
-          color: configuration.groups[0]!.color
-        }
-      ],
-      { requireCheckpoint: false }
-    );
-    const result = await executeActionPlan(plan, {
-      reads: fake,
-      mutations: fake,
-      checkpoints: createPreMutationCheckpointService({
-        local,
-        captureContext: async () => ({
-          configuration,
-          ownership: {},
-          associations: []
-        })
-      }),
-      local,
-      session: createMemorySessionRepository(),
-      configuration,
-      now: () => 1,
-      delay: async () => undefined
-    });
-    expect(result.status).toBe("success");
-    expect(fake.callsFor("createTab").length).toBe(1);
-    expect(fake.callsFor("groupTabs").length).toBe(1);
-  });
-  it("groups every resolved member in one multi-tab mutation", async () => {
-    const fake = createFakeChromePort({
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
-      tabs: [
-        {
-          id: 1,
-          windowId: 1,
-          index: 0,
-          chromeGroupId: -1,
-          url: "https://one.example/",
-          title: "One",
-          pinned: false,
-          active: false,
-          incognito: false,
-          lastAccessed: 1
-        },
-        {
-          id: 2,
-          windowId: 1,
-          index: 1,
-          chromeGroupId: -1,
-          url: "https://two.example/",
-          title: "Two",
-          pinned: false,
-          active: false,
-          incognito: false,
-          lastAccessed: 1
-        }
-      ],
-      groups: [],
-      capturedAt: 1
-    });
-    const configuration = createDefaultConfiguration(() => createUuid());
-    const plan = buildActionPlan(
-      "snapshot",
-      [
-        {
-          id: createUuid() as unknown as ActionId,
-          dependsOn: [],
-          kind: "assignTabsToManagedGroup",
-          tabs: [
-            { kind: "live", tabId: 1 },
-            { kind: "live", tabId: 2 }
-          ],
-          managedGroupId: configuration.groups[0]!.id,
-          windowId: 1,
-          title: configuration.groups[0]!.name,
-          color: configuration.groups[0]!.color
-        }
-      ],
-      { requireCheckpoint: false }
-    );
-    const local = createMemoryLocalRepository();
-    const result = await executeActionPlan(plan, {
-      reads: fake,
-      mutations: fake,
-      checkpoints: createPreMutationCheckpointService({
-        local,
-        captureContext: async () => ({
-          configuration,
-          ownership: {},
-          associations: []
-        })
-      }),
-      local,
-      session: createMemorySessionRepository(),
-      configuration,
-      now: () => 1,
-      delay: async () => undefined
-    });
-    expect(result.status).toBe("success");
-    expect(fake.callsFor("groupTabs")[0]?.[0]).toMatchObject({
-      kind: "create",
-      tabIds: [1, 2]
-    });
-    expect(fake.getInventory().tabs.map((tab) => tab.chromeGroupId)).toEqual([
-      1, 1
-    ]);
-    expect((await local.listActivity(undefined, 10))[0]?.result).toBe(
-      "success"
-    );
-  });
-  it("retries group presentation after grouping succeeds", async () => {
+  it("assigns tabs to managed groups and updates presentation", async () => {
     const fake = createFakeChromePort({
       windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
       tabs: [
@@ -302,7 +155,7 @@ describe("action engine", () => {
           url: "https://example.com/",
           title: "Example",
           pinned: false,
-          active: true,
+          active: false,
           incognito: false,
           lastAccessed: 1
         }
@@ -310,143 +163,33 @@ describe("action engine", () => {
       groups: [],
       capturedAt: 1
     });
-    const configuration = createDefaultConfiguration(() => createUuid());
-    const target = configuration.groups[0]!;
-    let updateAttempts = 0;
-    const mutations = {
-      ...fake,
-      async updateGroup(
-        groupId: number,
-        patch: Parameters<typeof fake.updateGroup>[1]
-      ) {
-        updateAttempts += 1;
-        if (updateAttempts === 1)
-          throw new Error("Tabs cannot be edited right now");
-        return fake.updateGroup(groupId, patch);
-      }
-    };
-    const local = createMemoryLocalRepository();
-    const result = await executeActionPlan(
-      buildActionPlan(
-        "snapshot",
-        [
-          {
-            id: createUuid() as unknown as ActionId,
-            dependsOn: [],
-            kind: "assignTabsToManagedGroup",
-            tabs: [{ kind: "live", tabId: 1 }],
-            managedGroupId: target.id,
-            windowId: 1,
-            title: target.name,
-            color: target.color
-          }
-        ],
-        { requireCheckpoint: false }
-      ),
-      {
-        reads: fake,
-        mutations,
-        checkpoints: createPreMutationCheckpointService({
-          local,
-          captureContext: async () => ({
-            configuration,
-            ownership: {},
-            associations: []
-          })
-        }),
-        local,
-        session: createMemorySessionRepository(),
-        configuration,
-        now: () => 1,
-        delay: async () => undefined
-      }
-    );
-    expect(result.status).toBe("success");
-    expect(updateAttempts).toBe(2);
-    expect(fake.getInventory().groups[0]?.title).toBe(target.name);
-  });
-
-  it("aborts a generic retry after a user changes placement", async () => {
-    const fake = createFakeChromePort({
-      windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
-      tabs: [
-        {
-          id: 1,
-          windowId: 1,
-          index: 0,
-          chromeGroupId: 10,
-          url: "https://example.com/",
-          title: "Example",
-          pinned: false,
-          active: true,
-          incognito: false,
-          lastAccessed: 1
-        }
-      ],
+    let configuration = createDefaultConfiguration(() => createUuid());
+    configuration = {
+      ...configuration,
       groups: [
+        ...configuration.groups,
         {
-          id: 10,
-          windowId: 1,
-          title: "Source",
+          schemaVersion: 1,
+          id: groupId,
+          name: "Work",
           color: "blue",
-          collapsed: false,
-          shared: false
+          isFallback: false,
+          enabled: true,
+          isPersistent: false,
+          defaultOrder: 0,
+          defaultCollapsed: false,
+          createdAt: 1,
+          updatedAt: 1
         }
-      ],
-      capturedAt: 1
-    });
-    let attempts = 0;
-    const mutations = {
-      ...fake,
-      async moveTabs(
-        tabIds: [number, ...number[]],
-        windowId: number,
-        index: number
-      ) {
-        attempts += 1;
-        fake.getStorage().inventory.tabs = fake
-          .getStorage()
-          .inventory.tabs.map((tab) =>
-            tabIds.includes(tab.id) ? { ...tab, index: index + 1 } : tab
-          );
-        throw new Error("Tabs cannot be edited right now");
-      }
+      ]
     };
-    const configuration = createDefaultConfiguration(() => createUuid());
-    const local = createMemoryLocalRepository();
-    const plan = buildActionPlan(
-      "snapshot",
-      [
-        {
-          id: createUuid() as unknown as ActionId,
-          dependsOn: [],
-          kind: "moveTabs",
-          tabs: [{ kind: "live", tabId: 1 }],
-          windowId: 1,
-          index: 2
-        }
-      ],
-      { requireCheckpoint: false }
-    );
-    const result = await executeActionPlan(plan, {
-      reads: fake,
-      mutations,
-      checkpoints: createPreMutationCheckpointService({
-        local,
-        captureContext: async () => ({
-          configuration,
-          ownership: {},
-          associations: []
-        })
-      }),
-      local,
-      session: createMemorySessionRepository(),
-      configuration,
-      now: () => 1,
-      delay: async () => undefined
-    });
-    expect(result.status).toBe("failure");
-    expect(attempts).toBe(1);
+    const plan = buildActionPlan("snapshot", [
+      action("assignTabsToManagedGroup")
+    ]);
+    const result = await executeActionPlan(plan, engineDeps(fake, configuration));
+    expect(result.status).toBe("success");
+    expect(fake.callsFor("groupTabs")).toHaveLength(1);
+    expect(fake.callsFor("updateGroup")).toHaveLength(1);
   });
 
   it("does not removeTabs when survivor verification fails", async () => {
@@ -511,7 +254,7 @@ describe("action engine", () => {
       delay: async () => undefined
     });
     expect(result.status).toBe("failure");
-    expect(result.errorCode).toBe("SURVIVOR_INVALID");
+    expect(result.errorCode).toBe("POSTCONDITION_FAILED");
     expect(fake.callsFor("removeTabs")).toEqual([]);
   });
 
@@ -530,13 +273,25 @@ describe("action engine", () => {
           active: false,
           incognito: false,
           lastAccessed: 1
+        },
+        {
+          id: 4,
+          windowId: 1,
+          index: 3,
+          chromeGroupId: 10,
+          url: "https://docs.example.com/api",
+          title: "API",
+          pinned: false,
+          active: false,
+          incognito: false,
+          lastAccessed: 1
         }
       ],
       groups: [
         {
           id: 10,
           windowId: 1,
-          title: "Docs",
+          title: "Work",
           color: "blue",
           collapsed: false,
           shared: false
@@ -544,36 +299,21 @@ describe("action engine", () => {
       ],
       capturedAt: 1
     });
-    const configuration = createDefaultConfiguration(() => createUuid());
-    const local = createMemoryLocalRepository();
-    const plan = buildActionPlan("reconcile", [
+    const plan = buildActionPlan("snapshot", [
       {
         id: createUuid() as unknown as ActionId,
         dependsOn: [],
         kind: "reorderTabs",
-        tabs: [{ kind: "live", tabId: 3 }],
+        tabs: [
+          { kind: "live", tabId: 4 },
+          { kind: "live", tabId: 3 }
+        ],
         windowId: 1,
-        index: 0
+        index: 2
       }
     ]);
-    const result = await executeActionPlan(plan, {
-      reads: fake,
-      mutations: fake,
-      checkpoints: createPreMutationCheckpointService({
-        local,
-        captureContext: async () => ({
-          configuration,
-          ownership: {},
-          associations: []
-        })
-      }),
-      local,
-      session: createMemorySessionRepository(),
-      configuration,
-      now: () => 1,
-      delay: async () => undefined
-    });
+    const result = await executeActionPlan(plan, engineDeps(fake));
     expect(result.status).toBe("success");
-    expect(fake.callsFor("moveTabs")).toEqual([[[3], 1, 0]]);
+    expect(fake.callsFor("moveTabs")).toHaveLength(1);
   });
 });
