@@ -46,7 +46,7 @@ import {
 } from "../src/persistence/startupCoordinator";
 import {
   refreshMenus,
-  registerMenus,
+  registerMenuClickListener,
   type MenuCommandHost
 } from "../src/background/registerMenus";
 import { registerCommands } from "../src/background/registerCommands";
@@ -237,6 +237,73 @@ export default defineBackground(() => {
     void processLifecycleEvent(event);
   }
 
+  let releaseStartupGate!: () => void;
+  const startupGate = new Promise<void>((resolve) => {
+    releaseStartupGate = resolve;
+  });
+  let startupFailure: unknown;
+
+  async function resolvedMenuHost(): Promise<MenuCommandHost> {
+    await startupGate;
+    if (startupFailure !== undefined) throw startupFailure;
+    if (!menuHost) throw new Error("menu host unavailable");
+    return menuHost;
+  }
+
+  const startupMenuHost: MenuCommandHost = {
+    async executeUserCommand(command) {
+      return (await resolvedMenuHost()).executeUserCommand(command);
+    },
+    async readMenuContext() {
+      return (await resolvedMenuHost()).readMenuContext();
+    }
+  };
+
+  registerMenuClickListener(chrome, startupMenuHost);
+  registerCommands(chrome, startupMenuHost);
+
+  chrome.runtime.onMessage.addListener(
+    (message: UiMessage, _sender, sendResponse) => {
+      if (
+        message.kind !== "manager-query" &&
+        message.kind !== "manager-command" &&
+        message.kind !== "activity-query" &&
+        message.kind !== "snapshots-query" &&
+        message.kind !== "diagnostics-query"
+      )
+        return undefined;
+      void startupGate
+        .then(() => {
+          if (startupFailure !== undefined) throw startupFailure;
+          if (!managerRouter) throw new Error("manager router unavailable");
+          return managerRouter.handle(message);
+        })
+        .then((response) => {
+          if (message.kind === "manager-command" && response.ok) {
+            void rebuildMenus().catch((error: unknown) =>
+              console.error("TabRoute menu refresh failed", error)
+            );
+          }
+          sendResponse(response);
+        })
+        .catch((error: unknown) => {
+          console.error("TabRoute manager message failed", error);
+          sendResponse({
+            ok: false,
+            error: {
+              kind: "transport",
+              code: "BACKGROUND_STARTUP_FAILED",
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "manager router unavailable"
+            }
+          });
+        });
+      return true;
+    }
+  );
+
   const ready = (async () => {
     const configuration = await repository.loadOrCreate();
     const local = createChromeLocalRepository(
@@ -380,8 +447,7 @@ export default defineBackground(() => {
         };
       }
     };
-    await registerMenus(chrome, menuHost);
-    registerCommands(chrome, menuHost);
+    await refreshMenus(chrome, menuHost);
     const configurationSync = createConfigurationSyncCoordinator({
       repository,
       callbacks: {
@@ -415,44 +481,11 @@ export default defineBackground(() => {
     }
   })();
 
-  chrome.runtime.onMessage.addListener(
-    (message: UiMessage, _sender, sendResponse) => {
-      if (
-        message.kind !== "manager-query" &&
-        message.kind !== "manager-command" &&
-        message.kind !== "activity-query" &&
-        message.kind !== "snapshots-query" &&
-        message.kind !== "diagnostics-query"
-      )
-        return undefined;
-      void ready
-        .then(() => {
-          if (!managerRouter) throw new Error("manager router unavailable");
-          return managerRouter.handle(message);
-        })
-        .then((response) => {
-          if (message.kind === "manager-command" && response.ok) {
-            void rebuildMenus().catch((error: unknown) =>
-              console.error("TabRoute menu refresh failed", error)
-            );
-          }
-          sendResponse(response);
-        })
-        .catch((error: unknown) => {
-          console.error("TabRoute manager message failed", error);
-          sendResponse({
-            ok: false,
-            error: {
-              kind: "transport",
-              code: "BACKGROUND_STARTUP_FAILED",
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "manager router unavailable"
-            }
-          });
-        });
-      return true;
+  void ready.then(
+    () => releaseStartupGate(),
+    (error: unknown) => {
+      startupFailure = error;
+      releaseStartupGate();
     }
   );
 
