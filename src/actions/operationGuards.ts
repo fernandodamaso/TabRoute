@@ -13,6 +13,11 @@ import type { PlannedAction, RoutePlan } from "./types";
 export const GUARD_QUIET_MS = 750;
 export const GUARD_HARD_MS = 5000;
 
+type OrderedTabPlacementPostcondition = Extract<
+  GuardPostcondition,
+  { kind: "tabPlacement" }
+> & { startIndex?: number };
+
 export function buildExpectedFootprint(
   plan: RoutePlan
 ): Pick<
@@ -176,7 +181,10 @@ export function buildExpectedActionFootprint(input: {
       const resolvedGroupId =
         input.outputChromeGroupId ??
         input.associations?.find(
-          (assoc) => assoc.managedGroupId === action.managedGroupId
+          (assoc) =>
+            assoc.managedGroupId === action.managedGroupId &&
+            (action.windowId === undefined ||
+              assoc.chromeWindowId === action.windowId)
         )?.chromeGroupId;
       return {
         operation: "updateManagedGroup",
@@ -188,6 +196,9 @@ export function buildExpectedActionFootprint(input: {
                 kind: "managedGroupState",
                 managedGroupId: action.managedGroupId,
                 chromeGroupId: resolvedGroupId,
+                ...(action.windowId === undefined
+                  ? {}
+                  : { windowId: action.windowId }),
                 ...(action.patch.title === undefined
                   ? {}
                   : { title: action.patch.title }),
@@ -209,7 +220,9 @@ export function buildExpectedActionFootprint(input: {
       const resolvedGroupId =
         input.outputChromeGroupId ??
         input.associations?.find(
-          (assoc) => assoc.managedGroupId === action.managedGroupId
+          (assoc) =>
+            assoc.managedGroupId === action.managedGroupId &&
+            assoc.chromeWindowId === action.windowId
         )?.chromeGroupId;
       return {
         operation: "moveManagedGroup",
@@ -237,8 +250,9 @@ export function buildExpectedActionFootprint(input: {
         postcondition: {
           kind: "tabPlacement",
           tabIds,
-          windowId: action.windowId
-        },
+          windowId: action.windowId,
+          startIndex: action.index
+        } as OrderedTabPlacementPostcondition,
         tabIds,
         chromeGroupIds
       };
@@ -311,13 +325,18 @@ export function postconditionHolds(
     return postcondition.tabIds.every((tabId) => !!findTab(inventory, tabId));
   if (postcondition.kind === "tabsAbsent")
     return postcondition.tabIds.every((tabId) => !findTab(inventory, tabId));
-  for (const tabId of postcondition.tabIds) {
+
+  const ordered = postcondition as OrderedTabPlacementPostcondition;
+  for (let offset = 0; offset < postcondition.tabIds.length; offset += 1) {
+    const tabId = postcondition.tabIds[offset]!;
     const tab = findTab(inventory, tabId);
     if (!tab) return false;
     if (
       postcondition.windowId !== undefined &&
       tab.windowId !== postcondition.windowId
     )
+      return false;
+    if (ordered.startIndex !== undefined && tab.index !== ordered.startIndex + offset)
       return false;
     if (postcondition.ungrouped) {
       if (tab.chromeGroupId >= 0) return false;
