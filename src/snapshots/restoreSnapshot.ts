@@ -3,7 +3,11 @@ import { renderGroupTitle } from "../groups/displayTitle";
 import { selectDuplicateSurvivor } from "../duplicates/resolveDuplicate";
 import { buildDuplicateKey } from "../duplicates/normalizeUrl";
 import { resolveDuplicatePolicy } from "../duplicates/policy";
-import { isTabInSharedGroup } from "../persistence/requirements";
+import {
+  isTabInSharedGroup,
+  matchesPersistentDefinition,
+  persistentTabsForGroup
+} from "../persistence/requirements";
 import { resolveHomeWindow } from "../persistence/windowOwnership";
 import type { RestoreContext } from "../persistence/startupRestore";
 import type {
@@ -83,6 +87,50 @@ function findReusableTab(
     context.associations,
     context.session
   );
+}
+
+function currentPersistentRefs(
+  managedGroupId: UUID,
+  windowId: number,
+  inventory: BrowserInventory,
+  context: RestoreContext
+): TabRef[] {
+  const seen = new Set<number>();
+  const refs: TabRef[] = [];
+  for (const definition of persistentTabsForGroup(
+    context.configuration,
+    managedGroupId
+  )) {
+    const match = [...inventory.tabs]
+      .filter(
+        (tab) =>
+          tab.windowId === windowId &&
+          !tab.incognito &&
+          !isTabInSharedGroup(tab, inventory) &&
+          !seen.has(tab.id) &&
+          matchesPersistentDefinition(tab, definition)
+      )
+      .sort((left, right) => left.index - right.index)[0];
+    if (!match) continue;
+    seen.add(match.id);
+    refs.push(tabRef(match.id));
+  }
+  return refs;
+}
+
+function persistentFirstRefs(
+  persistentRefs: readonly TabRef[],
+  snapshotRefs: readonly TabRef[]
+): TabRef[] {
+  const liveIds = new Set(
+    persistentRefs.flatMap((ref) => (ref.kind === "live" ? [ref.tabId] : []))
+  );
+  return [
+    ...persistentRefs,
+    ...snapshotRefs.filter(
+      (ref) => ref.kind !== "live" || !liveIds.has(ref.tabId)
+    )
+  ];
 }
 
 export function planSnapshotRestore(
@@ -224,6 +272,7 @@ export function planSnapshotRestore(
       dependsOn: [assignId],
       kind: "updateManagedGroup",
       managedGroupId: group.managedGroupId,
+      windowId,
       patch: {
         title: renderGroupTitle({ name: group.name, emoji: group.emoji }),
         color: group.color,
@@ -241,12 +290,16 @@ export function planSnapshotRestore(
       index: group.order
     });
 
+    const reorderRefs = persistentFirstRefs(
+      currentPersistentRefs(group.managedGroupId, windowId, inventory, context),
+      tabRefs
+    );
     const reorderId = actionId();
     actions.push({
       id: reorderId,
       dependsOn: [moveGroupId],
       kind: "reorderTabs",
-      tabs: tabRefs as [TabRef, ...TabRef[]],
+      tabs: reorderRefs as [TabRef, ...TabRef[]],
       windowId,
       index: 0
     });
