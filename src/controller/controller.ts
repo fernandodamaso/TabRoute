@@ -36,6 +36,10 @@ import { scrubRuntimeState } from "../state/runtimeSession";
 import type { LocalRepository } from "../state/localRepository";
 
 import type { SessionRepository } from "../state/sessionRepository";
+import {
+  loadRestartPauseState,
+  overlayRestartPauses
+} from "../state/restartPauses";
 
 import { settlePendingGroupRemovals } from "../groups/groupLifecycle";
 
@@ -167,6 +171,10 @@ export function createTabRouteController(input: {
       runtime = settledRuntime;
     }
 
+    const effectiveConfiguration = overlayRestartPauses(
+      configuration,
+      await loadRestartPauseState(input.session)
+    );
     const associations = await currentAssociations(inventory);
 
     const currentGroup = inventory.groups.find(
@@ -179,7 +187,7 @@ export function createTabRouteController(input: {
           tab,
           inventory,
           session: runtime,
-          configuration,
+          configuration: effectiveConfiguration,
           local: input.local,
           associations,
           actionDeps: actionDeps()
@@ -215,7 +223,7 @@ export function createTabRouteController(input: {
         tab,
         inventory,
         session: runtime,
-        configuration,
+        configuration: effectiveConfiguration,
         local: input.local,
         associations,
         actionDeps: actionDeps()
@@ -277,8 +285,8 @@ export function createTabRouteController(input: {
     }
 
     if (
-      !configuration.automationEnabled ||
-      isPauseActive(configuration.globalPausedUntil, now())
+      !effectiveConfiguration.automationEnabled ||
+      isPauseActive(effectiveConfiguration.globalPausedUntil, now())
     )
       return { kind: "held", reason: "paused" };
 
@@ -290,7 +298,7 @@ export function createTabRouteController(input: {
         association.chromeWindowId === freshTab.windowId
     );
     const currentManagedGroup = currentAssociation
-      ? configuration.groups.find(
+      ? effectiveConfiguration.groups.find(
           (group) => group.id === currentAssociation.managedGroupId
         )
       : undefined;
@@ -303,7 +311,7 @@ export function createTabRouteController(input: {
     executing = true;
     try {
       const selected = selectRule({
-        configuration,
+        configuration: effectiveConfiguration,
         tab: freshTab,
         inventory,
         associations
@@ -334,7 +342,7 @@ export function createTabRouteController(input: {
 
         associations,
 
-        configuration,
+        configuration: effectiveConfiguration,
 
         chrome: input.chrome,
 
@@ -362,7 +370,7 @@ export function createTabRouteController(input: {
 
         tab: freshTab,
 
-        configuration,
+        configuration: effectiveConfiguration,
 
         associations,
 
@@ -376,7 +384,7 @@ export function createTabRouteController(input: {
         session: input.session,
         checkpoints: input.checkpoints,
         local: input.local,
-        configuration,
+        configuration: effectiveConfiguration,
         now
       });
       if (result.kind === "executed") {
@@ -575,7 +583,10 @@ export function createTabRouteController(input: {
       actionDeps: actionDeps()
     });
 
-    await input.session.saveSession(session);
+    await input.session.updateSession((current) => ({
+      ...session,
+      operationGuards: current.operationGuards
+    }));
 
     await updateOwnershipFromInventory({
       configuration,
