@@ -39,7 +39,16 @@ import {
 } from "../persistence/persistentCommands";
 import { collectLiveMemberUrls } from "../persistence/requirements";
 import type { LocalRepository } from "../state/localRepository";
-import type { SessionRepository } from "../state/sessionRepository";
+import {
+  createMemorySessionRepository,
+  type SessionRepository
+} from "../state/sessionRepository";
+import {
+  loadRestartPauseState,
+  overlayRestartPauses,
+  setGroupRestartPause,
+  setRuleRestartPause
+} from "../state/restartPauses";
 import { validateRuleActions } from "../rules/ruleEngine";
 import type {
   ActivityQuery,
@@ -767,8 +776,14 @@ export function createManagerMessageRouter(input: {
   activity: ActivityManagerPort;
   snapshots: SnapshotManagerPort;
   diagnostics: DiagnosticsManagerPort;
+  session?: SessionRepository;
   inventory?: ManagerInventoryPort;
   refreshAlarms?: (configuration: Configuration) => Promise<void>;
+  applyGroupPresentation?: (input: {
+    groupId: UUID;
+    previousConfiguration: Configuration;
+    nextConfiguration: Configuration;
+  }) => Promise<void>;
   consumePendingRuleDraft?: () => Promise<
     { host: string; url: string } | undefined
   >;
@@ -777,7 +792,24 @@ export function createManagerMessageRouter(input: {
 }) {
   const randomUuid = input.randomUuid ?? (() => crypto.randomUUID());
   const now = input.now ?? Date.now;
+  const session = input.session ?? createMemorySessionRepository();
   let mutationTail: Promise<void> = Promise.resolve();
+
+  async function managerSuccess(
+    configuration: Configuration,
+    viewFixture?: ManagerViewFixture
+  ): Promise<ManagerSuccess> {
+    const pauseState = await loadRestartPauseState(session);
+    return success(overlayRestartPauses(configuration, pauseState), viewFixture);
+  }
+
+  async function overlayResponse(
+    response: ManagerResponse
+  ): Promise<ManagerResponse> {
+    if (!response.ok) return response;
+    return managerSuccess(response.configuration, response.viewFixture);
+  }
+
   return {
     handle(
       message:
@@ -789,7 +821,7 @@ export function createManagerMessageRouter(input: {
           current = validateConfiguration(input.controller.getConfiguration());
           if (message.kind === "manager-query") {
             const pendingRuleDraft = await input.consumePendingRuleDraft?.();
-            return success(
+            return managerSuccess(
               current,
               pendingRuleDraft
                 ? { persistentTabsByGroup: {}, pendingRuleDraft }
@@ -801,15 +833,15 @@ export function createManagerMessageRouter(input: {
               message.before,
               message.limit
             );
-            return success(current, viewFixture);
+            return managerSuccess(current, viewFixture);
           }
           if (message.kind === "snapshots-query") {
             const viewFixture = await input.snapshots.query();
-            return success(current, viewFixture);
+            return managerSuccess(current, viewFixture);
           }
           if (message.kind === "diagnostics-query") {
             const viewFixture = await input.diagnostics.query();
-            return success(current, viewFixture);
+            return managerSuccess(current, viewFixture);
           }
         } catch (error) {
           return domainFailure(error);
@@ -821,62 +853,75 @@ export function createManagerMessageRouter(input: {
               throw new Error("undo id must be a UUID");
             const undoResult = await input.activity.undo(message.command.undoId);
             if (undoResult !== "success") return undoFailure(undoResult);
-            const viewFixture = await input.activity.query(undefined, 50);
-            return success(current, viewFixture);
+            const viewFixture = await input.activity.query(undefined, 500);
+            return managerSuccess(current, viewFixture);
           }
           if (message.command.kind === "clearActivity") {
             await input.activity.clear();
-            const viewFixture = await input.activity.query(undefined, 50);
-            return success(current, viewFixture);
+            const viewFixture = await input.activity.query(undefined, 500);
+            return managerSuccess(current, viewFixture);
           }
           if (message.command.kind === "saveSnapshot") {
-            return input.snapshots.save(
-              message.command.name,
-              message.command.scope
+            return overlayResponse(
+              await input.snapshots.save(
+                message.command.name,
+                message.command.scope
+              )
             );
           }
           if (message.command.kind === "restoreSnapshot") {
             if (!isUuid(message.command.snapshotId))
               throw new Error("snapshot id must be a UUID");
-            return input.snapshots.restore(message.command.snapshotId);
+            return overlayResponse(
+              await input.snapshots.restore(message.command.snapshotId)
+            );
           }
           if (message.command.kind === "updateSnapshot") {
             if (!isUuid(message.command.snapshotId))
               throw new Error("snapshot id must be a UUID");
-            return input.snapshots.update(message.command.snapshotId);
+            return overlayResponse(
+              await input.snapshots.update(message.command.snapshotId)
+            );
           }
           if (message.command.kind === "renameSnapshot") {
             if (!isUuid(message.command.snapshotId))
               throw new Error("snapshot id must be a UUID");
-            return input.snapshots.rename(
-              message.command.snapshotId,
-              message.command.name
+            return overlayResponse(
+              await input.snapshots.rename(
+                message.command.snapshotId,
+                message.command.name
+              )
             );
           }
           if (message.command.kind === "deleteSnapshot") {
             if (!isUuid(message.command.snapshotId))
               throw new Error("snapshot id must be a UUID");
-            return input.snapshots.delete(message.command.snapshotId);
+            return overlayResponse(
+              await input.snapshots.delete(message.command.snapshotId)
+            );
           }
           if (message.command.kind === "diagnosticsRecheck") {
             const viewFixture = await input.diagnostics.recheck();
-            return success(current, viewFixture);
+            return managerSuccess(current, viewFixture);
           }
           if (message.command.kind === "retryPendingSync") {
             const viewFixture = await input.diagnostics.retryPendingSync();
-            return success(input.controller.getConfiguration(), viewFixture);
+            return managerSuccess(
+              validateConfiguration(input.controller.getConfiguration()),
+              viewFixture
+            );
           }
           if (message.command.kind === "reconcileAll") {
             await input.diagnostics.reconcileAll();
             const viewFixture = await input.diagnostics.query();
-            return success(current, viewFixture);
+            return managerSuccess(current, viewFixture);
           }
           if (message.command.kind === "exportActivityLog") {
             const viewFixture = await input.diagnostics.exportActivityLog();
-            return success(current, viewFixture);
+            return managerSuccess(current, viewFixture);
           }
           if (message.command.kind === "exportConfiguration") {
-            return success(current, {
+            return managerSuccess(current, {
               persistentTabsByGroup: {},
               activityLogExport: exportPortableConfiguration(current)
             });
@@ -886,6 +931,50 @@ export function createManagerMessageRouter(input: {
         const commandPayload = (
           message as Extract<ManagerMessage, { kind: "manager-command" }>
         ).command;
+        let portableCommand: ManagerCommandPayload = commandPayload;
+        let applyRestartPause: (() => Promise<void>) | undefined;
+
+        if (commandPayload.kind === "setRulePaused") {
+          const pausedUntil = commandPayload.pausedUntil;
+          portableCommand = {
+            ...commandPayload,
+            pausedUntil: pausedUntil === "restart" ? undefined : pausedUntil
+          };
+          applyRestartPause = () =>
+            setRuleRestartPause(
+              session,
+              commandPayload.ruleId,
+              pausedUntil === "restart"
+            );
+        } else if (
+          commandPayload.kind === "updateGroup" &&
+          Object.prototype.hasOwnProperty.call(
+            commandPayload.patch,
+            "pausedUntil"
+          )
+        ) {
+          const pausedUntil = commandPayload.patch.pausedUntil;
+          portableCommand = {
+            ...commandPayload,
+            patch: {
+              ...commandPayload.patch,
+              pausedUntil: pausedUntil === "restart" ? undefined : pausedUntil
+            }
+          };
+          applyRestartPause = () =>
+            setGroupRestartPause(
+              session,
+              commandPayload.groupId,
+              pausedUntil === "restart"
+            );
+        } else if (commandPayload.kind === "deleteRule") {
+          applyRestartPause = () =>
+            setRuleRestartPause(session, commandPayload.ruleId, false);
+        } else if (commandPayload.kind === "deleteGroup") {
+          applyRestartPause = () =>
+            setGroupRestartPause(session, commandPayload.groupId, false);
+        }
+
         let next: Configuration;
         try {
           let inventoryContext:
@@ -895,7 +984,7 @@ export function createManagerMessageRouter(input: {
                 preferredWindowId?: number;
               }
             | undefined;
-          if (commandPayload.kind === "pinGroup") {
+          if (portableCommand.kind === "pinGroup") {
             if (!input.inventory) throw new Error("inventory unavailable");
             const chromeInventory = await input.inventory.readInventory();
             const associations = await input.inventory.loadAssociations(
@@ -911,7 +1000,7 @@ export function createManagerMessageRouter(input: {
           next = validateConfiguration(
             applyCommand(
               current,
-              commandPayload,
+              portableCommand,
               randomUuid,
               now,
               inventoryContext
@@ -927,6 +1016,32 @@ export function createManagerMessageRouter(input: {
           return failure("persistence", error);
         }
 
+        if (applyRestartPause) {
+          try {
+            await applyRestartPause();
+          } catch (error) {
+            return failure("persistence", error);
+          }
+        }
+
+        if (
+          commandPayload.kind === "updateGroup" &&
+          (commandPayload.patch.name !== undefined ||
+            commandPayload.patch.emoji !== undefined ||
+            commandPayload.patch.color !== undefined)
+        ) {
+          try {
+            await input.applyGroupPresentation?.({
+              groupId: commandPayload.groupId,
+              previousConfiguration: current,
+              nextConfiguration: next
+            });
+          } catch {
+            // The portable edit is already durable. Reconciliation can retry
+            // the live presentation without making the durable command retryable.
+          }
+        }
+
         try {
           await input.controller.replaceConfiguration(next);
         } catch {
@@ -934,14 +1049,14 @@ export function createManagerMessageRouter(input: {
           // accepted configuration before reconciliation, so a later Chrome
           // reconciliation failure must not make a durable command retryable.
         }
-        if (commandPayload.kind === "setSnapshotIntervalMinutes") {
+        if (portableCommand.kind === "setSnapshotIntervalMinutes") {
           try {
             await input.refreshAlarms?.(next);
           } catch {
             // The setting is already durable; alarm refresh will retry on wake.
           }
         }
-        return success(next);
+        return managerSuccess(next);
       };
 
       if (
