@@ -65,26 +65,66 @@ function makeRouter(input: {
     },
     snapshots: {
       query: async () => ({ persistentTabsByGroup: {} }),
-      save: async () => ({ ok: true, configuration: current, view: {
-        width: 520, height: 600, headerHeight: 52, navigationHeight: 42,
-        defaultRoute: "groups", routes: ["groups", "rules", "activity", "settings"]
-      } }),
-      restore: async () => ({ ok: true, configuration: current, view: {
-        width: 520, height: 600, headerHeight: 52, navigationHeight: 42,
-        defaultRoute: "groups", routes: ["groups", "rules", "activity", "settings"]
-      } }),
-      update: async () => ({ ok: true, configuration: current, view: {
-        width: 520, height: 600, headerHeight: 52, navigationHeight: 42,
-        defaultRoute: "groups", routes: ["groups", "rules", "activity", "settings"]
-      } }),
-      rename: async () => ({ ok: true, configuration: current, view: {
-        width: 520, height: 600, headerHeight: 52, navigationHeight: 42,
-        defaultRoute: "groups", routes: ["groups", "rules", "activity", "settings"]
-      } }),
-      delete: async () => ({ ok: true, configuration: current, view: {
-        width: 520, height: 600, headerHeight: 52, navigationHeight: 42,
-        defaultRoute: "groups", routes: ["groups", "rules", "activity", "settings"]
-      } })
+      save: async () => ({
+        ok: true,
+        configuration: current,
+        view: {
+          width: 520,
+          height: 600,
+          headerHeight: 52,
+          navigationHeight: 42,
+          defaultRoute: "groups",
+          routes: ["groups", "rules", "activity", "settings"]
+        }
+      }),
+      restore: async () => ({
+        ok: true,
+        configuration: current,
+        view: {
+          width: 520,
+          height: 600,
+          headerHeight: 52,
+          navigationHeight: 42,
+          defaultRoute: "groups",
+          routes: ["groups", "rules", "activity", "settings"]
+        }
+      }),
+      update: async () => ({
+        ok: true,
+        configuration: current,
+        view: {
+          width: 520,
+          height: 600,
+          headerHeight: 52,
+          navigationHeight: 42,
+          defaultRoute: "groups",
+          routes: ["groups", "rules", "activity", "settings"]
+        }
+      }),
+      rename: async () => ({
+        ok: true,
+        configuration: current,
+        view: {
+          width: 520,
+          height: 600,
+          headerHeight: 52,
+          navigationHeight: 42,
+          defaultRoute: "groups",
+          routes: ["groups", "rules", "activity", "settings"]
+        }
+      }),
+      delete: async () => ({
+        ok: true,
+        configuration: current,
+        view: {
+          width: 520,
+          height: 600,
+          headerHeight: 52,
+          navigationHeight: 42,
+          defaultRoute: "groups",
+          routes: ["groups", "rules", "activity", "settings"]
+        }
+      })
     },
     diagnostics: {
       query: async () => ({ persistentTabsByGroup: {} }),
@@ -147,7 +187,13 @@ describe("PR 10 manager restart-pause and presentation regressions", () => {
   });
 
   it("calls the live presentation hook after a durable identity edit", async () => {
-    const applyGroupPresentation = vi.fn(async () => undefined);
+    const applyGroupPresentation = vi.fn(
+      async (_input: {
+        groupId: UUID;
+        previousConfiguration: Configuration;
+        nextConfiguration: Configuration;
+      }) => undefined
+    );
     const { router } = makeRouter({
       initial: configurationWithRule(),
       session: createMemorySessionRepository(),
@@ -156,7 +202,11 @@ describe("PR 10 manager restart-pause and presentation regressions", () => {
 
     const result = await router.handle({
       kind: "manager-command",
-      command: { kind: "updateGroup", groupId: workId, patch: { name: "Deep Work" } }
+      command: {
+        kind: "updateGroup",
+        groupId: workId,
+        patch: { name: "Deep Work" }
+      }
     });
 
     expect(result.ok).toBe(true);
@@ -164,10 +214,14 @@ describe("PR 10 manager restart-pause and presentation regressions", () => {
     expect(applyGroupPresentation.mock.calls[0]?.[0]).toMatchObject({
       groupId: workId,
       previousConfiguration: {
-        groups: expect.arrayContaining([expect.objectContaining({ id: workId, name: "Work" })])
+        groups: expect.arrayContaining([
+          expect.objectContaining({ id: workId, name: "Work" })
+        ])
       },
       nextConfiguration: {
-        groups: expect.arrayContaining([expect.objectContaining({ id: workId, name: "Deep Work" })])
+        groups: expect.arrayContaining([
+          expect.objectContaining({ id: workId, name: "Deep Work" })
+        ])
       }
     });
   });
