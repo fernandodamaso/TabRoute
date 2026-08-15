@@ -11,6 +11,7 @@ import type {
 } from "./types";
 
 const SEED_TIME = 1_800_000_000_000;
+const PAUSED_FIXTURE_UNTIL = 4_102_444_800_000;
 
 export const FIXTURE_IDS = {
   fallbackGroup: "00000000-0000-4000-8000-000000000001" as UUID,
@@ -332,7 +333,7 @@ function createSeedFor(id: ScenarioId): {
         rule(FIXTURE_IDS.pausedRule, FIXTURE_IDS.primaryGroup, {
           priority: 30,
           host: "calendar.example.test",
-          pausedUntil: "restart"
+          pausedUntil: PAUSED_FIXTURE_UNTIL
         }),
         rule(FIXTURE_IDS.disabledRule, FIXTURE_IDS.secondaryGroup, {
           priority: 20,
