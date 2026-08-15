@@ -62,6 +62,28 @@ async function readBrowserInventory(deps: SnapshotSchedulerDeps): Promise<{
   return { raw, inventory: observeInventory(raw, session).inventory };
 }
 
+async function recordSnapshotFailure(
+  deps: SnapshotSchedulerDeps,
+  action: string,
+  errorCode: string
+): Promise<void> {
+  try {
+    await appendActivityEntry(
+      deps.local,
+      createActivityEntry({
+        action,
+        result: "failure",
+        affectedManagedGroupIds: [],
+        affectedUrls: [],
+        errorCode,
+        createdAt: deps.now?.() ?? Date.now()
+      })
+    );
+  } catch {
+    // Snapshot/checkpoint failure stays non-fatal if Activity is also unavailable.
+  }
+}
+
 export async function ensureSnapshotAlarms(
   configuration: Configuration,
   alarms: AlarmScheduler
@@ -104,7 +126,10 @@ export async function noteSnapshotRelevantEvent(
     snapshot,
     capturedAt: now
   };
-  await deps.local.saveShutdownCheckpoint(record);
+  const result = await deps.local.saveShutdownCheckpoint(record);
+  if (!result.ok) {
+    await recordSnapshotFailure(deps, "Shutdown checkpoint", result.code);
+  }
   await deps.alarms.scheduleOneShot(
     SNAPSHOT_ALARMS.checkpoint,
     now + CHECKPOINT_DEBOUNCE_MS
@@ -130,21 +155,7 @@ export async function handleSnapshotAlarm(
       now: deps.now
     });
     if (!result.ok) {
-      try {
-        await appendActivityEntry(
-          deps.local,
-          createActivityEntry({
-            action: "Automatic snapshot",
-            result: "failure",
-            affectedManagedGroupIds: [],
-            affectedUrls: [],
-            errorCode: result.code,
-            createdAt: deps.now?.() ?? Date.now()
-          })
-        );
-      } catch {
-        // Snapshot failure remains non-fatal even if Activity storage is unavailable.
-      }
+      await recordSnapshotFailure(deps, "Automatic snapshot", result.code);
     }
     return;
   }
@@ -163,9 +174,12 @@ export async function handleSnapshotAlarm(
     kind: "checkpoint",
     now
   });
-  await deps.local.saveShutdownCheckpoint({
+  const result = await deps.local.saveShutdownCheckpoint({
     schemaVersion: 1,
     snapshot,
     capturedAt: now
   });
+  if (!result.ok) {
+    await recordSnapshotFailure(deps, "Shutdown checkpoint", result.code);
+  }
 }
