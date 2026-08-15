@@ -6,7 +6,7 @@ on:
       - review/round5-sol
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: round5-sol-${{ github.ref }}
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Round 5 focused verification
+    name: Round 5 remediation verification
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -34,6 +34,262 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Apply reviewed fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              file.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "src/controller/persistentRepairRunner.ts",
+              'import { persistentTabsForGroup } from "../persistence/requirements";',
+              '''import {
+            isGroupEligibleForRepair,
+            persistentTabsForGroup
+          } from "../persistence/requirements";'''
+          )
+
+          replace_once(
+              "src/controller/persistentRepairRunner.ts",
+              '''  const inventory = await input.chrome.readInventory();
+            const context = await buildRestoreContext({''',
+              '''  const inventory = await input.chrome.readInventory();
+            const hasNormalWindow = inventory.windows.some(
+              (window) => window.type === "normal" && !window.incognito
+            );
+            const hasEligibleRestoreTarget =
+              input.configuration.restorePersistentGroups &&
+              input.configuration.groups.some(
+                (group) =>
+                  group.enabled &&
+                  !group.isFallback &&
+                  (group.isPersistent ||
+                    persistentTabsForGroup(input.configuration, group.id).length > 0) &&
+                  isGroupEligibleForRepair(
+                    input.configuration,
+                    group.id,
+                    input.session.intentionallyClosedGroupIds
+                  )
+              );
+            if (!hasNormalWindow && hasEligibleRestoreTarget) return false;
+
+            const context = await buildRestoreContext({'''
+          )
+
+          replace_once(
+              "src/persistence/requirements.ts",
+              '''export function matchesPersistentDefinition(
+            tab: TabSnapshot | { url?: string; routing?: TabSnapshot["routing"] },
+            definition: PersistentTab
+          ): boolean {
+            const url = tabUrl(tab);
+            if (!url || !isRoutableUrl(url)) return false;
+            return matchesAcceptedUrl(
+              url,
+              definition.canonicalUrl,
+              definition.acceptedPatterns
+            );
+          }''',
+              '''export function matchesPersistentDefinition(
+            tab: TabSnapshot | { url?: string; routing?: TabSnapshot["routing"] },
+            definition: PersistentTab,
+            duplicateSettings: Configuration["duplicateSettings"]
+          ): boolean {
+            const url = tabUrl(tab);
+            if (!url || !isRoutableUrl(url)) return false;
+            if (
+              matchesAcceptedUrl(
+                url,
+                definition.canonicalUrl,
+                definition.acceptedPatterns
+              )
+            ) {
+              return true;
+            }
+            const canonicalUrl = deriveCanonicalUrl(url, duplicateSettings);
+            return matchesAcceptedUrl(
+              canonicalUrl,
+              definition.canonicalUrl,
+              definition.acceptedPatterns
+            );
+          }'''
+          )
+
+          replace_once(
+              "src/persistence/startupRestore.ts",
+              '''function findMatchingNonSharedTab(
+            definition: PersistentTab,
+            inventory: ChromeInventory,
+            associations: readonly ChromeAssociation[]
+          ): ChromeTabSnapshot | undefined {
+            const matchingTabs = inventory.tabs.filter((tab) => {
+              if (isTabInSharedGroup(tab, inventory)) return false;
+              return matchesPersistentDefinition(tabSnapshotFromChrome(tab), definition);
+            });''',
+              '''function findMatchingNonSharedTab(
+            definition: PersistentTab,
+            inventory: ChromeInventory,
+            associations: readonly ChromeAssociation[],
+            duplicateSettings: Configuration["duplicateSettings"]
+          ): ChromeTabSnapshot | undefined {
+            const matchingTabs = inventory.tabs.filter((tab) => {
+              if (isTabInSharedGroup(tab, inventory)) return false;
+              return matchesPersistentDefinition(
+                tabSnapshotFromChrome(tab),
+                definition,
+                duplicateSettings
+              );
+            });'''
+          )
+
+          replace_once(
+              "src/persistence/startupRestore.ts",
+              '''  const matchingTab = findMatchingNonSharedTab(
+            definition,
+            inventory,
+            context.associations
+          );''',
+              '''  const matchingTab = findMatchingNonSharedTab(
+            definition,
+            inventory,
+            context.associations,
+            context.configuration.duplicateSettings
+          );'''
+          )
+
+          replace_once(
+              "src/persistence/startupRestore.ts",
+              '''    const url = matchingTab.url ?? "";
+            const canonicalMatch =
+              url === definition.canonicalUrl ||
+              matchesAcceptedUrl(
+                url,
+                definition.canonicalUrl,
+                definition.acceptedPatterns
+              );''',
+              '''    const canonicalMatch = matchesPersistentDefinition(
+              tabSnapshotFromChrome(matchingTab),
+              definition,
+              context.configuration.duplicateSettings
+            );'''
+          )
+
+          replace_once(
+              "src/persistence/startupRestore.ts",
+              '''    if (!matchesPersistentDefinition(snapshot, definition) && !inTargetGroup) {''',
+              '''    if (
+              !matchesPersistentDefinition(
+                snapshot,
+                definition,
+                context.configuration.duplicateSettings
+              ) &&
+              !inTargetGroup
+            ) {'''
+          )
+
+          replace_once(
+              "src/persistence/startupRestore.ts",
+              '''      return matchesPersistentDefinition(
+                tabSnapshotFromChrome(candidate),
+                definition
+              );''',
+              '''      return matchesPersistentDefinition(
+                tabSnapshotFromChrome(candidate),
+                definition,
+                configuration.duplicateSettings
+              );'''
+          )
+
+          replace_once(
+              "src/persistence/startupRestore.ts",
+              '''    const association = context.associations.find(
+              (candidate) => candidate.managedGroupId === group.id
+            );
+            const ownership = context.ownership[group.id];
+            if (association && ownership) {
+              const moveId = actionId();
+              actions.push({
+                id: moveId,
+                dependsOn: [],
+                kind: "moveManagedGroup",
+                managedGroupId: group.id,
+                windowId: homeWindow,
+                index: ownership.order
+              });
+              const updateId = actionId();
+              actions.push({
+                id: updateId,
+                dependsOn: [],
+                kind: "updateManagedGroup",
+                managedGroupId: group.id,
+                patch: { collapsed: ownership.collapsed }
+              });
+            }''',
+              '''    const ownership = context.ownership[group.id];
+            if (ownership) {
+              const lastAssign = [...actions]
+                .reverse()
+                .find(
+                  (action) =>
+                    action.kind === "assignTabsToManagedGroup" &&
+                    action.managedGroupId === group.id
+                );
+              const moveId = actionId();
+              actions.push({
+                id: moveId,
+                dependsOn: lastAssign ? [lastAssign.id] : [],
+                kind: "moveManagedGroup",
+                managedGroupId: group.id,
+                windowId: homeWindow,
+                index: ownership.order
+              });
+              const updateId = actionId();
+              actions.push({
+                id: updateId,
+                dependsOn: [moveId],
+                kind: "updateManagedGroup",
+                managedGroupId: group.id,
+                windowId: homeWindow,
+                patch: { collapsed: ownership.collapsed }
+              });
+            }'''
+          )
+
+          replace_once(
+              "src/persistence/startupRestore.ts",
+              '''    if (!matchesPersistentDefinition(snapshot, definition)) continue;''',
+              '''    if (
+              !matchesPersistentDefinition(
+                snapshot,
+                definition,
+                context.configuration.duplicateSettings
+              )
+            )
+              continue;'''
+          )
+
+          replace_once(
+              "tests/unit/persistence.test.ts",
+              '''        },
+                def
+              )''',
+              '''        },
+                def,
+                configuration().duplicateSettings
+              )'''
+          )
+          PY
+
+      - name: Format changed files
+        run: npx prettier --write src/controller/persistentRepairRunner.ts src/persistence/requirements.ts src/persistence/startupRestore.ts tests/unit/persistence.test.ts
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -44,4 +300,16 @@ jobs:
         run: npm run format:check
 
       - name: Round 5 regression tests
-        run: npx vitest run tests/unit/pr10-review-regressions-round5.test.ts
+        run: npx vitest run tests/unit/pr10-review-regressions-round5.test.ts tests/unit/persistence.test.ts
+
+      - name: Commit verified remediation
+        run: |
+          if git diff --quiet; then
+            echo "No remediation changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/controller/persistentRepairRunner.ts src/persistence/requirements.ts src/persistence/startupRestore.ts tests/unit/persistence.test.ts
+          git commit -m "fix: address round 5 PR review findings"
+          git push origin HEAD:review/round5-sol
