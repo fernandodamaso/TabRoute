@@ -1,6 +1,7 @@
 import { defineConfig } from "wxt";
 
 const workbenchBuild = process.env.TABROUTE_WORKBENCH === "1";
+const productionE2eBuild = process.env.TABROUTE_PRODUCTION_E2E === "1";
 const productionWorkbenchStub = "\0tabroute-production-workbench-stub";
 
 export default defineConfig({
@@ -10,7 +11,8 @@ export default defineConfig({
   targetBrowsers: ["chrome"],
   vite: () => ({
     define: {
-      __TABROUTE_WORKBENCH__: JSON.stringify(workbenchBuild)
+      __TABROUTE_WORKBENCH__: JSON.stringify(workbenchBuild),
+      __TABROUTE_PRODUCTION_E2E__: JSON.stringify(productionE2eBuild)
     },
     plugins: workbenchBuild
       ? []

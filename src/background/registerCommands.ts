@@ -42,6 +42,16 @@ export function registerCommands(
   });
 }
 
+/** @internal production-gated E2E dispatch; native shortcut UI is not exposed in headless Chromium. */
+export function dispatchCommandForProductionE2E(
+  browser: typeof chrome,
+  host: CommandHost,
+  commandName: string,
+  tab: chrome.tabs.Tab | undefined
+): Promise<void> {
+  return handleCommand(browser, host, commandName, tab);
+}
+
 /** @internal test helper */
 export function resetCommandRegistrationForTests(): void {
   commandsRegistered = false;

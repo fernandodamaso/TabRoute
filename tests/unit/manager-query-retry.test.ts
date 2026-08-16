@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultConfiguration } from "../../src/domain/defaults";
 import {
+  MANAGER_STARTUP_QUERY_RETRY,
   isRetryableInitialManagerQueryFailure,
   requestInitialManagerQuery
 } from "../../src/ui/manager/managerQueryRetry";
@@ -99,19 +100,56 @@ describe("initial manager query recovery", () => {
     expect(clock).toBe(200);
   });
 
-  it("does not classify offline or arbitrary runtime errors as startup-retryable", () => {
+  it("allows a timeout attempt to be followed by startup retries", async () => {
+    let clock = 0;
+    const request = vi.fn(async () => {
+      clock += 5_000;
+      return transportFailure("TIMEOUT", "Manager request timed out");
+    });
+
+    const result = await requestInitialManagerQuery(
+      { request },
+      {
+        now: () => clock,
+        sleep: async (milliseconds) => {
+          clock += milliseconds;
+        }
+      }
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { kind: "transport", code: "TIMEOUT" }
+    });
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(MANAGER_STARTUP_QUERY_RETRY.deadlineMs).toBeGreaterThan(5_000);
+  });
+
+  it("does not classify offline or permanent runtime errors as startup-retryable", () => {
     const offline: ManagerResponse = {
       ok: false,
       error: { kind: "offline", code: "OFFLINE", message: "offline" }
     };
     const arbitrary = transportFailure("RUNTIME_ERROR", "permission denied");
+    const permanentLastError = transportFailure(
+      "RUNTIME_LAST_ERROR",
+      "The extension context is invalidated"
+    );
     const startup = transportFailure(
       "RUNTIME_ERROR",
+      "Could not establish connection. Receiving end does not exist."
+    );
+    const startupLastError = transportFailure(
+      "RUNTIME_LAST_ERROR",
       "Could not establish connection. Receiving end does not exist."
     );
 
     expect(isRetryableInitialManagerQueryFailure(offline)).toBe(false);
     expect(isRetryableInitialManagerQueryFailure(arbitrary)).toBe(false);
+    expect(isRetryableInitialManagerQueryFailure(permanentLastError)).toBe(
+      false
+    );
     expect(isRetryableInitialManagerQueryFailure(startup)).toBe(true);
+    expect(isRetryableInitialManagerQueryFailure(startupLastError)).toBe(true);
   });
 });

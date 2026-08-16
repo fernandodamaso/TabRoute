@@ -7,7 +7,6 @@ import {
 } from "playwright";
 import { serializeWorkbenchUrl } from "../../src/workbench/url";
 import {
-  MANAGER_QUERY_TIMEOUT_MS,
   settleManagerQuery,
   WORKER_DISCOVERY_TIMEOUT_MS,
   WorkbenchCodedError
@@ -254,6 +253,52 @@ export async function launchExtensionSession(input: {
         new Date().toISOString()
       );
 
+    const terminateWorker = async (): Promise<{
+      terminatedTargetId: string;
+    }> => {
+      const cdp = await browser.newBrowserCDPSession();
+      try {
+        const current = (await listExtensionServiceWorkerTargets(browser)).find(
+          (target) => parseExtensionWorkerUrl(target.url) === extensionId
+        );
+        if (!current) {
+          throw new WorkbenchCodedError(
+            "WORKBENCH_WORKER_TIMEOUT",
+            "no extension service worker target found",
+            "restart-termination"
+          );
+        }
+        const terminatedTargetId = current.targetId;
+        await cdp.send("Target.closeTarget", {
+          targetId: terminatedTargetId
+        });
+        // Parallel production-gate workers can delay CDP target bookkeeping.
+        // Keep termination verification independent from a single manager read.
+        const terminated = await waitUntil(async () => {
+          const nextTargets = await listExtensionServiceWorkerTargets(browser);
+          const targetStillPresent = nextTargets.some(
+            (target) => target.targetId === terminatedTargetId
+          );
+          const workerStillAttached = context!
+            .serviceWorkers()
+            .some(
+              (worker) => parseExtensionWorkerUrl(worker.url()) === extensionId
+            );
+          return !targetStillPresent || !workerStillAttached;
+        }, WORKER_DISCOVERY_TIMEOUT_MS * 2);
+        if (!terminated) {
+          throw new WorkbenchCodedError(
+            "WORKBENCH_WORKER_TIMEOUT",
+            "extension service worker did not terminate before the deadline",
+            "restart-termination"
+          );
+        }
+        return { terminatedTargetId };
+      } finally {
+        await cdp.detach().catch(() => undefined);
+      }
+    };
+
     return {
       context,
       browser,
@@ -265,112 +310,74 @@ export async function launchExtensionSession(input: {
         return page;
       },
       async restartWorker() {
-        const cdp = await browser.newBrowserCDPSession();
-        try {
-          const targets = await listExtensionServiceWorkerTargets(browser);
-          const current = targets.find(
-            (target) => parseExtensionWorkerUrl(target.url) === extensionId
+        const { terminatedTargetId } = await terminateWorker();
+        const page =
+          extensionPages(context!, extensionId)[0] ??
+          (await (async () => {
+            const opened = await context!.newPage();
+            await opened.goto(`chrome-extension://${extensionId}/options.html`);
+            return opened;
+          })());
+        await settleManagerQuery({
+          timeoutMs: WORKER_DISCOVERY_TIMEOUT_MS,
+          request: () => sendManagerQueryFromPage(page)
+        });
+
+        let awakenedTarget: { targetId: string; url: string } | undefined;
+        const awakened = await waitUntil(async () => {
+          const nextTargets = await listExtensionServiceWorkerTargets(browser);
+          awakenedTarget =
+            nextTargets.find(
+              (target) =>
+                target.targetId !== terminatedTargetId &&
+                parseExtensionWorkerUrl(target.url) === extensionId
+            ) ??
+            nextTargets.find(
+              (target) => parseExtensionWorkerUrl(target.url) === extensionId
+            );
+          if (awakenedTarget) return true;
+          return context!
+            .serviceWorkers()
+            .some(
+              (worker) => parseExtensionWorkerUrl(worker.url()) === extensionId
+            );
+        }, WORKER_DISCOVERY_TIMEOUT_MS);
+        if (!awakened) {
+          throw new WorkbenchCodedError(
+            "WORKBENCH_WORKER_TIMEOUT",
+            "extension service worker did not wake before the deadline",
+            "restart-wake"
           );
-          if (!current) {
-            throw new WorkbenchCodedError(
-              "WORKBENCH_WORKER_TIMEOUT",
-              "no extension service worker target found",
-              "restart-termination"
-            );
-          }
-          const terminatedTargetId = current.targetId;
-          await cdp.send("Target.closeTarget", {
-            targetId: terminatedTargetId
-          });
-          const terminated = await waitUntil(async () => {
-            const nextTargets =
-              await listExtensionServiceWorkerTargets(browser);
-            return !nextTargets.some(
-              (target) => target.targetId === terminatedTargetId
-            );
-          }, MANAGER_QUERY_TIMEOUT_MS);
-          if (!terminated) {
-            throw new WorkbenchCodedError(
-              "WORKBENCH_WORKER_TIMEOUT",
-              "extension service worker did not terminate before the deadline",
-              "restart-termination"
-            );
-          }
+        }
 
-          const page =
-            extensionPages(context!, extensionId)[0] ??
-            (await (async () => {
-              const opened = await context!.newPage();
-              await opened.goto(
-                `chrome-extension://${extensionId}/options.html`
-              );
-              return opened;
-            })());
-          await settleManagerQuery({
-            timeoutMs: WORKER_DISCOVERY_TIMEOUT_MS,
-            request: () => sendManagerQueryFromPage(page)
-          });
-
-          let awakenedTarget: { targetId: string; url: string } | undefined;
-          const awakened = await waitUntil(async () => {
-            const nextTargets =
-              await listExtensionServiceWorkerTargets(browser);
-            awakenedTarget =
-              nextTargets.find(
-                (target) =>
-                  target.targetId !== terminatedTargetId &&
-                  parseExtensionWorkerUrl(target.url) === extensionId
-              ) ??
-              nextTargets.find(
-                (target) => parseExtensionWorkerUrl(target.url) === extensionId
-              );
-            if (awakenedTarget) return true;
-            return context!
-              .serviceWorkers()
-              .some(
-                (worker) =>
-                  parseExtensionWorkerUrl(worker.url()) === extensionId
-              );
-          }, WORKER_DISCOVERY_TIMEOUT_MS);
-          if (!awakened) {
+        if (!awakenedTarget) {
+          const worker = context!
+            .serviceWorkers()
+            .find(
+              (candidate) =>
+                parseExtensionWorkerUrl(candidate.url()) === extensionId
+            );
+          if (!worker) {
             throw new WorkbenchCodedError(
               "WORKBENCH_WORKER_TIMEOUT",
-              "extension service worker did not wake before the deadline",
+              "awakened service worker target missing",
               "restart-wake"
             );
           }
-
-          if (!awakenedTarget) {
-            const worker = context!
-              .serviceWorkers()
-              .find(
-                (candidate) =>
-                  parseExtensionWorkerUrl(candidate.url()) === extensionId
-              );
-            if (!worker) {
-              throw new WorkbenchCodedError(
-                "WORKBENCH_WORKER_TIMEOUT",
-                "awakened service worker target missing",
-                "restart-wake"
-              );
-            }
-            awakenedTarget = {
-              targetId: `${terminatedTargetId}-restarted`,
-              url: worker.url()
-            };
-          }
-          recordWorkerGeneration(
-            workerGenerations,
-            awakenedTarget.targetId,
-            new Date().toISOString()
-          );
-          return {
-            terminatedTargetId,
-            awakenedTargetId: awakenedTarget.targetId
+          awakenedTarget = {
+            targetId: `${terminatedTargetId}-restarted`,
+            url: worker.url()
           };
-        } finally {
-          await cdp.detach().catch(() => undefined);
         }
+        recordWorkerGeneration(
+          workerGenerations,
+          awakenedTarget.targetId,
+          new Date().toISOString()
+        );
+        return {
+          terminatedTargetId,
+          awakenedTargetId: awakenedTarget.targetId
+        };
       },
       async close() {
         await context!.close();

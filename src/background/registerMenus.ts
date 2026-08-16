@@ -245,6 +245,16 @@ export function registerMenuClickListener(
   });
 }
 
+/** @internal production-gated E2E dispatch; native context menus are not exposed in headless Chromium. */
+export function dispatchMenuClickForProductionE2E(
+  browser: typeof chrome,
+  host: MenuCommandHost,
+  info: chrome.contextMenus.OnClickData,
+  tab: chrome.tabs.Tab | undefined
+): Promise<void> {
+  return handleMenuClick(browser, host, info, tab);
+}
+
 export async function registerMenus(
   browser: typeof chrome,
   host: MenuCommandHost

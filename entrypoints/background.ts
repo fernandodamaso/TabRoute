@@ -47,9 +47,13 @@ import {
 import {
   refreshMenus,
   registerMenuClickListener,
+  dispatchMenuClickForProductionE2E,
   type MenuCommandHost
 } from "../src/background/registerMenus";
-import { registerCommands } from "../src/background/registerCommands";
+import {
+  dispatchCommandForProductionE2E,
+  registerCommands
+} from "../src/background/registerCommands";
 import {
   executeUserCommand,
   clearPendingRuleDraft,
@@ -57,6 +61,20 @@ import {
 } from "../src/controller/executeUserCommand";
 import { getAvailableUndo } from "../src/activity/activityRepository";
 import type { UserCommand } from "../src/controller/userCommands";
+
+type ProductionE2eWakeMessage =
+  | {
+      kind: "__tabroute_e2e_context_menu";
+      info: chrome.contextMenus.OnClickData;
+      tab?: chrome.tabs.Tab;
+    }
+  | {
+      kind: "__tabroute_e2e_manifest_command";
+      command: string;
+      tab?: chrome.tabs.Tab;
+    };
+
+type BackgroundMessage = UiMessage | ProductionE2eWakeMessage;
 
 function toSnapshot(tab: chrome.tabs.Tab): ChromeTabSnapshot | undefined {
   if (tab.id === undefined || tab.windowId === undefined || tab.incognito)
@@ -263,7 +281,53 @@ export default defineBackground(() => {
   registerCommands(chrome, startupMenuHost);
 
   chrome.runtime.onMessage.addListener(
-    (message: UiMessage, _sender, sendResponse) => {
+    (message: BackgroundMessage, _sender, sendResponse) => {
+      if (
+        __TABROUTE_PRODUCTION_E2E__ &&
+        message.kind === "__tabroute_e2e_context_menu"
+      ) {
+        void startupGate
+          .then(() => {
+            if (startupFailure !== undefined) throw startupFailure;
+            return dispatchMenuClickForProductionE2E(
+              chrome,
+              startupMenuHost,
+              message.info,
+              message.tab
+            );
+          })
+          .then(() => sendResponse({ ok: true }))
+          .catch((error: unknown) =>
+            sendResponse({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error)
+            })
+          );
+        return true;
+      }
+      if (
+        __TABROUTE_PRODUCTION_E2E__ &&
+        message.kind === "__tabroute_e2e_manifest_command"
+      ) {
+        void startupGate
+          .then(() => {
+            if (startupFailure !== undefined) throw startupFailure;
+            return dispatchCommandForProductionE2E(
+              chrome,
+              startupMenuHost,
+              message.command,
+              message.tab
+            );
+          })
+          .then(() => sendResponse({ ok: true }))
+          .catch((error: unknown) =>
+            sendResponse({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error)
+            })
+          );
+        return true;
+      }
       if (
         message.kind !== "manager-query" &&
         message.kind !== "manager-command" &&

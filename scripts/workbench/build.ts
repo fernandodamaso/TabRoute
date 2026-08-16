@@ -56,6 +56,7 @@ export async function buildExtension(input: {
   worktreePath: string;
   runId: string;
   graph: BuildGraph;
+  productionE2e?: boolean;
 }): Promise<BuildOutput> {
   const cwd = path.resolve(process.cwd());
   const worktree = path.resolve(input.worktreePath);
@@ -67,7 +68,9 @@ export async function buildExtension(input: {
     env: {
       ...process.env,
       TABROUTE_WXT_OUT_DIR: output.outDir,
-      TABROUTE_WORKBENCH: input.graph === "workbench" ? "1" : "0"
+      TABROUTE_WORKBENCH: input.graph === "workbench" ? "1" : "0",
+      TABROUTE_PRODUCTION_E2E:
+        input.graph === "production" && input.productionE2e ? "1" : "0"
     }
   });
   try {
