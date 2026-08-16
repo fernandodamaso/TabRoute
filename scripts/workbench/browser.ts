@@ -25,6 +25,9 @@ export interface ExtensionSession {
   extensionId: string;
   workerGenerations: WorkerGeneration[];
   openExtensionPage(pathname: string): Promise<Page>;
+  terminateWorker(): Promise<{
+    terminatedTargetId: string;
+  }>;
   restartWorker(): Promise<{
     terminatedTargetId: string;
     awakenedTargetId: string;
@@ -309,6 +312,7 @@ export async function launchExtensionSession(input: {
         await page.goto(`chrome-extension://${extensionId}/${pathname}`);
         return page;
       },
+      terminateWorker,
       async restartWorker() {
         const { terminatedTargetId } = await terminateWorker();
         const page =
