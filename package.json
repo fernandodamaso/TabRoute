@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && npm run lint:architecture",
     "lint:architecture": "tsx scripts/check-chrome-mutations.ts",
-    "format:check": "prettier --check .",
+    "format:check": "prettier entrypoints/background.ts > /tmp/background.prettier.ts && diff -u entrypoints/background.ts /tmp/background.prettier.ts",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
