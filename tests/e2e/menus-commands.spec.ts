@@ -123,7 +123,7 @@ async function terminateWorkerWithoutWake(
   const candidate = session as typeof session & {
     terminateWorker?: () => Promise<{ terminatedTargetId: string }>;
   };
-  expect(candidate.terminateWorker).toBeTypeOf("function");
+  expect(typeof candidate.terminateWorker).toBe("function");
   return candidate.terminateWorker!.call(candidate);
 }
 
