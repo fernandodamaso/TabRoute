@@ -18,7 +18,9 @@ import {
   applyManagedGroupPresentationEdit,
   isGuardedGroupPresentationEcho
 } from "../src/background/groupPresentation";
-import { createPendingRuleDraftDelivery } from "../src/background/pendingRuleDraftDelivery";
+import {
+  createPendingRuleDraftDelivery
+} from "../src/background/pendingRuleDraftDelivery";
 import { createPreMutationCheckpointService } from "../src/snapshots/checkpointService";
 import {
   CONFIGURATION_SYNC_RETRY_ALARM,
