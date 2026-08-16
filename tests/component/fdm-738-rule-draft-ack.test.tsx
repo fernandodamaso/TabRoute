@@ -43,9 +43,7 @@ it("acknowledges a pending rule draft only after the manager receives it", async
     />
   );
 
-  expect(
-    await screen.findByRole("heading", { name: "New rule" })
-  ).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "New rule" })).toBeTruthy();
   expect(screen.getByDisplayValue("example.com")).toBeTruthy();
   await waitFor(() =>
     expect(acknowledgePendingRuleDraft).toHaveBeenCalledWith(42)
