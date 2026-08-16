@@ -95,6 +95,7 @@ jobs:
           path: |
             .workbench/artifacts/
             playwright-report/
+            test-results/
           if-no-files-found: ignore
           retention-days: 7
 
