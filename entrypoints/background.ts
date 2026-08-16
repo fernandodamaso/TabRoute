@@ -18,6 +18,7 @@ import {
   applyManagedGroupPresentationEdit,
   isGuardedGroupPresentationEcho
 } from "../src/background/groupPresentation";
+import { createPendingRuleDraftDelivery } from "../src/background/pendingRuleDraftDelivery";
 import { createPreMutationCheckpointService } from "../src/snapshots/checkpointService";
 import {
   CONFIGURATION_SYNC_RETRY_ALARM,
@@ -54,11 +55,7 @@ import {
   dispatchCommandForProductionE2E,
   registerCommands
 } from "../src/background/registerCommands";
-import {
-  executeUserCommand,
-  clearPendingRuleDraft,
-  readPendingRuleDraft
-} from "../src/controller/executeUserCommand";
+import { executeUserCommand } from "../src/controller/executeUserCommand";
 import { getAvailableUndo } from "../src/activity/activityRepository";
 import type { UserCommand } from "../src/controller/userCommands";
 
@@ -74,7 +71,15 @@ type ProductionE2eWakeMessage =
       tab?: chrome.tabs.Tab;
     };
 
-type BackgroundMessage = UiMessage | ProductionE2eWakeMessage;
+type PendingRuleDraftAckMessage = {
+  kind: "manager-pending-rule-draft-ack";
+  createdAt: number;
+};
+
+type BackgroundMessage =
+  | UiMessage
+  | ProductionE2eWakeMessage
+  | PendingRuleDraftAckMessage;
 
 function toSnapshot(tab: chrome.tabs.Tab): ChromeTabSnapshot | undefined {
   if (tab.id === undefined || tab.windowId === undefined || tab.incognito)
@@ -118,6 +123,7 @@ function focusHint(windowId: number): ChromeEventHint {
 
 export default defineBackground(() => {
   const session = createChromeSessionRepository(chrome.storage.session);
+  const pendingRuleDraftDelivery = createPendingRuleDraftDelivery(session);
   const repository = createConfigurationRepository({
     storage: {
       sync: chrome.storage.sync,
@@ -328,6 +334,21 @@ export default defineBackground(() => {
           );
         return true;
       }
+      if (message.kind === "manager-pending-rule-draft-ack") {
+        void startupGate
+          .then(() => {
+            if (startupFailure !== undefined) throw startupFailure;
+            return pendingRuleDraftDelivery.acknowledge(message.createdAt);
+          })
+          .then(() => sendResponse({ ok: true }))
+          .catch((error: unknown) =>
+            sendResponse({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error)
+            })
+          );
+        return true;
+      }
       if (
         message.kind !== "manager-query" &&
         message.kind !== "manager-command" &&
@@ -455,27 +476,27 @@ export default defineBackground(() => {
           actionDeps: controller!.actionDeps()
         });
       },
-      consumePendingRuleDraft: async () => {
-        const draft = await readPendingRuleDraft(session);
-        if (!draft) return undefined;
-        await clearPendingRuleDraft(session);
-        return { host: draft.host, url: draft.url };
-      }
+      consumePendingRuleDraft: () => pendingRuleDraftDelivery.read()
     });
     menuHost = {
       async executeUserCommand(command: UserCommand) {
-        const result = await executeUserCommand(command, {
-          getConfiguration: () => controller!.getConfiguration(),
-          replaceConfiguration: (next) =>
-            controller!.replaceConfiguration(next),
-          persistConfiguration: (next) => repository.save(next),
-          actionDeps: () => controller!.actionDeps(),
-          local,
-          session,
-          openOptionsPage: async () => {
-            await chrome.runtime.openOptionsPage();
-          }
-        });
+        const run = () =>
+          executeUserCommand(command, {
+            getConfiguration: () => controller!.getConfiguration(),
+            replaceConfiguration: (next) =>
+              controller!.replaceConfiguration(next),
+            persistConfiguration: (next) => repository.save(next),
+            actionDeps: () => controller!.actionDeps(),
+            local,
+            session,
+            openOptionsPage: async () => {
+              await chrome.runtime.openOptionsPage();
+            }
+          });
+        const result =
+          command.kind === "createRuleFromTab"
+            ? await pendingRuleDraftDelivery.runExclusive(run)
+            : await run();
         if (result.ok) {
           void rebuildMenus().catch((error: unknown) =>
             console.error("TabRoute menu refresh failed", error)
