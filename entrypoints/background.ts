@@ -18,6 +18,7 @@ import {
   applyManagedGroupPresentationEdit,
   isGuardedGroupPresentationEcho
 } from "../src/background/groupPresentation";
+import { createPendingRuleDraftDelivery } from "../src/background/pendingRuleDraftDelivery";
 import { createPreMutationCheckpointService } from "../src/snapshots/checkpointService";
 import {
   CONFIGURATION_SYNC_RETRY_ALARM,
@@ -46,17 +47,37 @@ import {
 } from "../src/persistence/startupCoordinator";
 import {
   refreshMenus,
-  registerMenus,
+  registerMenuClickListener,
+  dispatchMenuClickForProductionE2E,
   type MenuCommandHost
 } from "../src/background/registerMenus";
-import { registerCommands } from "../src/background/registerCommands";
 import {
-  executeUserCommand,
-  clearPendingRuleDraft,
-  readPendingRuleDraft
-} from "../src/controller/executeUserCommand";
+  dispatchCommandForProductionE2E,
+  registerCommands
+} from "../src/background/registerCommands";
+import { executeUserCommand } from "../src/controller/executeUserCommand";
 import { getAvailableUndo } from "../src/activity/activityRepository";
 import type { UserCommand } from "../src/controller/userCommands";
+
+type ProductionE2eWakeMessage =
+  | {
+      kind: "__tabroute_e2e_context_menu";
+      info: chrome.contextMenus.OnClickData;
+      tab?: chrome.tabs.Tab;
+    }
+  | {
+      kind: "__tabroute_e2e_manifest_command";
+      command: string;
+      tab?: chrome.tabs.Tab;
+    };
+
+type PendingRuleDraftAckMessage = {
+  kind: "manager-pending-rule-draft-ack";
+  createdAt: number;
+};
+
+type BackgroundMessage =
+  UiMessage | ProductionE2eWakeMessage | PendingRuleDraftAckMessage;
 
 function toSnapshot(tab: chrome.tabs.Tab): ChromeTabSnapshot | undefined {
   if (tab.id === undefined || tab.windowId === undefined || tab.incognito)
@@ -100,6 +121,7 @@ function focusHint(windowId: number): ChromeEventHint {
 
 export default defineBackground(() => {
   const session = createChromeSessionRepository(chrome.storage.session);
+  const pendingRuleDraftDelivery = createPendingRuleDraftDelivery(session);
   const repository = createConfigurationRepository({
     storage: {
       sync: chrome.storage.sync,
@@ -237,6 +259,134 @@ export default defineBackground(() => {
     void processLifecycleEvent(event);
   }
 
+  let releaseStartupGate!: () => void;
+  const startupGate = new Promise<void>((resolve) => {
+    releaseStartupGate = resolve;
+  });
+  let startupFailure: unknown;
+
+  async function resolvedMenuHost(): Promise<MenuCommandHost> {
+    await startupGate;
+    if (startupFailure !== undefined) throw startupFailure;
+    if (!menuHost) throw new Error("menu host unavailable");
+    return menuHost;
+  }
+
+  const startupMenuHost: MenuCommandHost = {
+    async executeUserCommand(command) {
+      return (await resolvedMenuHost()).executeUserCommand(command);
+    },
+    async readMenuContext() {
+      return (await resolvedMenuHost()).readMenuContext();
+    }
+  };
+
+  registerMenuClickListener(chrome, startupMenuHost);
+  registerCommands(chrome, startupMenuHost);
+
+  chrome.runtime.onMessage.addListener(
+    (message: BackgroundMessage, _sender, sendResponse) => {
+      if (
+        __TABROUTE_PRODUCTION_E2E__ &&
+        message.kind === "__tabroute_e2e_context_menu"
+      ) {
+        void startupGate
+          .then(() => {
+            if (startupFailure !== undefined) throw startupFailure;
+            return dispatchMenuClickForProductionE2E(
+              chrome,
+              startupMenuHost,
+              message.info,
+              message.tab
+            );
+          })
+          .then(() => sendResponse({ ok: true }))
+          .catch((error: unknown) =>
+            sendResponse({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error)
+            })
+          );
+        return true;
+      }
+      if (
+        __TABROUTE_PRODUCTION_E2E__ &&
+        message.kind === "__tabroute_e2e_manifest_command"
+      ) {
+        void startupGate
+          .then(() => {
+            if (startupFailure !== undefined) throw startupFailure;
+            return dispatchCommandForProductionE2E(
+              chrome,
+              startupMenuHost,
+              message.command,
+              message.tab
+            );
+          })
+          .then(() => sendResponse({ ok: true }))
+          .catch((error: unknown) =>
+            sendResponse({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error)
+            })
+          );
+        return true;
+      }
+      if (message.kind === "manager-pending-rule-draft-ack") {
+        void startupGate
+          .then(() => {
+            if (startupFailure !== undefined) throw startupFailure;
+            return pendingRuleDraftDelivery.acknowledge(message.createdAt);
+          })
+          .then(() => sendResponse({ ok: true }))
+          .catch((error: unknown) =>
+            sendResponse({
+              ok: false,
+              error: error instanceof Error ? error.message : String(error)
+            })
+          );
+        return true;
+      }
+      if (
+        message.kind !== "manager-query" &&
+        message.kind !== "manager-command" &&
+        message.kind !== "activity-query" &&
+        message.kind !== "snapshots-query" &&
+        message.kind !== "diagnostics-query"
+      )
+        return undefined;
+      void startupGate
+        .then(() => {
+          if (startupFailure !== undefined) throw startupFailure;
+          if (!managerRouter) throw new Error("manager router unavailable");
+          return managerRouter.handle(message);
+        })
+        .then((response) => {
+          if (message.kind === "manager-command" && response.ok) {
+            void rebuildMenus().catch((error: unknown) =>
+              console.error("TabRoute menu refresh failed", error)
+            );
+          }
+          sendResponse(response);
+        })
+        .catch((error: unknown) => {
+          console.error("TabRoute manager message failed", error);
+          sendResponse({
+            ok: false,
+            error: {
+              kind: "transport",
+              code: "BACKGROUND_STARTUP_FAILED",
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "manager router unavailable"
+            }
+          });
+        });
+      return true;
+    }
+  );
+
   const ready = (async () => {
     const configuration = await repository.loadOrCreate();
     const local = createChromeLocalRepository(
@@ -324,27 +474,27 @@ export default defineBackground(() => {
           actionDeps: controller!.actionDeps()
         });
       },
-      consumePendingRuleDraft: async () => {
-        const draft = await readPendingRuleDraft(session);
-        if (!draft) return undefined;
-        await clearPendingRuleDraft(session);
-        return { host: draft.host, url: draft.url };
-      }
+      consumePendingRuleDraft: () => pendingRuleDraftDelivery.read()
     });
     menuHost = {
       async executeUserCommand(command: UserCommand) {
-        const result = await executeUserCommand(command, {
-          getConfiguration: () => controller!.getConfiguration(),
-          replaceConfiguration: (next) =>
-            controller!.replaceConfiguration(next),
-          persistConfiguration: (next) => repository.save(next),
-          actionDeps: () => controller!.actionDeps(),
-          local,
-          session,
-          openOptionsPage: async () => {
-            await chrome.runtime.openOptionsPage();
-          }
-        });
+        const run = () =>
+          executeUserCommand(command, {
+            getConfiguration: () => controller!.getConfiguration(),
+            replaceConfiguration: (next) =>
+              controller!.replaceConfiguration(next),
+            persistConfiguration: (next) => repository.save(next),
+            actionDeps: () => controller!.actionDeps(),
+            local,
+            session,
+            openOptionsPage: async () => {
+              await chrome.runtime.openOptionsPage();
+            }
+          });
+        const result =
+          command.kind === "createRuleFromTab"
+            ? await pendingRuleDraftDelivery.runExclusive(run)
+            : await run();
         if (result.ok) {
           void rebuildMenus().catch((error: unknown) =>
             console.error("TabRoute menu refresh failed", error)
@@ -380,8 +530,7 @@ export default defineBackground(() => {
         };
       }
     };
-    await registerMenus(chrome, menuHost);
-    registerCommands(chrome, menuHost);
+    await refreshMenus(chrome, menuHost);
     const configurationSync = createConfigurationSyncCoordinator({
       repository,
       callbacks: {
@@ -415,44 +564,11 @@ export default defineBackground(() => {
     }
   })();
 
-  chrome.runtime.onMessage.addListener(
-    (message: UiMessage, _sender, sendResponse) => {
-      if (
-        message.kind !== "manager-query" &&
-        message.kind !== "manager-command" &&
-        message.kind !== "activity-query" &&
-        message.kind !== "snapshots-query" &&
-        message.kind !== "diagnostics-query"
-      )
-        return undefined;
-      void ready
-        .then(() => {
-          if (!managerRouter) throw new Error("manager router unavailable");
-          return managerRouter.handle(message);
-        })
-        .then((response) => {
-          if (message.kind === "manager-command" && response.ok) {
-            void rebuildMenus().catch((error: unknown) =>
-              console.error("TabRoute menu refresh failed", error)
-            );
-          }
-          sendResponse(response);
-        })
-        .catch((error: unknown) => {
-          console.error("TabRoute manager message failed", error);
-          sendResponse({
-            ok: false,
-            error: {
-              kind: "transport",
-              code: "BACKGROUND_STARTUP_FAILED",
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "manager router unavailable"
-            }
-          });
-        });
-      return true;
+  void ready.then(
+    () => releaseStartupGate(),
+    (error: unknown) => {
+      startupFailure = error;
+      releaseStartupGate();
     }
   );
 

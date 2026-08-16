@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import {
   launchExtensionSession,
   sendManagerQueryFromPage
@@ -15,6 +16,10 @@ const MANAGER_SETTLE_TIMEOUT_MS = Math.max(
   MANAGER_QUERY_TIMEOUT_MS,
   WORKER_DISCOVERY_TIMEOUT_MS
 );
+const MANAGER_AFTER_WORKER_RESTART_TIMEOUT_MS =
+  MANAGER_SETTLE_TIMEOUT_MS +
+  WORKER_DISCOVERY_TIMEOUT_MS +
+  MANAGER_QUERY_TIMEOUT_MS;
 
 const profileRoot = path.join(os.tmpdir(), "tabroute-workbench");
 
@@ -86,6 +91,42 @@ async function menuUpdateSucceeds(
   }, menuId);
 }
 
+async function readWakeListenerState(
+  session: Awaited<ReturnType<typeof launchExtensionSession>>
+) {
+  const worker = await waitForWorker(session);
+  return worker.evaluate(() => ({
+    contextMenuClick: chrome.contextMenus.onClicked.hasListeners(),
+    manifestCommand: chrome.commands.onCommand.hasListeners(),
+    managerMessage: chrome.runtime.onMessage.hasListeners()
+  }));
+}
+
+async function sendProductionE2eMessage(
+  page: Page,
+  message: Record<string, unknown>
+): Promise<unknown> {
+  return page.evaluate(async (payload) => {
+    return await new Promise<unknown>((resolve, reject) => {
+      chrome.runtime.sendMessage(payload, (response) => {
+        const lastError = chrome.runtime.lastError;
+        if (lastError?.message) reject(new Error(lastError.message));
+        else resolve(response);
+      });
+    });
+  }, message);
+}
+
+async function terminateWorkerWithoutWake(
+  session: Awaited<ReturnType<typeof launchExtensionSession>>
+): Promise<{ terminatedTargetId: string }> {
+  const candidate = session as typeof session & {
+    terminateWorker?: () => Promise<{ terminatedTargetId: string }>;
+  };
+  expect(typeof candidate.terminateWorker).toBe("function");
+  return candidate.terminateWorker!.call(candidate);
+}
+
 test("registers page, tab, and group menu IDs in an isolated profile", async () => {
   const { session, profilePath } = await launchProductionSession("menus");
   try {
@@ -113,15 +154,27 @@ test("registers page, tab, and group menu IDs in an isolated profile", async () 
   }
 });
 
-test("worker restart re-registers stable menu IDs", async () => {
+test("worker restart synchronously restores wake listeners and stable menu IDs", async () => {
   const { session, profilePath } =
     await launchProductionSession("menus-restart");
   try {
     const options = await awakenWorker(session);
+    expect(await readWakeListenerState(session)).toEqual({
+      contextMenuClick: true,
+      manifestCommand: true,
+      managerMessage: true
+    });
     expect(await menuUpdateSucceeds(session, "tabroute:create-rule")).toEqual({
       ok: true
     });
+
     await session.restartWorker();
+
+    expect(await readWakeListenerState(session)).toEqual({
+      contextMenuClick: true,
+      manifestCommand: true,
+      managerMessage: true
+    });
     expect(await menuUpdateSucceeds(session, "tabroute:create-rule")).toEqual({
       ok: true
     });
@@ -147,6 +200,134 @@ test("worker restart re-registers stable menu IDs", async () => {
     ]);
     await options.close();
   } finally {
+    await session.close();
+    await import("node:fs/promises").then((fs) =>
+      fs.rm(profilePath, { recursive: true, force: true })
+    );
+  }
+});
+
+test("cold worker dispatch reaches the context-menu action handler", async () => {
+  const { session, profilePath } = await launchProductionSession(
+    "menus-context-action-restart"
+  );
+  const page = await session.context.newPage();
+  try {
+    await page.goto("https://example.com/");
+    await page.waitForLoadState("domcontentloaded");
+    const trigger = await session.openExtensionPage("options.html");
+    await settleManagerQuery({
+      timeoutMs: MANAGER_SETTLE_TIMEOUT_MS,
+      request: () => sendManagerQueryFromPage(trigger)
+    });
+    await terminateWorkerWithoutWake(session);
+
+    const tab = await trigger.evaluate(async () => {
+      const tabs = await chrome.tabs.query({});
+      return tabs.find((candidate) => candidate.url === "https://example.com/");
+    });
+    expect(tab?.id).toBeDefined();
+    const result = await sendProductionE2eMessage(trigger, {
+      kind: "__tabroute_e2e_context_menu",
+      info: {
+        menuItemId: "tabroute:create-rule",
+        editable: false,
+        pageUrl: "https://example.com/"
+      },
+      tab
+    });
+    expect(result).toEqual({ ok: true });
+    const final = await sendManagerQueryFromPage(trigger);
+    expect(final).toMatchObject({
+      ok: true,
+      viewFixture: {
+        pendingRuleDraft: {
+          host: "example.com",
+          url: "https://example.com/"
+        }
+      }
+    });
+    await trigger.close();
+  } finally {
+    await page.close();
+    await session.close();
+    await import("node:fs/promises").then((fs) =>
+      fs.rm(profilePath, { recursive: true, force: true })
+    );
+  }
+});
+
+test("cold worker dispatch reaches the manifest command handler", async () => {
+  const { session, profilePath } = await launchProductionSession(
+    "menus-command-action-restart"
+  );
+  const page = await session.context.newPage();
+  try {
+    await page.goto("https://example.com/");
+    await page.waitForLoadState("domcontentloaded");
+    const trigger = await session.openExtensionPage("options.html");
+    const initial = await sendManagerQueryFromPage(trigger);
+    expect(initial).toMatchObject({
+      ok: true,
+      configuration: { automationEnabled: true }
+    });
+    await terminateWorkerWithoutWake(session);
+
+    const tab = await trigger.evaluate(async () => {
+      const tabs = await chrome.tabs.query({});
+      return tabs.find((candidate) => candidate.url === "https://example.com/");
+    });
+    expect(tab?.id).toBeDefined();
+    const result = await sendProductionE2eMessage(trigger, {
+      kind: "__tabroute_e2e_manifest_command",
+      command: "toggle-automation",
+      tab
+    });
+    expect(result).toEqual({ ok: true });
+    const final = await sendManagerQueryFromPage(trigger);
+    expect(final).toMatchObject({
+      ok: true,
+      configuration: { automationEnabled: false }
+    });
+    await trigger.close();
+  } finally {
+    await page.close();
+    await session.close();
+    await import("node:fs/promises").then((fs) =>
+      fs.rm(profilePath, { recursive: true, force: true })
+    );
+  }
+});
+
+test("Manager opened against a terminated worker loads real configuration", async () => {
+  const { session, profilePath } = await launchProductionSession(
+    "manager-open-after-restart"
+  );
+  const page = await session.context.newPage();
+  try {
+    await page.goto("https://example.com/");
+    await page.waitForLoadState("domcontentloaded");
+    const wakePage = await session.openExtensionPage("options.html");
+    await settleManagerQuery({
+      timeoutMs: MANAGER_SETTLE_TIMEOUT_MS,
+      request: () => sendManagerQueryFromPage(wakePage)
+    });
+    await terminateWorkerWithoutWake(session);
+
+    // This is a fresh Manager page. The setup page above is not reused.
+    const manager = await session.openExtensionPage("options.html");
+    const { response } = await settleManagerQuery({
+      timeoutMs: MANAGER_AFTER_WORKER_RESTART_TIMEOUT_MS,
+      request: () => sendManagerQueryFromPage(manager)
+    });
+    expect(response).toMatchObject({ ok: true });
+    await expect(
+      manager.getByRole("heading", { name: "Groups" })
+    ).toBeVisible();
+    await wakePage.close();
+    await manager.close();
+  } finally {
+    await page.close();
     await session.close();
     await import("node:fs/promises").then((fs) =>
       fs.rm(profilePath, { recursive: true, force: true })

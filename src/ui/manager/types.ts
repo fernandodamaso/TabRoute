@@ -137,7 +137,7 @@ export interface ManagerViewFixture {
   snapshots?: readonly Snapshot[];
   diagnostics?: DiagnosticsViewState;
   activityLogExport?: string;
-  pendingRuleDraft?: { host: string; url: string };
+  pendingRuleDraft?: { host: string; url: string; createdAt?: number };
 }
 
 export type SettingsPanel = "root" | "snapshots" | "diagnostics";
@@ -163,6 +163,9 @@ export type ManagerResponse = ManagerSuccess | ManagerFailure;
 
 export interface ManagerTransport {
   request(message: ManagerMessage): Promise<ManagerResponse>;
+  acknowledgePendingRuleDraft?(createdAt: number): Promise<void>;
+  /** Explicitly enabled by the fixture workbench for preview-only failures. */
+  allowPreview?: boolean;
 }
 
 export interface ManagerAppProps {

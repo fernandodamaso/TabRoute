@@ -34,8 +34,22 @@ export function registerCommands(
   if (commandsRegistered) return;
   commandsRegistered = true;
   browser.commands.onCommand.addListener((command, tab) => {
-    return handleCommand(browser, host, command, tab) as unknown as void;
+    return handleCommand(browser, host, command, tab).catch(
+      (error: unknown) => {
+        console.error("TabRoute manifest command failed", error);
+      }
+    ) as unknown as void;
   });
+}
+
+/** @internal production-gated E2E dispatch; native shortcut UI is not exposed in headless Chromium. */
+export function dispatchCommandForProductionE2E(
+  browser: typeof chrome,
+  host: CommandHost,
+  commandName: string,
+  tab: chrome.tabs.Tab | undefined
+): Promise<void> {
+  return handleCommand(browser, host, commandName, tab);
 }
 
 /** @internal test helper */

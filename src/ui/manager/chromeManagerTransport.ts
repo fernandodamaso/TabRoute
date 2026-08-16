@@ -1,34 +1,13 @@
-import { createDefaultConfiguration } from "../../domain/defaults";
 import { validateConfiguration } from "../../domain/schemas";
 import type {
   ManagerFailure,
   ManagerMessage,
   ManagerResponse,
-  ManagerSuccess,
   ManagerTransport,
   ManagerTransportRecord,
   ManagerViewFixture,
   ManagerViewMetadata
 } from "./types";
-
-const previewConfiguration = createDefaultConfiguration(
-  () => "00000000-0000-4000-8000-000000000001"
-);
-
-const previewView = {
-  width: 520,
-  height: 600,
-  headerHeight: 52,
-  navigationHeight: 42,
-  defaultRoute: "groups",
-  routes: ["groups", "rules", "activity", "settings"] as const
-} satisfies ManagerViewMetadata;
-
-const previewResponse: ManagerSuccess = {
-  ok: true,
-  configuration: previewConfiguration,
-  view: previewView
-};
 
 class ChromeManagerTransportError extends Error {
   constructor(
@@ -65,6 +44,16 @@ function isView(value: unknown): value is ManagerViewMetadata {
 
 function isViewFixture(value: unknown): value is ManagerViewFixture {
   if (!isRecord(value) || !isRecord(value.persistentTabsByGroup)) return false;
+  if (value.pendingRuleDraft !== undefined) {
+    if (!isRecord(value.pendingRuleDraft)) return false;
+    if (
+      typeof value.pendingRuleDraft.host !== "string" ||
+      typeof value.pendingRuleDraft.url !== "string" ||
+      (value.pendingRuleDraft.createdAt !== undefined &&
+        typeof value.pendingRuleDraft.createdAt !== "number")
+    )
+      return false;
+  }
   return Object.values(value.persistentTabsByGroup).every((fixture) => {
     if (!isRecord(fixture) || !Array.isArray(fixture.tabs)) return false;
     const validState =
@@ -138,9 +127,14 @@ function classifyError(error: unknown): ManagerFailure {
   return failure("transport", "RUNTIME_ERROR", message);
 }
 
-function defaultSendMessage(message: ManagerMessage): Promise<unknown> {
+function defaultSendRuntimeMessage(message: unknown): Promise<unknown> {
   if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage)
-    return Promise.resolve(previewResponse);
+    return Promise.reject(
+      new ChromeManagerTransportError(
+        "RUNTIME_UNAVAILABLE",
+        "Chrome runtime messaging is unavailable"
+      )
+    );
   return new Promise((resolve, reject) => {
     try {
       chrome.runtime.sendMessage(message, (response) => {
@@ -160,6 +154,25 @@ function defaultSendMessage(message: ManagerMessage): Promise<unknown> {
       reject(error);
     }
   });
+}
+
+function defaultSendMessage(message: ManagerMessage): Promise<unknown> {
+  return defaultSendRuntimeMessage(message);
+}
+
+async function defaultAcknowledgePendingRuleDraft(
+  createdAt: number
+): Promise<void> {
+  const response = await defaultSendRuntimeMessage({
+    kind: "manager-pending-rule-draft-ack",
+    createdAt
+  });
+  if (!isRecord(response) || response.ok !== true) {
+    throw new ChromeManagerTransportError(
+      "INVALID_ACK_RESPONSE",
+      "Manager runtime did not acknowledge the pending rule draft"
+    );
+  }
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -191,11 +204,14 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 export function createChromeManagerTransport(
   input: {
     sendMessage?: (message: ManagerMessage) => Promise<unknown>;
+    acknowledgePendingRuleDraft?: (createdAt: number) => Promise<void>;
     timeoutMs?: number;
     onRecord?: (record: ManagerTransportRecord) => void;
   } = {}
 ): ManagerTransport {
   const sendMessage = input.sendMessage ?? defaultSendMessage;
+  const acknowledgePendingRuleDraft =
+    input.acknowledgePendingRuleDraft ?? defaultAcknowledgePendingRuleDraft;
   const timeoutMs = input.timeoutMs ?? 5000;
   let sequence = 0;
 
@@ -208,6 +224,7 @@ export function createChromeManagerTransport(
   }
 
   return {
+    acknowledgePendingRuleDraft,
     async request(message) {
       const requestSequence = ++sequence;
       const requestId = `manager-real-${requestSequence}`;

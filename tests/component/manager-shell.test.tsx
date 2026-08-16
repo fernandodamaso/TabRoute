@@ -1,12 +1,40 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { createDefaultConfiguration } from "../../src/domain/defaults";
 import { App as PopupApp } from "../../entrypoints/popup/App";
 
-it("opens the popup on Groups and removes the old placeholder", () => {
+const view = {
+  width: 520,
+  height: 600,
+  headerHeight: 52,
+  navigationHeight: 42,
+  defaultRoute: "groups",
+  routes: ["groups", "rules", "activity", "settings"] as const
+};
+
+beforeEach(() => {
+  const configuration = createDefaultConfiguration(
+    () => "00000000-0000-4000-8000-000000000001"
+  );
+  vi.stubGlobal("chrome", {
+    runtime: {
+      sendMessage: (
+        _message: unknown,
+        callback?: (response: unknown) => void
+      ) => callback?.({ ok: true, configuration, view })
+    }
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+it("opens the popup on Groups and removes the old placeholder", async () => {
   render(<PopupApp />);
-  expect(screen.getByRole("heading", { name: "Groups" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Groups" })).toBeTruthy();
   expect(screen.queryByText("Automation is ready.")).toBeNull();
   expect(document.documentElement.getAttribute("data-manager-viewport")).toBe(
     "520x600"
@@ -47,6 +75,7 @@ it("rejects historical Quick Actions, Templates, Suggestions, and fifth nav", ()
 it("changes the active route, heading, title, and focus target", async () => {
   const user = userEvent.setup();
   render(<PopupApp />);
+  await screen.findByRole("heading", { name: "Groups" });
   await user.click(screen.getByRole("button", { name: "Rules" }));
   expect(screen.getByRole("heading", { name: "Rules" })).toBeTruthy();
   expect(document.title).toBe("TabRoute — Rules");

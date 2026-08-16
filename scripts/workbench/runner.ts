@@ -556,7 +556,8 @@ export async function runProductionGate(
   const productionBuild = await buildExtension({
     worktreePath: resolved,
     runId,
-    graph: "production"
+    graph: "production",
+    productionE2e: true
   });
   const productionScan = await scanProductionBuild(productionBuild.buildPath);
   if (!productionScan.ok) {

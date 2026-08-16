@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   createDefaultConfiguration,
   createManagedGroup
@@ -24,6 +24,24 @@ const view = {
   defaultRoute: "groups",
   routes: ["groups", "rules", "activity", "settings"] as const
 } satisfies ManagerViewMetadata;
+
+beforeEach(() => {
+  const configuration = createDefaultConfiguration(
+    () => "00000000-0000-4000-8000-000000000001"
+  );
+  vi.stubGlobal("chrome", {
+    runtime: {
+      sendMessage: (
+        _message: unknown,
+        callback?: (response: unknown) => void
+      ) => callback?.({ ok: true, configuration, view })
+    }
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function configurationWithRule(): {
   configuration: Configuration;
@@ -63,15 +81,16 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-it("uses the same manager implementation for the options surface", () => {
+it("uses the same manager implementation for the options surface", async () => {
   render(<ManagerApp surface="options" />);
-  expect(screen.getByRole("heading", { name: "Groups" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Groups" })).toBeTruthy();
   expect(screen.getByRole("navigation", { name: "Primary" })).toBeTruthy();
 });
 
 it("keeps keyboard order in the shell before page content", async () => {
   const user = userEvent.setup();
   render(<ManagerApp surface="popup" />);
+  await screen.findByRole("heading", { name: "Groups" });
   await user.tab();
   expect(document.activeElement?.getAttribute("data-route-focus")).toBe(
     "groups"
@@ -276,7 +295,10 @@ it("surfaces a typed offline transport result without bypassing the transport", 
 
   render(<ManagerApp transport={{ request }} />);
 
-  expect(await screen.findByText("Offline preview")).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", { name: "Manager unavailable" })
+  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Retry connection" })).toBeTruthy();
   expect(request).toHaveBeenCalledWith({ kind: "manager-query" });
 });
 
