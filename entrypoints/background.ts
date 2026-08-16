@@ -18,9 +18,7 @@ import {
   applyManagedGroupPresentationEdit,
   isGuardedGroupPresentationEcho
 } from "../src/background/groupPresentation";
-import {
-  createPendingRuleDraftDelivery
-} from "../src/background/pendingRuleDraftDelivery";
+import { createPendingRuleDraftDelivery } from "../src/background/pendingRuleDraftDelivery";
 import { createPreMutationCheckpointService } from "../src/snapshots/checkpointService";
 import {
   CONFIGURATION_SYNC_RETRY_ALARM,
@@ -79,9 +77,7 @@ type PendingRuleDraftAckMessage = {
 };
 
 type BackgroundMessage =
-  | UiMessage
-  | ProductionE2eWakeMessage
-  | PendingRuleDraftAckMessage;
+  UiMessage | ProductionE2eWakeMessage | PendingRuleDraftAckMessage;
 
 function toSnapshot(tab: chrome.tabs.Tab): ChromeTabSnapshot | undefined {
   if (tab.id === undefined || tab.windowId === undefined || tab.incognito)
