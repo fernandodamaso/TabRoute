@@ -77,6 +77,16 @@ export function useManagerState(
         setViewFixture(result.viewFixture);
         setLastError(undefined);
         setStatus("ready");
+        const pendingDraftCreatedAt =
+          result.viewFixture?.pendingRuleDraft?.createdAt;
+        if (
+          pendingDraftCreatedAt !== undefined &&
+          transport.acknowledgePendingRuleDraft
+        ) {
+          void transport
+            .acknowledgePendingRuleDraft(pendingDraftCreatedAt)
+            .catch(() => undefined);
+        }
       } else {
         setLastError(result.error);
         setStatus("error");
