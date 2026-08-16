@@ -77,16 +77,6 @@ export function useManagerState(
         setViewFixture(result.viewFixture);
         setLastError(undefined);
         setStatus("ready");
-        const pendingDraftCreatedAt =
-          result.viewFixture?.pendingRuleDraft?.createdAt;
-        if (
-          pendingDraftCreatedAt !== undefined &&
-          transport.acknowledgePendingRuleDraft
-        ) {
-          void transport
-            .acknowledgePendingRuleDraft(pendingDraftCreatedAt)
-            .catch(() => undefined);
-        }
       } else {
         setLastError(result.error);
         setStatus("error");
@@ -145,6 +135,17 @@ export function useManagerState(
   useEffect(() => {
     void query();
   }, [query]);
+
+  useEffect(() => {
+    const createdAt = viewFixture?.pendingRuleDraft?.createdAt;
+    if (
+      status !== "ready" ||
+      createdAt === undefined ||
+      !transport.acknowledgePendingRuleDraft
+    )
+      return;
+    void transport.acknowledgePendingRuleDraft(createdAt).catch(() => undefined);
+  }, [status, transport, viewFixture?.pendingRuleDraft?.createdAt]);
 
   const command = useCallback(
     async (message: ManagerMessage): Promise<ManagerResponse> => {
