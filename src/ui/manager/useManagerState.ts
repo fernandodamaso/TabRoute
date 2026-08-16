@@ -144,7 +144,9 @@ export function useManagerState(
       !transport.acknowledgePendingRuleDraft
     )
       return;
-    void transport.acknowledgePendingRuleDraft(createdAt).catch(() => undefined);
+    void transport
+      .acknowledgePendingRuleDraft(createdAt)
+      .catch(() => undefined);
   }, [status, transport, viewFixture?.pendingRuleDraft?.createdAt]);
 
   const command = useCallback(
