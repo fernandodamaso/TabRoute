@@ -179,7 +179,9 @@ test("worker restart synchronously restores wake listeners and stable menu IDs",
       ok: true
     });
     const worker = await waitForWorker(session);
-    const commands = await worker.evaluate(async () => chrome.commands.getAll());
+    const commands = await worker.evaluate(async () =>
+      chrome.commands.getAll()
+    );
     expect(
       commands
         .map((command) => command.name)
