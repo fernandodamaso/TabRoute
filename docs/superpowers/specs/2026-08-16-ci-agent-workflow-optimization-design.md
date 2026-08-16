@@ -90,8 +90,9 @@ Failure evidence is uploaded with `actions/upload-artifact@v4` when the job fail
 
 - `.workbench/artifacts/`
 - `playwright-report/`
+- `test-results/`
 
-Use `if-no-files-found: ignore` so failures before artifact creation do not hide the original error. Keep artifacts for 7 days.
+Use `if-no-files-found: ignore` so failures before artifact creation do not hide the original error. Keep artifacts for 7 days. `test-results/` is included because Playwright may place per-test error context and future attachments there even when the manually managed extension contexts are not covered by config-level tracing.
 
 ### 3. Package
 
@@ -117,7 +118,7 @@ For this CI optimization:
 - preserve the current Chromium-only behavior and 180-second test timeout;
 - keep a console-friendly reporter;
 - produce an HTML report in CI at `playwright-report/` with auto-open disabled;
-- upload that report together with existing `.workbench/artifacts/` when Chrome Integration fails.
+- upload that report together with existing `.workbench/artifacts/` and `test-results/` when Chrome Integration fails.
 
 Explicit tracing or failure-screenshot lifecycle support for manually managed extension contexts is a separate harness improvement and is not part of this branch.
 
@@ -183,7 +184,7 @@ Before opening/finishing the PR:
 3. Confirm the full configured Vitest suite and coverage pass exactly once in CI.
 4. Confirm Workbench, production extension, and popup smoke gates pass in Chrome Integration.
 5. Confirm `npm run zip` succeeds without a preceding `npm run build`, and `npm run verify:zip` scans that generated ZIP successfully.
-6. Confirm Chrome Integration uploads `.workbench/artifacts/` and `playwright-report/` on failure when those paths exist.
+6. Confirm Chrome Integration uploads `.workbench/artifacts/`, `playwright-report/`, and `test-results/` on failure when those paths exist.
 7. Confirm Package and Chrome Integration both depend only on Quality.
 8. Confirm no Chrome/runtime/product behavior files changed.
 9. Compare post-change CI timings before pursuing further caching or workbench build-reuse optimization.
