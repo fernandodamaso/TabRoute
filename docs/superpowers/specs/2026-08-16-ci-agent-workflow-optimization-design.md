@@ -8,19 +8,28 @@ The existing workflow is correct but serial: it installs Playwright/Chromium bef
 
 ## Selected approach
 
-Use three ordered jobs:
+Use three responsibility-focused jobs with Quality as the shared prerequisite:
+
+```text
+               ┌─> Chrome Integration
+Quality ───────┤
+               └─> Package
+```
 
 1. **Quality** — cheap, browser-free validation first.
-2. **Chrome integration** — isolated Chromium/workbench/real-extension verification only after Quality passes.
-3. **Package** — final production build, ZIP, and production-tree scan only after the browser gate passes.
+2. **Chrome Integration** — isolated Chromium/workbench/real-extension verification after Quality passes.
+3. **Package** — independently rebuild and scan the final Chrome ZIP after Quality passes.
 
-This keeps the strongest existing checks while making common failures fail earlier and with less wasted work.
+Chrome Integration and Package do not depend on each other. Once Quality is green, both can provide feedback concurrently. The workflow is successful only when all three jobs pass.
+
+This keeps the strongest existing checks while making common failures fail earlier and avoiding an unnecessary browser-to-package dependency.
 
 ### Alternatives considered
 
 - **Keep one job and only reorder steps.** Lowest change risk, but still leaves duplicate Vitest execution, poor failure isolation, and no clear CI boundaries.
-- **Run all jobs fully in parallel.** Fast wall-clock completion when everything passes, but wastes Chromium and packaging work on commits that fail formatting/typecheck and duplicates dependency setup aggressively.
-- **Selected staged jobs.** Slightly more workflow YAML, but best balance for frequent agent commits: fail cheap first, then spend browser/package resources only on viable commits.
+- **Run all jobs fully in parallel.** Fast wall-clock completion when everything passes, but wastes Chromium and packaging work on commits that fail formatting/typecheck.
+- **Strict `Quality → Chrome Integration → Package` chain.** Avoids packaging work when browser verification fails, but makes independent packaging feedback wait for the longest stage without adding a correctness guarantee.
+- **Selected fan-out after Quality.** Cheap checks gate the expensive work, while Chrome Integration and Package run independently from the same verified commit.
 
 ## Job design
 
@@ -40,17 +49,18 @@ Order:
 8. `npm run lint`
 9. `npm run test:coverage`
 
-`npm test -- --run` is removed from CI because `npm run test:coverage` already executes the complete Vitest suite. Local developers keep both scripts available.
+`npm test -- --run` is removed from CI because `npm run test:coverage` already executes the complete configured Vitest suite. Local developers keep both scripts available.
 
 Success criteria:
 
 - formatting/type/lint failures are reported before any Chromium installation;
 - unit/component tests execute once in CI;
-- coverage remains mandatory.
+- coverage remains mandatory;
+- no browser dependency is installed by this job.
 
-### 2. Chrome integration
+### 2. Chrome Integration
 
-Depends on `Quality`.
+Depends only on `Quality`.
 
 Setup:
 
@@ -66,36 +76,65 @@ Validation:
 2. `npm run test:extension`
 3. `npm run smoke:popup`
 
-Failure evidence is uploaded with `actions/upload-artifact@v4` when the job fails. The artifact should include paths when present:
+Keep these commands separate so CI immediately identifies whether fixture/workbench behavior, the production extension gate, or popup smoke failed.
+
+Existing build semantics remain intentional:
+
+- `test:workbench` owns its fixture/workbench build behavior;
+- `test:extension` still builds and scans both workbench and production graphs before running real-extension assertions against its recorded production build;
+- `smoke:popup` keeps its fresh production build in this iteration.
+
+Do not pass build artifacts between these commands or between jobs as part of this optimization.
+
+Failure evidence is uploaded with `actions/upload-artifact@v4` when the job fails. Include paths when present:
 
 - `.workbench/artifacts/`
 - `playwright-report/`
-- `test-results/`
 
-Use `if-no-files-found: ignore` so missing optional Playwright folders do not hide the original failure. Keep artifacts for 7 days.
+Use `if-no-files-found: ignore` so failures before artifact creation do not hide the original error. Keep artifacts for 7 days.
 
 ### 3. Package
 
-Depends on `Chrome integration`.
+Depends only on `Quality`, so it can run in parallel with Chrome Integration.
 
 Setup Node/npm normally, then run:
 
-1. `npm run build`
-2. `npm run zip`
-3. `npm run verify:zip`
+1. `npm run zip`
+2. `npm run verify:zip`
 
-This remains the final shipping-shape gate. The production ZIP scan must continue to prove workbench/test-only code does not leak into the packaged extension.
+Do not run `npm run build` first. WXT's `zip` command performs the production build before creating the Chrome ZIP, so an explicit build immediately before it is redundant.
+
+Package deliberately rebuilds independently instead of consuming the Chrome Integration production build. This verifies the actual distribution command and keeps the shipping artifact isolated from browser-test state.
+
+The production ZIP scan remains the final shipping-shape guarantee that workbench/test-only code does not leak into the packaged extension.
 
 ## Playwright diagnostics
 
-Update `playwright.config.ts` only enough to improve CI evidence:
+TabRoute's extension tests launch Chromium through manually managed persistent contexts in the workbench/browser harness. Playwright Test configuration alone therefore must not be treated as sufficient evidence that traces or automatic screenshots cover those extension contexts.
 
-- retain trace on failure in CI;
-- capture screenshots on failure in CI;
-- produce an HTML report in CI without auto-opening it;
-- preserve current Chromium-only behavior and 180-second test timeout.
+For this CI optimization:
 
-Local behavior should remain lightweight; diagnostics are primarily for CI failure analysis.
+- preserve the current Chromium-only behavior and 180-second test timeout;
+- keep a console-friendly reporter;
+- produce an HTML report in CI at `playwright-report/` with auto-open disabled;
+- upload that report together with existing `.workbench/artifacts/` when Chrome Integration fails.
+
+Explicit tracing or failure-screenshot lifecycle support for manually managed extension contexts is a separate harness improvement and is not part of this branch.
+
+## Caching and setup
+
+Keep `actions/setup-node` npm caching in each job.
+
+Do not cache or share:
+
+- `node_modules`;
+- WXT build output;
+- `.workbench/tmp` builds;
+- browser test build artifacts between jobs.
+
+Each job runs its own `npm ci`, including the repository `prepare` lifecycle, so jobs stay reproducible and independent.
+
+Playwright browser caching is intentionally deferred until post-change timing data shows that its complexity is worthwhile.
 
 ## Concurrency and triggers
 
@@ -109,24 +148,29 @@ Keep `cancel-in-progress: true` using the existing per-workflow/ref concurrency 
 
 ## Failure behavior
 
-- Quality failure prevents browser and package jobs from starting.
-- Chrome integration failure prevents packaging and uploads diagnostic artifacts.
-- Package failure is isolated to production build/ZIP concerns.
+- Quality failure prevents both Chrome Integration and Package from starting.
+- After Quality succeeds, Chrome Integration and Package are independent and may run concurrently.
+- Chrome Integration failure uploads diagnostic artifacts but does not suppress independent Package feedback.
+- Package failure is isolated to production ZIP/build concerns.
 - Job names make GitHub status checks immediately identify the failing layer instead of reporting a single generic `Verify` failure.
+
+Changing the status name from the existing `Verify` job to three named jobs may require a separate branch-protection/ruleset update if `Verify` is explicitly required. GitHub settings changes are outside this branch.
 
 ## Scope
 
 Included:
 
 - `.github/workflows/ci.yml`
-- `playwright.config.ts` if needed for failure evidence
-- documentation describing the updated quality matrix
+- `playwright.config.ts` for CI reporting
+- documentation describing the updated CI matrix and build semantics
 
 Not included:
 
 - changes to extension runtime behavior;
 - changes to production feature code;
 - test semantic rewrites;
+- changes to repeated workbench fixture build isolation;
+- explicit manual-context Playwright tracing instrumentation;
 - branch-protection policy changes;
 - external CI services.
 
@@ -136,8 +180,10 @@ Before opening/finishing the PR:
 
 1. Validate workflow YAML structure by inspection and GitHub Actions execution.
 2. Confirm Quality can pass without browser installation.
-3. Confirm the full Vitest suite and coverage still pass exactly once in CI.
-4. Confirm Workbench, production extension, and popup smoke gates pass in Chrome integration.
-5. Confirm build, ZIP, and ZIP scan pass in Package.
-6. Confirm a deliberately failed browser test would have artifact upload paths configured; no deliberate failing commit is required on the final branch.
-7. Confirm no Chrome/runtime/product behavior files changed.
+3. Confirm the full configured Vitest suite and coverage pass exactly once in CI.
+4. Confirm Workbench, production extension, and popup smoke gates pass in Chrome Integration.
+5. Confirm `npm run zip` succeeds without a preceding `npm run build`, and `npm run verify:zip` scans that generated ZIP successfully.
+6. Confirm Chrome Integration uploads `.workbench/artifacts/` and `playwright-report/` on failure when those paths exist.
+7. Confirm Package and Chrome Integration both depend only on Quality.
+8. Confirm no Chrome/runtime/product behavior files changed.
+9. Compare post-change CI timings before pursuing further caching or workbench build-reuse optimization.
