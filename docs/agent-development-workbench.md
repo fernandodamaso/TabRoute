@@ -98,17 +98,47 @@ FDM-619 (workbench) is the prerequisite for later feature issues such as FDM-593
 
 Shipping a branded Chrome build remains a separate human release step after the automated matrix passes. The matrix does not replace manual Chrome Web Store or enterprise packaging review.
 
-## Quality matrix
+## CI quality matrix
+
+CI is split into three responsibility-focused checks. Quality runs first; once it passes, Chrome Integration and Package can run independently from the same commit.
+
+### Quality
+
+Browser-free validation:
 
 ```text
 npm run docs:chrome:validate
+npm run format:check
 npm run typecheck
 npm run lint
-npm run format:check
-npm test -- --run
 npm run test:coverage
+```
+
+`npm run test:coverage` is the single Vitest execution in CI and covers the complete configured unit/component suite while producing coverage. `npm test -- --run` remains available as a faster local developer command when coverage is not needed.
+
+### Chrome Integration
+
+Chromium-backed verification:
+
+```text
 npm run test:workbench
 npm run test:extension
 npm run smoke:popup
-npm run build
 ```
+
+`test:extension` keeps its paired workbench/production build and scan semantics. Browser jobs do not reuse Package output or pass production builds between jobs.
+
+When Chrome Integration fails in GitHub Actions, CI uploads the existing `.workbench/artifacts/` evidence, the Playwright HTML report, and `test-results/` when present. This keeps runner evidence plus Playwright error-context files available to the next debugging agent. TabRoute's extension browser sessions use manually managed persistent contexts, so explicit trace/screenshot lifecycle instrumentation for those contexts is a separate harness concern rather than a config-only CI assumption.
+
+### Package
+
+Shipping-shape verification:
+
+```text
+npm run zip
+npm run verify:zip
+```
+
+`npm run zip` performs the production build as part of creating the Chrome ZIP, so CI does not run a redundant `npm run build` immediately before it. Package deliberately rebuilds independently from Chrome Integration so the generated ZIP represents the real distribution command and is scanned in isolation.
+
+For local work, `npm run build` remains available when an unpacked production extension is needed without producing a ZIP.
