@@ -5,6 +5,7 @@ import {
   requestInitialManagerQuery
 } from "../../src/ui/manager/managerQueryRetry";
 import type {
+  ManagerMessage,
   ManagerResponse,
   ManagerViewMetadata
 } from "../../src/ui/manager/types";
@@ -22,10 +23,7 @@ const configuration = createDefaultConfiguration(
   () => "00000000-0000-4000-8000-000000000001"
 );
 
-function transportFailure(
-  code: string,
-  message = code
-): ManagerResponse {
+function transportFailure(code: string, message = code): ManagerResponse {
   return {
     ok: false,
     error: { kind: "transport", code, message }
@@ -36,7 +34,7 @@ describe("initial manager query recovery", () => {
   it("retries a transient read-only startup failure and converges", async () => {
     let clock = 0;
     const request = vi
-      .fn<() => Promise<ManagerResponse>>()
+      .fn<(message: ManagerMessage) => Promise<ManagerResponse>>()
       .mockResolvedValueOnce(transportFailure("NO_RESPONSE"))
       .mockResolvedValueOnce(transportFailure("BACKGROUND_STARTUP_FAILED"))
       .mockResolvedValueOnce({ ok: true, configuration, view });

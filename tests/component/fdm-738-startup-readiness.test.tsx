@@ -8,12 +8,15 @@ import {
   createManagedGroup
 } from "../../src/domain/defaults";
 import {
+  registerCommands,
+  resetCommandRegistrationForTests
+} from "../../src/background/registerCommands";
+import {
   registerMenus,
   resetMenuRegistrationForTests,
   type MenuCommandHost,
   type MenuContext
 } from "../../src/background/registerMenus";
-import { resetCommandRegistrationForTests } from "../../src/background/registerCommands";
 import { ManagerApp } from "../../src/ui/manager/ManagerApp";
 import type {
   ManagerResponse,
@@ -45,6 +48,11 @@ function eventTarget<T extends unknown[]>() {
     },
     listenerCount() {
       return listeners.size;
+    },
+    async emit(...args: T) {
+      await Promise.all(
+        [...listeners].map((listener) => Promise.resolve(listener(...args)))
+      );
     }
   };
 }
@@ -66,10 +74,10 @@ function emptyMenuContext(): MenuContext {
 }
 
 function menuBrowser() {
-  const clicked = eventTarget<[
-    chrome.contextMenus.OnClickData,
-    chrome.tabs.Tab | undefined
-  ]>();
+  const clicked =
+    eventTarget<
+      [chrome.contextMenus.OnClickData, chrome.tabs.Tab | undefined]
+    >();
   const browser = {
     contextMenus: {
       onClicked: clicked,
@@ -91,11 +99,61 @@ function menuBrowser() {
   return { browser, clicked };
 }
 
+function commandBrowser() {
+  const commands = eventTarget<[string, chrome.tabs.Tab | undefined]>();
+  const browser = {
+    commands: { onCommand: commands },
+    tabs: {
+      query: vi.fn(async () => [
+        {
+          id: 10,
+          windowId: 1,
+          url: "https://example.com/",
+          incognito: false
+        }
+      ])
+    },
+    windows: {
+      WINDOW_ID_NONE: -1,
+      getLastFocused: vi.fn(async () => ({
+        id: 1,
+        incognito: false,
+        type: "normal"
+      }))
+    }
+  } as unknown as typeof chrome;
+  return { browser, commands };
+}
+
+function contextWithTab(): MenuContext {
+  const context = emptyMenuContext();
+  return {
+    ...context,
+    inventory: {
+      ...context.inventory,
+      windows: [{ id: 1, focused: true, incognito: false, type: "normal" }],
+      tabs: [
+        {
+          id: 10,
+          windowId: 1,
+          index: 0,
+          chromeGroupId: -1,
+          url: "https://example.com/",
+          status: "complete",
+          title: "Example",
+          pinned: false,
+          active: true,
+          incognito: false,
+          lastAccessed: 1
+        }
+      ]
+    }
+  };
+}
+
 function configurationWithWork() {
   return createManagedGroup(
-    createDefaultConfiguration(
-      () => "00000000-0000-4000-8000-000000000001"
-    ),
+    createDefaultConfiguration(() => "00000000-0000-4000-8000-000000000001"),
     { name: "Work", color: "blue" },
     () => "00000000-0000-4000-8000-000000000002",
     () => 2
@@ -112,8 +170,9 @@ describe("FDM-738 MV3 startup readiness", () => {
   it("attaches the context-menu click listener before async menu materialization settles", async () => {
     const pendingContext = deferred<MenuContext>();
     const { browser, clicked } = menuBrowser();
+    const executeUserCommand = vi.fn(async () => ({ ok: true as const }));
     const host: MenuCommandHost = {
-      executeUserCommand: vi.fn(async () => ({ ok: true })),
+      executeUserCommand,
       readMenuContext: vi.fn(() => pendingContext.promise)
     };
 
@@ -121,8 +180,45 @@ describe("FDM-738 MV3 startup readiness", () => {
 
     expect(clicked.listenerCount()).toBe(1);
 
+    const click = clicked.emit(
+      { menuItemId: "tabroute:move-other", editable: false },
+      {
+        id: 10,
+        windowId: 1,
+        url: "https://example.com/",
+        incognito: false
+      } as chrome.tabs.Tab
+    );
+    await Promise.resolve();
+    expect(executeUserCommand).not.toHaveBeenCalled();
+
+    pendingContext.resolve(contextWithTab());
+    await Promise.all([registration, click]);
+    expect(executeUserCommand).toHaveBeenCalledWith({
+      kind: "moveToOther",
+      tabId: 10
+    });
+  });
+
+  it("waits for readiness before executing a manifest command", async () => {
+    const pendingContext = deferred<MenuContext>();
+    const { browser, commands } = commandBrowser();
+    const executeUserCommand = vi.fn(async () => ({ ok: true as const }));
+    const host: MenuCommandHost = {
+      executeUserCommand,
+      readMenuContext: vi.fn(() => pendingContext.promise)
+    };
+
+    registerCommands(browser, host);
+    const command = commands.emit("toggle-automation", undefined);
+    await Promise.resolve();
+    expect(executeUserCommand).not.toHaveBeenCalled();
+
     pendingContext.resolve(emptyMenuContext());
-    await registration;
+    await command;
+    expect(executeUserCommand).toHaveBeenCalledWith({
+      kind: "toggleAutomation"
+    });
   });
 
   it("registers wake-critical background listeners before async startup begins", () => {

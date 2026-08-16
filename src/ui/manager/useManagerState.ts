@@ -51,12 +51,21 @@ export function useManagerState(
     "loading" | "reconnecting" | "ready" | "error"
   >("loading");
   const [lastError, setLastError] = useState<ManagerFailure["error"]>();
-  const [hasConfirmedConfiguration, setHasConfirmedConfiguration] =
-    useState(false);
-  const confirmedConfigurationRef = useRef(false);
+  const [hasConfirmedConfiguration, setHasConfirmedConfiguration] = useState(
+    transport.allowPreview === true
+  );
+  const confirmedConfigurationRef = useRef(transport.allowPreview === true);
+  const firstQueryRef = useRef(true);
 
   const query = useCallback(async (): Promise<ManagerResponse> => {
-    setStatus(confirmedConfigurationRef.current ? "reconnecting" : "loading");
+    const isFirstQuery = firstQueryRef.current;
+    firstQueryRef.current = false;
+    setStatus(
+      confirmedConfigurationRef.current &&
+        !(isFirstQuery && transport.allowPreview === true)
+        ? "reconnecting"
+        : "loading"
+    );
     try {
       const result = await requestInitialManagerQuery(transport, {
         onRetry: () => setStatus("reconnecting")

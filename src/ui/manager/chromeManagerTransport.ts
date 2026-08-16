@@ -1,34 +1,13 @@
-import { createDefaultConfiguration } from "../../domain/defaults";
 import { validateConfiguration } from "../../domain/schemas";
 import type {
   ManagerFailure,
   ManagerMessage,
   ManagerResponse,
-  ManagerSuccess,
   ManagerTransport,
   ManagerTransportRecord,
   ManagerViewFixture,
   ManagerViewMetadata
 } from "./types";
-
-const previewConfiguration = createDefaultConfiguration(
-  () => "00000000-0000-4000-8000-000000000001"
-);
-
-const previewView = {
-  width: 520,
-  height: 600,
-  headerHeight: 52,
-  navigationHeight: 42,
-  defaultRoute: "groups",
-  routes: ["groups", "rules", "activity", "settings"] as const
-} satisfies ManagerViewMetadata;
-
-const previewResponse: ManagerSuccess = {
-  ok: true,
-  configuration: previewConfiguration,
-  view: previewView
-};
 
 class ChromeManagerTransportError extends Error {
   constructor(
@@ -140,7 +119,12 @@ function classifyError(error: unknown): ManagerFailure {
 
 function defaultSendMessage(message: ManagerMessage): Promise<unknown> {
   if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage)
-    return Promise.resolve(previewResponse);
+    return Promise.reject(
+      new ChromeManagerTransportError(
+        "RUNTIME_UNAVAILABLE",
+        "Chrome runtime messaging is unavailable"
+      )
+    );
   return new Promise((resolve, reject) => {
     try {
       chrome.runtime.sendMessage(message, (response) => {

@@ -163,6 +163,8 @@ export type ManagerResponse = ManagerSuccess | ManagerFailure;
 
 export interface ManagerTransport {
   request(message: ManagerMessage): Promise<ManagerResponse>;
+  /** Explicitly enabled by the fixture workbench for preview-only failures. */
+  allowPreview?: boolean;
 }
 
 export interface ManagerAppProps {

@@ -276,6 +276,7 @@ export function createFixtureManagerTransport(
   initialize();
 
   const transport: FixtureManagerTransport["transport"] = {
+    allowPreview: true,
     request(message) {
       requestSequence += 1;
       const sequence = requestSequence;

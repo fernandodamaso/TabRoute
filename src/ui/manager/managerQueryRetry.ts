@@ -55,8 +55,7 @@ export async function requestInitialManagerQuery(
     input.sleep ??
     ((milliseconds: number) =>
       new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
-  const deadlineMs =
-    input.deadlineMs ?? MANAGER_STARTUP_QUERY_RETRY.deadlineMs;
+  const deadlineMs = input.deadlineMs ?? MANAGER_STARTUP_QUERY_RETRY.deadlineMs;
   const retryIntervalMs =
     input.retryIntervalMs ?? MANAGER_STARTUP_QUERY_RETRY.intervalMs;
   const deadline = now() + Math.max(deadlineMs, 0);
