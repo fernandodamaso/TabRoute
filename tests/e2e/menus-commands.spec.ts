@@ -117,6 +117,16 @@ async function sendProductionE2eMessage(
   }, message);
 }
 
+async function terminateWorkerWithoutWake(
+  session: Awaited<ReturnType<typeof launchExtensionSession>>
+): Promise<{ terminatedTargetId: string }> {
+  const candidate = session as typeof session & {
+    terminateWorker?: () => Promise<{ terminatedTargetId: string }>;
+  };
+  expect(candidate.terminateWorker).toBeTypeOf("function");
+  return candidate.terminateWorker!.call(candidate);
+}
+
 test("registers page, tab, and group menu IDs in an isolated profile", async () => {
   const { session, profilePath } = await launchProductionSession("menus");
   try {
@@ -169,9 +179,7 @@ test("worker restart synchronously restores wake listeners and stable menu IDs",
       ok: true
     });
     const worker = await waitForWorker(session);
-    const commands = await worker.evaluate(async () =>
-      chrome.commands.getAll()
-    );
+    const commands = await worker.evaluate(async () => chrome.commands.getAll());
     expect(
       commands
         .map((command) => command.name)
@@ -197,7 +205,7 @@ test("worker restart synchronously restores wake listeners and stable menu IDs",
   }
 });
 
-test("worker termination wakes the context-menu action handler", async () => {
+test("cold worker dispatch reaches the context-menu action handler", async () => {
   const { session, profilePath } = await launchProductionSession(
     "menus-context-action-restart"
   );
@@ -210,7 +218,7 @@ test("worker termination wakes the context-menu action handler", async () => {
       timeoutMs: MANAGER_SETTLE_TIMEOUT_MS,
       request: () => sendManagerQueryFromPage(trigger)
     });
-    await session.restartWorker();
+    await terminateWorkerWithoutWake(session);
 
     const tab = await trigger.evaluate(async () => {
       const tabs = await chrome.tabs.query({});
@@ -247,7 +255,7 @@ test("worker termination wakes the context-menu action handler", async () => {
   }
 });
 
-test("worker termination wakes the manifest command handler", async () => {
+test("cold worker dispatch reaches the manifest command handler", async () => {
   const { session, profilePath } = await launchProductionSession(
     "menus-command-action-restart"
   );
@@ -261,7 +269,7 @@ test("worker termination wakes the manifest command handler", async () => {
       ok: true,
       configuration: { automationEnabled: true }
     });
-    await session.restartWorker();
+    await terminateWorkerWithoutWake(session);
 
     const tab = await trigger.evaluate(async () => {
       const tabs = await chrome.tabs.query({});
@@ -289,7 +297,7 @@ test("worker termination wakes the manifest command handler", async () => {
   }
 });
 
-test("Manager opened after worker termination loads real configuration", async () => {
+test("Manager opened against a terminated worker loads real configuration", async () => {
   const { session, profilePath } = await launchProductionSession(
     "manager-open-after-restart"
   );
@@ -302,7 +310,7 @@ test("Manager opened after worker termination loads real configuration", async (
       timeoutMs: MANAGER_SETTLE_TIMEOUT_MS,
       request: () => sendManagerQueryFromPage(wakePage)
     });
-    await session.restartWorker();
+    await terminateWorkerWithoutWake(session);
 
     // This is a fresh Manager page. The setup page above is not reused.
     const manager = await session.openExtensionPage("options.html");
