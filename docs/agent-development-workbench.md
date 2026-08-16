@@ -128,7 +128,7 @@ npm run smoke:popup
 
 `test:extension` keeps its paired workbench/production build and scan semantics. Browser jobs do not reuse Package output or pass production builds between jobs.
 
-When Chrome Integration fails in GitHub Actions, CI uploads the existing `.workbench/artifacts/` evidence and the Playwright HTML report when present. TabRoute's extension browser sessions use manually managed persistent contexts, so explicit trace/screenshot lifecycle instrumentation for those contexts is a separate harness concern rather than a config-only CI assumption.
+When Chrome Integration fails in GitHub Actions, CI uploads the existing `.workbench/artifacts/` evidence, the Playwright HTML report, and `test-results/` when present. This keeps runner evidence plus Playwright error-context files available to the next debugging agent. TabRoute's extension browser sessions use manually managed persistent contexts, so explicit trace/screenshot lifecycle instrumentation for those contexts is a separate harness concern rather than a config-only CI assumption.
 
 ### Package
 
